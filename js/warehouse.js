@@ -66,7 +66,7 @@ export async function loadCacheData() {
         console.error('Error loading cache data:', error);
     }
 }
-let pendingHistoryFilter = null; 
+
 let listenersInitialized = false; // Flag để đảm bảo chỉ chạy một lần
 
 function forceUIRefresh() {
@@ -5285,22 +5285,7 @@ async function loadInventoryForAdjust() {
     }
 }
 
-const beepAudio = new Audio('data:audio/mpeg;base64,SUQzBAAAAAAAI_imR3ABcAAAAtASx9AAD/8D5iAABA4w/A3/9A3iBAQCRBwUAAAAA//89gAQCAwABAwgAACE4f//895gAAB5oZAAAAA//9+sAACA4QkAAAAA//895gGAAAEAAAAA//9+sAGAAAEAAAKAEDlQW8AAAAAtDRpAkBIjIGAAAAA//895gqEAAMBAQAAAQAA//9+sAXAwEAAAAAAFlQgAADIiVEP//uQAAA+iBMAAAAA//895gGAAAAAABAAAD//9+sAEABwcEAAAAADlQTWEAAAEAAAD//895gAAAQAAAAAAAAAA//9+sAIAAAAHDgAAAAA5UExhAAAQAAAQAAAA//895gYAAAEAAAAAAAAA//9+sAMAAAQAAAAAAAA5UExhAAABAQAAAQAA');
 
-/**
- * Hàm này phát ra âm thanh "bíp" ngắn.
- */
-function playBeepSound() {
-    try {
-        // Đặt lại thời gian về đầu để đảm bảo âm thanh luôn phát từ đầu,
-        // ngay cả khi người dùng quét rất nhanh.
-        beepAudio.currentTime = 0;
-        beepAudio.play();
-    } catch (e) {
-        // Ghi lại lỗi nếu không thể phát âm thanh, nhưng không làm gián đoạn ứng dụng
-        console.error("Không thể phát âm thanh:", e);
-    }
-}
 
 function createHistoryPagination(allData, container) {
     let currentPage = 1;
@@ -9595,6 +9580,7 @@ export function loadScanBarcodeSection() {
 }
 
 function startScanner() {
+      unlockAudioContext();
     const scannerContainer = document.getElementById('barcode-scanner-container');
     scannerContainer.innerHTML = ''; // Xóa nội dung cũ để khởi tạo lại
     
@@ -9628,6 +9614,35 @@ function stopScanner() {
         }).catch(err => {
             console.error("Lỗi khi dừng quét:", err);
         });
+    }
+}
+
+// --- THÊM HÀM MỚI NÀY VÀO WAREHOUSE.JS ---
+function unlockAudioContext() {
+    // Nếu âm thanh đã được mở khóa thì không làm gì cả
+    if (beepAudio.Hacked) return;
+    
+    // Phát một đoạn âm thanh trống để "đánh lừa" trình duyệt
+    beepAudio.play();
+    beepAudio.pause();
+    beepAudio.Hacked = true;
+    console.log("Audio context unlocked.");
+}
+// Sử dụng một đối tượng Audio duy nhất để tăng hiệu suất
+const beepAudio = new Audio('data:audio/mpeg;base64,SUQzBAAAAAAAI_imR3ABcAAAAtASx9AAD/8D5iAABA4w/A3/9A3iBAQCRBwUAAAAA//89gAQCAwABAwgAACE4f//895gAAB5oZAAAAA//9+sAACA4QkAAAAA//895gGAAAEAAAAA//9+sAGAAAEAAAKAEDlQW8AAAAAtDRpAkBIjIGAAAAA//895gqEAAMBAQAAAQAA//9+sAXAwEAAAAAAFlQgAADIiVEP//uQAAA+iBMAAAAA//895gGAAAAAABAAAD//9+sAEABwcEAAAAADlQTWEAAAEAAAD//895gAAAQAAAAAAAAAA//9+sAIAAAAHDgAAAAA5UExhAAAQAAAQAAAA//895gYAAAEAAAAAAAAA//9+sAMAAAQAAAAAAAA5UExhAAABAQAAAQAA');
+
+/**
+ * Hàm này phát ra âm thanh "bíp" ngắn.
+ */
+function playBeepSound() {
+    try {
+        // Đặt lại thời gian về đầu để đảm bảo âm thanh luôn phát từ đầu,
+        // ngay cả khi người dùng quét rất nhanh.
+        beepAudio.currentTime = 0;
+        beepAudio.play();
+    } catch (e) {
+        // Ghi lại lỗi nếu không thể phát âm thanh, nhưng không làm gián đoạn ứng dụng
+        console.error("Không thể phát âm thanh:", e);
     }
 }
 
@@ -9680,24 +9695,46 @@ async function onScanSuccess(decodedText, decodedResult) {
     }
 }
 
-window.viewItemHistoryFromScan = function(itemCode) {
-    // Đóng modal chi tiết nếu có
-    const modal = document.getElementById('scannedItemDetailsModal');
-    if (modal) {
-        const bsModal = bootstrap.Modal.getInstance(modal);
-        if (bsModal) {
-            bsModal.hide();
+// THAY THẾ TOÀN BỘ HÀM NÀY TRONG WAREHOUSE.JS
+
+window.viewItemHistoryFromScan = async function(itemCode) {
+    try {
+        // Đóng modal chi tiết nếu có
+        const modal = document.getElementById('scannedItemDetailsModal');
+        if (modal) {
+            const bsModal = bootstrap.Modal.getInstance(modal);
+            if (bsModal) {
+                bsModal.hide();
+            }
         }
+
+        // 1. CẬP NHẬT GIAO DIỆN BỘ LỌC TRƯỚC
+        // Đặt giá trị mã hàng vào ô lọc của tab Lịch sử
+        const historyItemCodeInput = document.getElementById('historyItemCodeFilter');
+        if (historyItemCodeInput) {
+            historyItemCodeInput.value = itemCode;
+        }
+
+        // 2. GỌI THẲNG HÀM TẢI DỮ LIỆU
+        // Lấy tất cả các giá trị bộ lọc hiện tại từ giao diện và tải lại
+        const currentFilters = {
+            fromDate: document.getElementById('fromDate').value,
+            toDate: document.getElementById('toDate').value,
+            filterType: document.getElementById('historyFilter').value,
+            itemCodeFilter: itemCode // Sử dụng mã hàng vừa quét
+        };
+        await loadAllHistory(currentFilters);
+
+        // 3. CHUYỂN TAB SAU KHI DỮ LIỆU ĐÃ SẴN SÀNG
+        // Kích hoạt sự kiện nhấn vào tab "Lịch sử" để điều hướng
+        document.querySelector('a[data-section="history"]').click();
+        
+    } catch (error) {
+        console.error("Lỗi khi xem lịch sử từ mã quét:", error);
+        showToast("Không thể tải lịch sử cho mã hàng này.", "danger");
     }
-
-    // Đặt "mệnh lệnh" lọc với mã hàng đã quét.
-    // Các bộ lọc khác như ngày tháng sẽ được hàm loadHistorySection lấy từ giao diện.
-    pendingHistoryFilter = { itemCodeFilter: itemCode };
-
-    // Kích hoạt sự kiện nhấn vào tab "Lịch sử" để điều hướng
-    // và kích hoạt hàm `loadHistorySection` đã được sửa lỗi.
-    document.querySelector('a[data-section="history"]').click();
 }
+
 
 function onScanFailure(error) {
     // Không làm gì để tránh log liên tục
