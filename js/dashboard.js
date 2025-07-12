@@ -10,7 +10,8 @@ import {
     loadRequestAdjustSection,
     loadPendingAdjustmentsSection,
     loadPrintBarcodeSection,
-    loadScanBarcodeSection 
+    loadScanBarcodeSection,
+    debounce,
 } from './warehouse.js';
 
 
@@ -321,16 +322,17 @@ async function loadTodayStatistics() {
 
 function loadUserManagementSection() {
     if (userRole !== 'super_admin') return;
+    
+    // Tải bảng lần đầu khi vào tab
     loadUsersTable();
-    document.getElementById('filterUsersBtn')?.addEventListener('click', () => loadUsersTable(true));
-    document.getElementById('clearUserFilterBtn')?.addEventListener('click', clearUserFilters);
-}
-
-function clearUserFilters() {
-    document.getElementById('userNameFilter').value = '';
-    document.getElementById('userRoleFilter').value = '';
-    document.getElementById('userStatusFilter').value = '';
-    loadUsersTable();
+    
+    // Gán sự kiện tìm kiếm trực tiếp, chỉ chạy một lần
+    if (!window.userManagementFiltersInitialized) {
+        document.getElementById('userNameFilter')?.addEventListener('input', debounce(() => loadUsersTable(true), 500));
+        document.getElementById('userRoleFilter')?.addEventListener('change', () => loadUsersTable(true));
+        document.getElementById('userStatusFilter')?.addEventListener('change', () => loadUsersTable(true));
+        window.userManagementFiltersInitialized = true;
+    }
 }
 
 async function loadUsersTable(useFilter = false) {
@@ -1282,14 +1284,18 @@ function initializeSettingsListeners() {
 export { currentUser, userRole };
 
 function initializeDashboardFilters() {
-    document.getElementById('filterDashboard')?.addEventListener('click', filterDashboardInventory);
-    document.getElementById('clearDashboardFilter')?.addEventListener('click', clearDashboardFilter);
+    // Gán sự kiện cho nút xuất Excel
     document.getElementById('exportDashboardExcel')?.addEventListener('click', exportDashboardToExcel);
     
-    // Load categories for filter
-     loadCategoriesForFilter();
+    // Gán sự kiện tìm kiếm trực tiếp cho các bộ lọc của dashboard
+    document.getElementById('dashboardCodeFilter')?.addEventListener('input', debounce(() => loadInventoryTable(true, 1), 500));
+    document.getElementById('dashboardCategoryFilter')?.addEventListener('change', () => loadInventoryTable(true, 1));
+    document.getElementById('dashboardStockFilter')?.addEventListener('change', () => loadInventoryTable(true, 1));
     
-    // Initial load
+    // Tải danh mục cho bộ lọc
+    loadCategoriesForFilter();
+    
+    // Tải bảng lần đầu
     loadInventoryTable(false, 1);
 }
 
@@ -1359,16 +1365,4 @@ function exportDashboardToExcel() {
     // Download file
     XLSX.writeFile(wb, filename);
     showToast('Đã xuất Excel thành công', 'success');
-}
-
-
-function filterDashboardInventory() {
-    loadInventoryTable(true, 1);
-}
-
-function clearDashboardFilter() {
-    document.getElementById('dashboardCodeFilter').value = '';
-    document.getElementById('dashboardCategoryFilter').value = '';
-    document.getElementById('dashboardStockFilter').value = '';
-    loadInventoryTable(false, 1);
 }

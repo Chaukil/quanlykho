@@ -19,6 +19,15 @@ import {
 import { showToast } from './auth.js';
 import { currentUser, userRole } from './dashboard.js';
 
+export function debounce(func, delay) {
+    let timeout;
+    return function (...args) {
+        const context = this;
+        clearTimeout(timeout);
+        timeout = setTimeout(() => func.apply(context, args), delay);
+    };
+}
+
 // Global variables
 let currentImportItems = [];
 let currentEditingId = null;
@@ -67,14 +76,12 @@ function forceUIRefresh() {
 }
 
 export function initializeWarehouseFunctions() {
-    // Nếu đã khởi tạo rồi thì không chạy lại để tránh gán sự kiện lặp
+    // Nếu các trình lắng nghe đã được thiết lập, không thực hiện lại.
     if (listenersInitialized) {
         return;
     }
 
-    console.log("Initializing warehouse listeners for the first time.");
-
-    // ---- GÁN SỰ KIỆN CHO CÁC NÚT CHÍNH (MỞ MODAL) ----
+    // ---- Các nút hành động chính ----
     document.getElementById('addImportBtn')?.addEventListener('click', showImportModal);
     document.getElementById('addExportBtn')?.addEventListener('click', showExportModal);
     document.getElementById('addTransferBtn')?.addEventListener('click', showTransferModal);
@@ -84,70 +91,9 @@ export function initializeWarehouseFunctions() {
         document.getElementById('addAdjustRequestBtn')?.addEventListener('click', showAdjustRequestModal);
     }
 
-    // ---- GÁN SỰ KIỆN CHO CÁC FILTER ----
+    // ---- Các trình lắng nghe được tập trung hóa cho Filter và Excel ----
     initializeFilters();
-
-    // ---- SỬ DỤNG EVENT DELEGATION CHO CÁC NÚT EXCEL ----
-    const contentArea = document.querySelector('main.col-md-9');
-    if (contentArea) {
-        contentArea.addEventListener('click', function(event) {
-            const button = event.target.closest('button[id]');
-            if (!button) return; // Bỏ qua nếu không phải click vào nút có ID
-
-            // Ngăn chặn hành vi mặc định của nút
-            event.preventDefault();
-
-            // Xác định hành động dựa trên ID của nút được click
-            switch (button.id) {
-                // Nhập kho
-                case 'downloadTemplate':
-                    downloadImportTemplate();
-                    break;
-                case 'importExcel':
-                    document.getElementById('excelFileInput')?.click();
-                    break;
-                
-                // Xuất kho
-                case 'downloadExportTemplate':
-                    downloadExportTemplate();
-                    break;
-                case 'importExportExcel':
-                    document.getElementById('exportExcelFileInput')?.click();
-                    break;
-                
-                // Chuyển kho
-                case 'downloadTransferTemplate':
-                    downloadTransferTemplate();
-                    break;
-                case 'importTransferExcel':
-                    document.getElementById('transferExcelFileInput')?.click();
-                    break;
-
-                // Chỉnh số (Super Admin)
-                case 'downloadAdjustTemplate':
-                    downloadAdjustTemplate();
-                    break;
-                case 'importAdjustExcel':
-                    document.getElementById('adjustExcelFileInput')?.click();
-                    break;
-
-                // Yêu cầu Chỉnh số (Admin)
-                case 'downloadRequestAdjustTemplate':
-                    downloadRequestAdjustTemplate();
-                    break;
-                case 'importRequestAdjustExcel':
-                    document.getElementById('requestAdjustExcelFileInput')?.click();
-                    break;
-            }
-        });
-    }
-
-    // ---- GÁN SỰ KIỆN CHO CÁC FILE INPUT ----
-    document.getElementById('excelFileInput')?.addEventListener('change', handleExcelImport);
-    document.getElementById('exportExcelFileInput')?.addEventListener('change', handleExportExcelImport);
-    document.getElementById('transferExcelFileInput')?.addEventListener('change', handleTransferExcelImport);
-    document.getElementById('adjustExcelFileInput')?.addEventListener('change', handleAdjustExcelImport);
-    document.getElementById('requestAdjustExcelFileInput')?.addEventListener('change', handleRequestAdjustExcelImport);
+    initializeExcelFunctions(); // Chúng ta sẽ tạo hàm này tiếp theo để nhóm logic Excel
 
     // Đánh dấu là đã khởi tạo
     listenersInitialized = true;
@@ -2695,14 +2641,6 @@ async function handleExportItemCodeInput(event) {
 }
 
 
-function debounce(func, delay) {
-    let timeout;
-    return function (...args) {
-        const context = this;
-        clearTimeout(timeout);
-        timeout = setTimeout(() => func.apply(context, args), delay);
-    };
-}
 
 async function handleItemCodeInput(event) {
     const code = event.target.value.trim();
@@ -2971,8 +2909,12 @@ export function loadRequestAdjustSection() {
 
 function initializeAdjustRequestFilters() {
     document.getElementById('addAdjustRequestBtn')?.addEventListener('click', showAdjustRequestModal);
-    document.getElementById('filterAdjustRequest')?.addEventListener('click', filterAdjustRequests);
-    document.getElementById('clearAdjustRequestFilter')?.addEventListener('click', clearAdjustRequestFilter);
+    
+    // Gán sự kiện tìm kiếm trực tiếp cho các bộ lọc
+    const filterInputs = ['requestFromDate', 'requestToDate', 'requestStatusFilter'];
+    filterInputs.forEach(id => {
+        document.getElementById(id)?.addEventListener('change', () => loadAdjustRequests(true));
+    });
 }
 
 function showAdjustRequestModal() {
@@ -3870,18 +3812,6 @@ function createExportDetailsModal(data) {
     `;
 
     return modal;
-}
-
-
-function filterAdjustRequests() {
-    loadAdjustRequests(true);
-}
-
-function clearAdjustRequestFilter() {
-    document.getElementById('requestFromDate').value = '';
-    document.getElementById('requestToDate').value = '';
-    document.getElementById('requestStatusFilter').value = '';
-    loadAdjustRequests();
 }
 
 export function loadPendingAdjustmentsSection() {
@@ -5154,58 +5084,40 @@ export function loadAdjustSection() {
     initializeDirectAdjustSection();
 }
 
+// Thay thế hàm này trong warehouse.js
+
 export function loadHistorySection() {
-    // --- Phần 1: Gắn các sự kiện cho nút ---
-    // Luôn gắn lại sự kiện để đảm bảo chúng hoạt động sau khi tab được hiển thị.
-    // Sử dụng cloneNode để xóa các listener cũ, tránh việc chạy nhiều lần.
-    const filterBtn = document.getElementById('filterHistory');
-    const newFilterBtn = filterBtn.cloneNode(true);
-    filterBtn.parentNode.replaceChild(newFilterBtn, filterBtn);
-    newFilterBtn.addEventListener('click', () => {
-        // Khi nhấn "Lọc", chỉ cần gọi lại chính hàm này.
-        // Nó sẽ tự động đọc các giá trị mới nhất từ giao diện.
-        loadHistorySection();
-    });
+    // Hàm này đảm bảo các sự kiện lọc chỉ được gán một lần duy nhất
+    const setupHistoryFiltersOnce = () => {
+        if (window.historyFiltersInitialized) return; // Nếu đã gán rồi thì thoát
 
-    const clearBtn = document.getElementById('clearHistoryFilter');
-    const newClearBtn = clearBtn.cloneNode(true);
-    clearBtn.parentNode.replaceChild(newClearBtn, clearBtn);
-    newClearBtn.addEventListener('click', () => {
-        // Xóa các giá trị trong ô input
-        document.getElementById('fromDate').value = '';
-        document.getElementById('toDate').value = '';
-        document.getElementById('historyItemCodeFilter').value = '';
-        document.getElementById('historyFilter').value = 'all';
-        // Tải lại với bộ lọc trống
-        loadAllHistory({});
-    });
+        const getFiltersFromDOM = () => ({
+            fromDate: document.getElementById('fromDate').value,
+            toDate: document.getElementById('toDate').value,
+            filterType: document.getElementById('historyFilter').value,
+            itemCodeFilter: document.getElementById('historyItemCodeFilter').value.trim()
+        });
 
-    // --- Phần 2: Quyết định bộ lọc sẽ được sử dụng ---
-    // Hàm helper để đọc tất cả các giá trị lọc hiện tại từ giao diện
-    const getFiltersFromDOM = () => ({
+        document.getElementById('historyItemCodeFilter')?.addEventListener('input', debounce(() => loadAllHistory(getFiltersFromDOM()), 500));
+        
+        const changeFilters = ['fromDate', 'toDate', 'historyFilter'];
+        changeFilters.forEach(id => {
+            document.getElementById(id)?.addEventListener('change', () => loadAllHistory(getFiltersFromDOM()));
+        });
+
+        window.historyFiltersInitialized = true; // Đánh dấu đã gán
+    };
+
+    setupHistoryFiltersOnce();
+
+    // Lấy trạng thái bộ lọc hiện tại từ giao diện và tải dữ liệu lần đầu
+    const currentFilters = {
         fromDate: document.getElementById('fromDate').value,
         toDate: document.getElementById('toDate').value,
         filterType: document.getElementById('historyFilter').value,
         itemCodeFilter: document.getElementById('historyItemCodeFilter').value.trim()
-    });
-
-    let finalFilters = getFiltersFromDOM();
-
-    // *** ĐÂY LÀ THAY ĐỔI QUAN TRỌNG NHẤT ***
-    // Nếu có một "mệnh lệnh" lọc đang chờ từ chức năng quét...
-    if (pendingHistoryFilter && pendingHistoryFilter.itemCodeFilter) {
-        // ...ghi đè bộ lọc mã hàng trong bộ lọc cuối cùng của chúng ta.
-        finalFilters.itemCodeFilter = pendingHistoryFilter.itemCodeFilter;
-
-        // Cập nhật ô input trên giao diện để người dùng thấy bộ lọc đang được áp dụng.
-        document.getElementById('historyItemCodeFilter').value = finalFilters.itemCodeFilter;
-
-        // Xóa "mệnh lệnh" ngay sau khi sử dụng để nó không bị áp dụng lại ở lần sau.
-        pendingHistoryFilter = null;
-    }
-
-    // --- Phần 3: Tải dữ liệu với bộ lọc đã được quyết định ---
-    loadAllHistory(finalFilters);
+    };
+    loadAllHistory(currentFilters);
 }
 
 function safeModalOperation(operation, context = 'modal operation') {
@@ -6152,9 +6064,10 @@ function createAdjustRejectionDetailsModal(data) {
     return modal;
 }
 
+// Thay thế hàm này trong warehouse.js
+
 async function loadAllHistory(filters = {}) {
     try {
-        // BƯỚC 1: LẤY ĐIỀU KIỆN LỌC TỪ THAM SỐ, KHÔNG LẤY TỪ DOM
         const fromDate = filters.fromDate;
         const toDate = filters.toDate;
         const filterType = filters.filterType || 'all';
@@ -6171,10 +6084,12 @@ async function loadAllHistory(filters = {}) {
         let historyQuery = collection(db, 'transactions');
         const constraints = [];
 
+        // Lọc theo loại giao dịch (trên server)
         if (filterType !== 'all' && transactionTypeMap[filterType]) {
             constraints.push(where('type', 'in', transactionTypeMap[filterType]));
         }
 
+        // Lọc theo ngày (trên server)
         if (fromDate) {
             constraints.push(where('timestamp', '>=', new Date(fromDate)));
         }
@@ -6193,15 +6108,23 @@ async function loadAllHistory(filters = {}) {
         const snapshot = await getDocs(historyQuery);
         let docs = snapshot.docs;
 
-        // BƯỚC 2: LỌC PHÍA CLIENT VẪN GIỮ NGUYÊN
+        // Lọc theo mã hàng (trên client sau khi đã lấy dữ liệu)
         if (itemCodeFilter) {
             docs = docs.filter(doc => {
                 const data = doc.data();
-                if (data.itemCode && data.itemCode.toLowerCase().includes(itemCodeFilter)) return true;
-                if (data.deletedItemCode && data.deletedItemCode.toLowerCase().includes(itemCodeFilter)) return true;
+                const codeToCheck = [
+                    data.itemCode,
+                    data.deletedItemCode
+                ].filter(Boolean).map(c => c.toLowerCase());
+
+                if (codeToCheck.some(c => c.includes(itemCodeFilter))) {
+                    return true;
+                }
+
                 if (data.items && Array.isArray(data.items)) {
                     return data.items.some(item => item.code && item.code.toLowerCase().includes(itemCodeFilter));
                 }
+
                 if (data.deletedItems && Array.isArray(data.deletedItems)) {
                     return data.deletedItems.some(item => item.code && item.code.toLowerCase().includes(itemCodeFilter));
                 }
@@ -6210,6 +6133,8 @@ async function loadAllHistory(filters = {}) {
         }
 
         const content = document.getElementById('historyContent');
+        if (!content) return;
+
         if (docs.length === 0) {
             content.innerHTML = '<p class="text-muted">Không có dữ liệu phù hợp.</p>';
             return;
@@ -6218,10 +6143,11 @@ async function loadAllHistory(filters = {}) {
         createHistoryPagination(docs, content);
 
     } catch (error) {
-        console.error('Error loading history:', error);
+        console.error('Lỗi tải lịch sử giao dịch:', error);
         showToast('Lỗi tải lịch sử giao dịch', 'danger');
     }
 }
+
 
 // Initialize all functions
 document.addEventListener('DOMContentLoaded', function () {
@@ -6284,72 +6210,54 @@ function createGenericPagination(allData, container, tableConfig, paginationId) 
     renderPage(1);
 }
 
-
-// Filter Functions
 function initializeFilters() {
-    // Import filters
-    document.getElementById('filterImport')?.addEventListener('click', filterImportHistory);
-    document.getElementById('clearImportFilter')?.addEventListener('click', clearImportFilter);
+    // Hàm trợ giúp để thiết lập bộ lọc trực tiếp cho một khu vực
+    const setupLiveFilter = (config) => {
+        // Các ô nhập văn bản để tìm kiếm trực tiếp với debounce
+        config.textInputs?.forEach(id => {
+            document.getElementById(id)?.addEventListener('input', debounce(() => config.loader(true), 500));
+        });
+        // Các ô lựa chọn và ngày tháng, sẽ lọc khi có thay đổi
+        config.selectInputs?.forEach(id => {
+            document.getElementById(id)?.addEventListener('change', () => config.loader(true));
+        });
+    };
 
-    // Export filters
-    document.getElementById('filterExport')?.addEventListener('click', filterExportHistory);
-    document.getElementById('clearExportFilter')?.addEventListener('click', clearExportFilter);
+    // --- Khu vực Nhập kho ---
+    setupLiveFilter({
+        textInputs: ['importItemCodeFilter'],
+        selectInputs: ['importFromDate', 'importToDate'],
+        loader: loadImportHistory
+    });
 
-    // Transfer filters
-    document.getElementById('filterTransfer')?.addEventListener('click', filterTransferHistory);
-    document.getElementById('clearTransferFilter')?.addEventListener('click', clearTransferFilter);
+    // --- Khu vực Xuất kho ---
+    setupLiveFilter({
+        textInputs: ['exportItemCodeFilter'],
+        selectInputs: ['exportFromDate', 'exportToDate'],
+        loader: loadExportHistory
+    });
 
-    // Adjust filters
-    document.getElementById('filterAdjust')?.addEventListener('click', filterDirectAdjustHistory);
-    document.getElementById('clearAdjustFilter')?.addEventListener('click', clearDirectAdjustFilter);
+    // --- Khu vực Chuyển kho ---
+    setupLiveFilter({
+        textInputs: ['transferItemCodeFilter'],
+        selectInputs: ['transferFromDate', 'transferToDate'],
+        loader: loadTransferHistory
+    });
+
+    // --- Khu vực Chỉnh số (Super Admin) ---
+    setupLiveFilter({
+        textInputs: ['adjustItemCodeFilter'],
+        selectInputs: ['adjustFromDate', 'adjustToDate'],
+        loader: loadDirectAdjustHistory
+    });
+
+    // --- Khu vực Yêu cầu Chỉnh số (Admin) ---
+    setupLiveFilter({
+        selectInputs: ['requestFromDate', 'requestToDate', 'requestStatusFilter'],
+        loader: loadAdjustRequests
+    });
 }
 
-// Import Filter Functions
-function filterImportHistory() {
-    loadImportHistory(true);
-}
-
-function clearImportFilter() {
-    document.getElementById('importFromDate').value = '';
-    document.getElementById('importToDate').value = '';
-    document.getElementById('importItemCodeFilter').value = '';
-    loadImportHistory();
-}
-
-// Export Filter Functions
-function filterExportHistory() {
-    loadExportHistory(true);
-}
-
-function clearExportFilter() {
-    document.getElementById('exportFromDate').value = '';
-    document.getElementById('exportToDate').value = '';
-    document.getElementById('exportItemCodeFilter').value = '';
-    loadExportHistory();
-}
-
-// Transfer Filter Functions
-function filterTransferHistory() {
-    loadTransferHistory(true);
-}
-
-function clearTransferFilter() {
-    document.getElementById('transferFromDate').value = '';
-    document.getElementById('transferToDate').value = '';
-    document.getElementById('transferItemCodeFilter').value = '';
-    loadTransferHistory();
-}
-
-function clearHistoryFilter() {
-    const today = new Date();
-    const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-
-    document.getElementById('fromDate').value = firstDayOfMonth.toISOString().split('T')[0];
-    document.getElementById('toDate').value = today.toISOString().split('T')[0];
-    document.getElementById('historyFilter').value = 'all';
-     document.getElementById('historyItemCodeFilter').value = '';
-    loadAllHistory();
-}
 
 // Transfer Details View Function
 window.viewTransferDetails = async function (transactionId) {
@@ -7054,18 +6962,6 @@ function createUserApprovalDetailsModal(data, userData) {
     `;
 
     return modal;
-}
-
-// Adjust Filter Functions
-function filterAdjustHistory() {
-    loadDirectAdjustHistory(true);
-}
-
-function clearAdjustFilter() {
-    document.getElementById('adjustFromDate').value = '';
-    document.getElementById('adjustToDate').value = '';
-    document.getElementById('adjustItemCodeFilter').value = '';
-    loadDirectAdjustHistory();
 }
 
 window.editImportTransaction = async function (transactionId) {
@@ -9218,86 +9114,42 @@ window.saveExcelRequestAdjustments = async function() {
     }
 };
 
-// ===============================
-// INITIALIZE EXCEL FUNCTIONS
-// ===============================
-
-// Add event listeners in initializeWarehouseFunctions()
 function initializeExcelFunctions() {
-    // === IMPORT SECTION ===
-    const downloadImportBtn = document.getElementById('downloadTemplate');
-    if (downloadImportBtn) {
-        // Gán hàm downloadImportTemplate cho nút của phần Nhập kho
-        downloadImportBtn.addEventListener('click', downloadImportTemplate);
-    }
-    const importExcelBtn = document.getElementById('importExcel');
-    if (importExcelBtn) {
-        importExcelBtn.addEventListener('click', () => document.getElementById('excelFileInput').click());
-    }
-    const excelFileInput = document.getElementById('excelFileInput');
-    if (excelFileInput) {
-        excelFileInput.addEventListener('change', handleExcelImport);
-    }
+    // Sử dụng một trình lắng nghe ủy quyền duy nhất để có hiệu suất tốt hơn
+    const contentArea = document.querySelector('main.col-md-9');
+    if (!contentArea) return;
 
-    // === EXPORT SECTION ===
-    const downloadExportBtn = document.getElementById('downloadExportTemplate');
-    if (downloadExportBtn) {
-        // Gán hàm downloadExportTemplate cho nút của phần Xuất kho
-        downloadExportBtn.addEventListener('click', downloadExportTemplate);
-    }
-    const importExportBtn = document.getElementById('importExportExcel');
-    if (importExportBtn) {
-        importExportBtn.addEventListener('click', () => document.getElementById('exportExcelFileInput').click());
-    }
-    const exportFileInput = document.getElementById('exportExcelFileInput');
-    if (exportFileInput) {
-        exportFileInput.addEventListener('change', handleExportExcelImport);
-    }
+    contentArea.addEventListener('click', function(event) {
+        const button = event.target.closest('button[id]');
+        if (!button) return;
 
-    // === TRANSFER SECTION ===
-    const downloadTransferBtn = document.getElementById('downloadTransferTemplate');
-    if (downloadTransferBtn) {
-        // Gán hàm downloadTransferTemplate cho nút của phần Chuyển kho
-        downloadTransferBtn.addEventListener('click', downloadTransferTemplate);
-    }
-    const importTransferBtn = document.getElementById('importTransferExcel');
-    if (importTransferBtn) {
-        importTransferBtn.addEventListener('click', () => document.getElementById('transferExcelFileInput').click());
-    }
-    const transferFileInput = document.getElementById('transferExcelFileInput');
-    if (transferFileInput) {
-        transferFileInput.addEventListener('change', handleTransferExcelImport);
-    }
+        // Ánh xạ ID của nút với hành động tương ứng
+        const actions = {
+            'downloadTemplate': () => downloadImportTemplate(),
+            'importExcel': () => document.getElementById('excelFileInput')?.click(),
+            'downloadExportTemplate': () => downloadExportTemplate(),
+            'importExportExcel': () => document.getElementById('exportExcelFileInput')?.click(),
+            'downloadTransferTemplate': () => downloadTransferTemplate(),
+            'importTransferExcel': () => document.getElementById('transferExcelFileInput')?.click(),
+            'downloadAdjustTemplate': () => downloadAdjustTemplate(),
+            'importAdjustExcel': () => document.getElementById('adjustExcelFileInput')?.click(),
+            'downloadRequestAdjustTemplate': () => downloadRequestAdjustTemplate(),
+            'importRequestAdjustExcel': () => document.getElementById('requestAdjustExcelFileInput')?.click(),
+        };
 
-    // === ADJUST SECTION (Super Admin) ===
-    const downloadAdjustBtn = document.getElementById('downloadAdjustTemplate');
-    if (downloadAdjustBtn) {
-        // Gán hàm downloadAdjustTemplate cho nút của phần Chỉnh số
-        downloadAdjustBtn.addEventListener('click', downloadAdjustTemplate);
-    }
-    const importAdjustBtn = document.getElementById('importAdjustExcel');
-    if (importAdjustBtn) {
-        importAdjustBtn.addEventListener('click', () => document.getElementById('adjustExcelFileInput').click());
-    }
-    const adjustFileInput = document.getElementById('adjustExcelFileInput');
-    if (adjustFileInput) {
-        adjustFileInput.addEventListener('change', handleAdjustExcelImport);
-    }
+        // Thực thi hành động nếu nó tồn tại
+        if (actions[button.id]) {
+            event.preventDefault();
+            actions[button.id]();
+        }
+    });
 
-    // === REQUEST ADJUST SECTION (Admin) ===
-    const downloadRequestAdjustBtn = document.getElementById('downloadRequestAdjustTemplate');
-    if (downloadRequestAdjustBtn) {
-        // Gán hàm downloadRequestAdjustTemplate cho nút của phần Yêu cầu Chỉnh số
-        downloadRequestAdjustBtn.addEventListener('click', downloadRequestAdjustTemplate);
-    }
-    const importRequestAdjustBtn = document.getElementById('importRequestAdjustExcel');
-    if (importRequestAdjustBtn) {
-        importRequestAdjustBtn.addEventListener('click', () => document.getElementById('requestAdjustExcelFileInput').click());
-    }
-    const requestAdjustFileInput = document.getElementById('requestAdjustExcelFileInput');
-    if (requestAdjustFileInput) {
-        requestAdjustFileInput.addEventListener('change', handleRequestAdjustExcelImport);
-    }
+    // Các trình lắng nghe cho file input
+    document.getElementById('excelFileInput')?.addEventListener('change', handleExcelImport);
+    document.getElementById('exportExcelFileInput')?.addEventListener('change', handleExportExcelImport);
+    document.getElementById('transferExcelFileInput')?.addEventListener('change', handleTransferExcelImport);
+    document.getElementById('adjustExcelFileInput')?.addEventListener('change', handleAdjustExcelImport);
+    document.getElementById('requestAdjustExcelFileInput')?.addEventListener('change', handleRequestAdjustExcelImport);
 }
 
 // Thêm vào file warehouse.js
@@ -9448,62 +9300,68 @@ function populateTemplateSelector() {
         loader.appendChild(option);
     });
 }
-// Sửa đổi hàm searchItemsForBarcode trong warehouse.js
 async function searchItemsForBarcode(event) {
     const searchTerm = event.target.value.trim().toLowerCase();
     const resultsContainer = document.getElementById('barcodeSearchResults');
+
+    // 1. Luôn dọn dẹp khu vực kết quả ngay từ đầu
     resultsContainer.innerHTML = '';
 
-    if (searchTerm.length < 2) return;
+    // 2. Nếu không đủ ký tự để tìm, chỉ cần thoát sau khi đã dọn dẹp
+    if (searchTerm.length < 2) {
+        return;
+    }
 
     try {
-        // THAY ĐỔI: Thêm where('quantity', '>', 0) để chỉ tìm hàng còn tồn kho
         const inventoryQuery = query(
-            collection(db, 'inventory'), 
+            collection(db, 'inventory'),
             where('quantity', '>', 0),
-            orderBy('quantity'), // Ưu tiên sắp xếp theo số lượng
-            orderBy('code'), 
-            where('code', '>=', searchTerm.toUpperCase()), 
+            orderBy('quantity'),
+            orderBy('code'),
+            where('code', '>=', searchTerm.toUpperCase()),
             limit(5)
         );
         const snapshot = await getDocs(inventoryQuery);
 
         if (snapshot.empty) {
-            resultsContainer.innerHTML = '<div class="list-group-item">Không tìm thấy sản phẩm phù hợp.</div>';
+            resultsContainer.innerHTML = '<div class="list-group-item text-muted">Không tìm thấy sản phẩm phù hợp.</div>';
             return;
         }
-
-        const listGroup = document.createElement('div');
-        listGroup.className = 'list-group mt-2';
-        snapshot.forEach(doc => {
+        
+        // 3. Sử dụng map để tạo một chuỗi HTML hoàn chỉnh
+        const resultsHtml = snapshot.docs.map(doc => {
             const item = doc.data();
-            const button = document.createElement('button');
-            button.type = 'button';
-            button.className = 'list-group-item list-group-item-action';
-            // THAY ĐỔI: Hiển thị mã hàng và vị trí
-            button.textContent = `${item.code} - (Vị trí: ${item.location})`;
-            button.onclick = () => selectItemForBarcode({ id: doc.id, ...item });
-            listGroup.appendChild(button);
-        });
-        resultsContainer.appendChild(listGroup);
+            // Truyền toàn bộ đối tượng item dưới dạng chuỗi JSON để an toàn hơn
+            const itemJsonString = JSON.stringify({ id: doc.id, ...item }).replace(/'/g, "\\'");
+            return `<button type="button" class="list-group-item list-group-item-action" 
+                    onclick='selectItemForBarcode(${itemJsonString})'>
+                    ${item.code} - (Vị trí: ${item.location})
+                </button>`;
+        }).join('');
+
+        // 4. Gán toàn bộ kết quả vào container chỉ MỘT LẦN DUY NHẤT
+        resultsContainer.innerHTML = `<div class="list-group mt-2">${resultsHtml}</div>`;
 
     } catch (error) {
-        console.error("Lỗi tìm kiếm sản phẩm:", error);
+        console.error("Lỗi tìm kiếm sản phẩm cho barcode:", error);
         resultsContainer.innerHTML = '<div class="list-group-item text-danger">Lỗi khi tìm kiếm.</div>';
     }
 }
 
-
-// Sửa đổi hàm selectItemForBarcode trong warehouse.js
-function selectItemForBarcode(item) {
+window.selectItemForBarcode = function(item) {
     currentBarcodeItem = item;
-    document.getElementById('barcodeSearchResults').innerHTML = '';
+    
+    // Dọn dẹp kết quả tìm kiếm sau khi đã chọn
+    const resultsContainer = document.getElementById('barcodeSearchResults');
+    if(resultsContainer) {
+        resultsContainer.innerHTML = '';
+    }
+    
     document.getElementById('barcodeItemSearch').value = `${item.code} - ${item.name}`;
     
     const printBtn = document.getElementById('printBarcodeBtn');
     printBtn.disabled = false;
 
-    // THÊM MỚI: Logic phân quyền in
     if (userRole === 'staff') {
         printBtn.disabled = true;
         printBtn.title = 'Chỉ Admin trở lên mới có thể in tem';
@@ -9511,6 +9369,7 @@ function selectItemForBarcode(item) {
     
     renderBarcodeLabel();
 }
+
 
 function createScannedItemDetailsModal(item) {
     const modal = document.createElement('div');
