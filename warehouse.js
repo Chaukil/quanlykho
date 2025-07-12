@@ -57,7 +57,7 @@ export async function loadCacheData() {
         console.error('Error loading cache data:', error);
     }
 }
-
+let pendingHistoryFilter = null; 
 let listenersInitialized = false; // Flag để đảm bảo chỉ chạy một lần
 
 function forceUIRefresh() {
@@ -5154,14 +5154,12 @@ export function loadAdjustSection() {
     initializeDirectAdjustSection();
 }
 
-// TRONG WAREHOUSE.JS
-
 export function loadHistorySection() {
-    // --- BỘ PHẬN GẮN EVENT LISTENER MỚI ---
+    // --- Phần 1: Gắn các sự kiện cho nút ---
     const filterBtn = document.getElementById('filterHistory');
     const clearBtn = document.getElementById('clearHistoryFilter');
     
-    // Hàm trợ giúp để lấy các giá trị lọc từ DOM
+    // Hàm trợ giúp để lấy các giá trị lọc từ các ô input
     const getFiltersFromDOM = () => ({
         fromDate: document.getElementById('fromDate').value,
         toDate: document.getElementById('toDate').value,
@@ -5169,38 +5167,46 @@ export function loadHistorySection() {
         itemCodeFilter: document.getElementById('historyItemCodeFilter').value
     });
 
-    // Sự kiện nút Lọc
+    // Sự kiện nút "Lọc"
     const newFilterBtn = filterBtn.cloneNode(true);
     filterBtn.parentNode.replaceChild(newFilterBtn, filterBtn);
-    newFilterBtn.addEventListener('click', () => loadAllHistory(getFiltersFromDOM()));
+    newFilterBtn.addEventListener('click', () => {
+        // Khi nhấn Lọc, tạo "mệnh lệnh" từ các ô input và gửi đi
+        loadAllHistory(getFiltersFromDOM());
+    });
 
-    // Sự kiện nút Xóa Lọc
+    // Sự kiện nút "Xóa lọc"
     const newClearBtn = clearBtn.cloneNode(true);
     clearBtn.parentNode.replaceChild(newClearBtn, clearBtn);
     newClearBtn.addEventListener('click', () => {
-        // Reset DOM
+        // Reset các ô input
         document.getElementById('fromDate').value = '';
         document.getElementById('toDate').value = '';
         document.getElementById('historyItemCodeFilter').value = '';
         document.getElementById('historyFilter').value = 'all';
-        // Tải lại với bộ lọc rỗng
-        loadAllHistory(getFiltersFromDOM());
+        // Gửi đi "mệnh lệnh" lọc rỗng
+        loadAllHistory({}); 
     });
     
-    // --- PHẦN TẢI DỮ LIỆU BAN ĐẦU ---
-    // Kiểm tra xem có yêu cầu lọc đang chờ không
+    // --- Phần 2: Quyết định tải dữ liệu ban đầu ---
+    let initialFilters = {};
+    
     if (pendingHistoryFilter) {
-        // Điền các giá trị đang chờ vào DOM
-        document.getElementById('historyItemCodeFilter').value = pendingHistoryFilter.itemCodeFilter || '';
-        // Gọi loadAllHistory với "mệnh lệnh" đang chờ
-        loadAllHistory(pendingHistoryFilter);
-        // Xóa yêu cầu đang chờ
+        // Nếu có "mệnh lệnh" đang chờ (từ chức năng Quét)
+        initialFilters = pendingHistoryFilter;
+        // Cập nhật giao diện để người dùng thấy bộ lọc đang được áp dụng
+        document.getElementById('historyItemCodeFilter').value = initialFilters.itemCodeFilter;
+        // Xóa "mệnh lệnh" sau khi dùng
         pendingHistoryFilter = null;
     } else {
-        // Nếu không có, tải với các giá trị hiện tại trên DOM
-        loadAllHistory(getFiltersFromDOM());
+        // Nếu không, lấy bộ lọc từ các ô input hiện tại
+        initialFilters = getFiltersFromDOM();
     }
+    
+    // Luôn gọi hàm tải dữ liệu với bộ lọc đã được quyết định
+    loadAllHistory(initialFilters);
 }
+
 
 
 
@@ -6148,15 +6154,14 @@ function createAdjustRejectionDetailsModal(data) {
     return modal;
 }
 
-// Sửa đổi hàm loadAllHistory trong warehouse.js
 async function loadAllHistory(filters = {}) {
     try {
-        // Thay vì đọc từ DOM, giờ chúng ta đọc từ tham số `filters`
+        // BƯỚC 1: LẤY ĐIỀU KIỆN LỌC TỪ THAM SỐ, KHÔNG LẤY TỪ DOM
         const fromDate = filters.fromDate;
         const toDate = filters.toDate;
         const filterType = filters.filterType || 'all';
         const itemCodeFilter = (filters.itemCodeFilter || '').trim().toLowerCase();
-        
+
         const transactionTypeMap = {
             'import': ['import', 'import_edited', 'import_deleted'],
             'export': ['export', 'export_edited', 'export_deleted'],
@@ -6172,7 +6177,9 @@ async function loadAllHistory(filters = {}) {
             constraints.push(where('type', 'in', transactionTypeMap[filterType]));
         }
 
-        if (fromDate) constraints.push(where('timestamp', '>=', new Date(fromDate)));
+        if (fromDate) {
+            constraints.push(where('timestamp', '>=', new Date(fromDate)));
+        }
         if (toDate) {
             const endDate = new Date(toDate);
             endDate.setHours(23, 59, 59, 999);
@@ -6188,7 +6195,7 @@ async function loadAllHistory(filters = {}) {
         const snapshot = await getDocs(historyQuery);
         let docs = snapshot.docs;
 
-        // Lọc phía client theo mã hàng (giữ nguyên)
+        // BƯỚC 2: LỌC PHÍA CLIENT VẪN GIỮ NGUYÊN
         if (itemCodeFilter) {
             docs = docs.filter(doc => {
                 const data = doc.data();
@@ -6217,8 +6224,6 @@ async function loadAllHistory(filters = {}) {
         showToast('Lỗi tải lịch sử giao dịch', 'danger');
     }
 }
-
-
 
 // Initialize all functions
 document.addEventListener('DOMContentLoaded', function () {
@@ -9760,22 +9765,15 @@ async function onScanSuccess(decodedText, decodedResult) {
     }
 }
 
-// Sửa lại hàm viewItemHistoryFromScan trong warehouse.js
 window.viewItemHistoryFromScan = function(itemCode) {
-    // Đóng modal chi tiết nếu nó đang mở
+    // Đóng modal chi tiết nếu có
     const modal = document.getElementById('scannedItemDetailsModal');
-    if (modal) {
-        const bsModal = bootstrap.Modal.getInstance(modal);
-        if (bsModal) {
-            bsModal.hide();
-        }
-    }
+    if (modal) bootstrap.Modal.getInstance(modal)?.hide();
 
-    // BƯỚC 1: Gán mã hàng cần lọc vào biến tạm
-    pendingItemCodeFilter = itemCode;
+    // Tạo "mệnh lệnh" lọc
+    pendingHistoryFilter = { itemCodeFilter: itemCode };
 
-    // BƯỚC 2: Kích hoạt link Lịch sử trên sidebar
-    // Việc này sẽ gọi loadHistorySection()
+    // Kích hoạt chuyển tab. Hành động này sẽ gọi loadHistorySection.
     document.querySelector('a[data-section="history"]').click();
 }
 
