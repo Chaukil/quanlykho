@@ -60,6 +60,12 @@ export async function loadCacheData() {
 
 let listenersInitialized = false; // Flag để đảm bảo chỉ chạy một lần
 
+function forceUIRefresh() {
+    // Hàm này trả về một Promise được giải quyết sau một "tick" của Event Loop.
+    // Điều này cho phép trình duyệt có thời gian để xử lý và "vẽ" lại các thay đổi DOM.
+    return new Promise(resolve => setTimeout(resolve, 0));
+}
+
 export function initializeWarehouseFunctions() {
     // Nếu đã khởi tạo rồi thì không chạy lại để tránh gán sự kiện lặp
     if (listenersInitialized) {
@@ -5588,7 +5594,7 @@ function createHistoryPagination(allData, container) {
         });
 
         // Create pagination
-const paginationContainer = document.createElement('div');
+        const paginationContainer = document.createElement('div');
         paginationContainer.className = 'd-flex justify-content-between align-items-center mt-3';
         paginationContainer.innerHTML = `
             <small class="text-muted">Hiển thị ${startIndex + 1} - ${endIndex} của ${allData.length} kết quả</small>
@@ -5598,7 +5604,7 @@ const paginationContainer = document.createElement('div');
         container.innerHTML = '';
         container.appendChild(table);
         container.appendChild(paginationContainer);
-
+        await forceUIRefresh();
         updatePaginationControls(page, totalPages, 'historyPagination', renderPage);
     }
 
