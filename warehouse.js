@@ -5154,12 +5154,9 @@ export function loadAdjustSection() {
     initializeDirectAdjustSection();
 }
 
+// SỬA ĐỔI HÀM NÀY
 export function loadHistorySection() {
-    // --- Phần 1: Gắn các sự kiện cho nút ---
-    const filterBtn = document.getElementById('filterHistory');
-    const clearBtn = document.getElementById('clearHistoryFilter');
-    
-    // Hàm trợ giúp để lấy các giá trị lọc từ các ô input
+    // --- Helper function to get all current filter values from the UI ---
     const getFiltersFromDOM = () => ({
         fromDate: document.getElementById('fromDate').value,
         toDate: document.getElementById('toDate').value,
@@ -5167,46 +5164,47 @@ export function loadHistorySection() {
         itemCodeFilter: document.getElementById('historyItemCodeFilter').value
     });
 
-    // Sự kiện nút "Lọc"
-    const newFilterBtn = filterBtn.cloneNode(true);
+    // --- Re-bind event listeners for the buttons to prevent duplicates ---
+    const filterBtn = document.getElementById('filterHistory');
+    const newFilterBtn = filterBtn.cloneNode(true); // Clone to remove old listeners
     filterBtn.parentNode.replaceChild(newFilterBtn, filterBtn);
     newFilterBtn.addEventListener('click', () => {
-        // Khi nhấn Lọc, tạo "mệnh lệnh" từ các ô input và gửi đi
-        loadAllHistory(getFiltersFromDOM());
+        // When clicking "Filter", we just call this main function again,
+        // which will read the latest values from the form.
+        loadHistorySection();
     });
 
-    // Sự kiện nút "Xóa lọc"
-    const newClearBtn = clearBtn.cloneNode(true);
+    const clearBtn = document.getElementById('clearHistoryFilter');
+    const newClearBtn = clearBtn.cloneNode(true); // Clone to remove old listeners
     clearBtn.parentNode.replaceChild(newClearBtn, clearBtn);
     newClearBtn.addEventListener('click', () => {
-        // Reset các ô input
+        // Reset the form fields
         document.getElementById('fromDate').value = '';
         document.getElementById('toDate').value = '';
         document.getElementById('historyItemCodeFilter').value = '';
         document.getElementById('historyFilter').value = 'all';
-        // Gửi đi "mệnh lệnh" lọc rỗng
-        loadAllHistory({}); 
+        // Then call the main function again to load with cleared filters
+        loadHistorySection();
     });
-    
-    // --- Phần 2: Quyết định tải dữ liệu ban đầu ---
-    let initialFilters = {};
-    
-    if (pendingHistoryFilter) {
-        // Nếu có "mệnh lệnh" đang chờ (từ chức năng Quét)
-        initialFilters = pendingHistoryFilter;
-        // Cập nhật giao diện để người dùng thấy bộ lọc đang được áp dụng
-        document.getElementById('historyItemCodeFilter').value = initialFilters.itemCodeFilter;
-        // Xóa "mệnh lệnh" sau khi dùng
-        pendingHistoryFilter = null;
-    } else {
-        // Nếu không, lấy bộ lọc từ các ô input hiện tại
-        initialFilters = getFiltersFromDOM();
-    }
-    
-    // Luôn gọi hàm tải dữ liệu với bộ lọc đã được quyết định
-    loadAllHistory(initialFilters);
-}
 
+    // --- Logic to determine which filters to apply ---
+    let activeFilters = getFiltersFromDOM();
+
+    // Check if there's a pending filter from the barcode scan
+    if (pendingHistoryFilter) {
+        // Merge the pending item code into our active filters
+        activeFilters.itemCodeFilter = pendingHistoryFilter.itemCodeFilter;
+
+        // Update the input field on the screen so the user sees the applied filter
+        document.getElementById('historyItemCodeFilter').value = activeFilters.itemCodeFilter;
+
+        // Clear the pending filter so it's only used once
+        pendingHistoryFilter = null;
+    }
+
+    // --- Load the history data using the final, consolidated filters ---
+    loadAllHistory(activeFilters);
+}
 
 
 
@@ -9768,15 +9766,21 @@ async function onScanSuccess(decodedText, decodedResult) {
 window.viewItemHistoryFromScan = function(itemCode) {
     // Đóng modal chi tiết nếu có
     const modal = document.getElementById('scannedItemDetailsModal');
-    if (modal) bootstrap.Modal.getInstance(modal)?.hide();
+    if (modal) {
+        const bsModal = bootstrap.Modal.getInstance(modal);
+        if (bsModal) {
+            bsModal.hide();
+        }
+    }
 
-    // Tạo "mệnh lệnh" lọc
+    // Đặt "mệnh lệnh" lọc với mã hàng đã quét.
+    // Các bộ lọc khác như ngày tháng sẽ được hàm loadHistorySection lấy từ giao diện.
     pendingHistoryFilter = { itemCodeFilter: itemCode };
 
-    // Kích hoạt chuyển tab. Hành động này sẽ gọi loadHistorySection.
+    // Kích hoạt sự kiện nhấn vào tab "Lịch sử" để điều hướng
+    // và kích hoạt hàm `loadHistorySection` đã được sửa lỗi.
     document.querySelector('a[data-section="history"]').click();
 }
-
 
 function onScanFailure(error) {
     // Không làm gì để tránh log liên tục
