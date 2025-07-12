@@ -9580,7 +9580,6 @@ export function loadScanBarcodeSection() {
 }
 
 function startScanner() {
-      unlockAudioContext();
     const scannerContainer = document.getElementById('barcode-scanner-container');
     scannerContainer.innerHTML = ''; // Xóa nội dung cũ để khởi tạo lại
     
@@ -9617,38 +9616,53 @@ function stopScanner() {
     }
 }
 
-// --- THÊM HÀM MỚI NÀY VÀO WAREHOUSE.JS ---
-function unlockAudioContext() {
-    // Nếu âm thanh đã được mở khóa thì không làm gì cả
-    if (beepAudio.Hacked) return;
-    
-    // Phát một đoạn âm thanh trống để "đánh lừa" trình duyệt
-    beepAudio.play();
-    beepAudio.pause();
-    beepAudio.Hacked = true;
-    console.log("Audio context unlocked.");
+// --- BỘ NÃO ÂM THANH MỚI - MẠNH MẼ VÀ TO HƠN ---
+
+// Tạo một AudioContext duy nhất để sử dụng lại, tăng hiệu suất.
+let audioContext;
+try {
+    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+} catch (e) {
+    console.error("Trình duyệt không hỗ trợ Web Audio API.");
 }
-// Sử dụng một đối tượng Audio duy nhất để tăng hiệu suất
-const beepAudio = new Audio('data:audio/mpeg;base64,SUQzBAAAAAAAI_imR3ABcAAAAtASx9AAD/8D5iAABA4w/A3/9A3iBAQCRBwUAAAAA//89gAQCAwABAwgAACE4f//895gAAB5oZAAAAA//9+sAACA4QkAAAAA//895gGAAAEAAAAA//9+sAGAAAEAAAKAEDlQW8AAAAAtDRpAkBIjIGAAAAA//895gqEAAMBAQAAAQAA//9+sAXAwEAAAAAAFlQgAADIiVEP//uQAAA+iBMAAAAA//895gGAAAAAABAAAD//9+sAEABwcEAAAAADlQTWEAAAEAAAD//895gAAAQAAAAAAAAAA//9+sAIAAAAHDgAAAAA5UExhAAAQAAAQAAAA//895gYAAAEAAAAAAAAA//9+sAMAAAQAAAAAAAA5UExhAAABAQAAAQAA');
 
 /**
- * Hàm này phát ra âm thanh "bíp" ngắn.
+ * Hàm này phát ra một âm thanh "bíp" to và rõ ràng bằng Web Audio API.
+ * @param {number} duration - Thời gian phát, tính bằng mili-giây (ms).
+ * @param {number} frequency - Tần số âm thanh (cao độ), tính bằng Hertz (Hz).
+ * @param {number} volume - Âm lượng, từ 0.0 đến 1.0.
  */
-function playBeepSound() {
-    try {
-        // Đặt lại thời gian về đầu để đảm bảo âm thanh luôn phát từ đầu,
-        // ngay cả khi người dùng quét rất nhanh.
-        beepAudio.currentTime = 0;
-        beepAudio.play();
-    } catch (e) {
-        // Ghi lại lỗi nếu không thể phát âm thanh, nhưng không làm gián đoạn ứng dụng
-        console.error("Không thể phát âm thanh:", e);
+function playLoudBeep(duration = 200, frequency = 880, volume = 1.0) {
+    // Chỉ hoạt động nếu trình duyệt hỗ trợ
+    if (!audioContext) return;
+
+    // "Mở khóa" context nếu nó đang ở trạng thái treo (do chính sách trình duyệt)
+    if (audioContext.state === 'suspended') {
+        audioContext.resume();
     }
+
+    // Tạo các thành phần âm thanh
+    const oscillator = audioContext.createOscillator(); // Tạo sóng âm
+    const gainNode = audioContext.createGain(); // Điều khiển âm lượng
+
+    // Kết nối các thành phần: Sóng âm -> Âm lượng -> Loa
+    oscillator.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+
+    // Thiết lập các thông số
+    gainNode.gain.value = volume; // Đặt âm lượng
+    oscillator.frequency.value = frequency; // Đặt cao độ (880Hz là một nốt La cao, rất dễ nghe)
+    oscillator.type = 'sine'; // Loại sóng 'sine' cho âm thanh sạch, giống tiếng bíp
+
+    // Bắt đầu và kết thúc âm thanh
+    oscillator.start(audioContext.currentTime);
+    oscillator.stop(audioContext.currentTime + duration / 1000); // Chuyển ms sang giây
 }
+
 
 async function onScanSuccess(decodedText, decodedResult) {
     stopScanner();
-    playBeepSound();
+     playLoudBeep();
     showToast(`Quét thành công: ${decodedText}`, 'success');
     
     try {
