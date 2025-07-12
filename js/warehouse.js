@@ -23,6 +23,7 @@ import { currentUser, userRole } from './dashboard.js';
 let currentImportItems = [];
 let currentEditingId = null;
 let currentExportItems = [];
+let pendingItemCodeFilter = null;
 
 let itemCodeCache = new Map();
 let unitCache = new Set(['Cái', 'Chiếc', 'Bộ', 'Hộp', 'Thùng', 'Cuộn', 'Tấm', 'Túi', 'Gói', 'Chai', 'Lọ', 'Lon', 'Bao', 'Kg', 'Gam', 'Tấn', 'Mét', 'Cây', 'Thanh', 'Đôi']);
@@ -56,8 +57,14 @@ export async function loadCacheData() {
         console.error('Error loading cache data:', error);
     }
 }
-
+let pendingHistoryFilter = null; 
 let listenersInitialized = false; // Flag để đảm bảo chỉ chạy một lần
+
+function forceUIRefresh() {
+    // Hàm này trả về một Promise được giải quyết sau một "tick" của Event Loop.
+    // Điều này cho phép trình duyệt có thời gian để xử lý và "vẽ" lại các thay đổi DOM.
+    return new Promise(resolve => setTimeout(resolve, 0));
+}
 
 export function initializeWarehouseFunctions() {
     // Nếu đã khởi tạo rồi thì không chạy lại để tránh gán sự kiện lặp
@@ -5148,15 +5155,57 @@ export function loadAdjustSection() {
 }
 
 export function loadHistorySection() {
-    const today = new Date();
-    const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+    // --- Phần 1: Gắn các sự kiện cho nút ---
+    // Luôn gắn lại sự kiện để đảm bảo chúng hoạt động sau khi tab được hiển thị.
+    // Sử dụng cloneNode để xóa các listener cũ, tránh việc chạy nhiều lần.
+    const filterBtn = document.getElementById('filterHistory');
+    const newFilterBtn = filterBtn.cloneNode(true);
+    filterBtn.parentNode.replaceChild(newFilterBtn, filterBtn);
+    newFilterBtn.addEventListener('click', () => {
+        // Khi nhấn "Lọc", chỉ cần gọi lại chính hàm này.
+        // Nó sẽ tự động đọc các giá trị mới nhất từ giao diện.
+        loadHistorySection();
+    });
 
-    const fromDateEl = document.getElementById('fromDate');
-    const toDateEl = document.getElementById('toDate');
-    if (fromDateEl) fromDateEl.value = firstDayOfMonth.toISOString().split('T')[0];
-    if (toDateEl) toDateEl.value = today.toISOString().split('T')[0];
-    
-    loadAllHistory();
+    const clearBtn = document.getElementById('clearHistoryFilter');
+    const newClearBtn = clearBtn.cloneNode(true);
+    clearBtn.parentNode.replaceChild(newClearBtn, clearBtn);
+    newClearBtn.addEventListener('click', () => {
+        // Xóa các giá trị trong ô input
+        document.getElementById('fromDate').value = '';
+        document.getElementById('toDate').value = '';
+        document.getElementById('historyItemCodeFilter').value = '';
+        document.getElementById('historyFilter').value = 'all';
+        // Tải lại với bộ lọc trống
+        loadAllHistory({});
+    });
+
+    // --- Phần 2: Quyết định bộ lọc sẽ được sử dụng ---
+    // Hàm helper để đọc tất cả các giá trị lọc hiện tại từ giao diện
+    const getFiltersFromDOM = () => ({
+        fromDate: document.getElementById('fromDate').value,
+        toDate: document.getElementById('toDate').value,
+        filterType: document.getElementById('historyFilter').value,
+        itemCodeFilter: document.getElementById('historyItemCodeFilter').value.trim()
+    });
+
+    let finalFilters = getFiltersFromDOM();
+
+    // *** ĐÂY LÀ THAY ĐỔI QUAN TRỌNG NHẤT ***
+    // Nếu có một "mệnh lệnh" lọc đang chờ từ chức năng quét...
+    if (pendingHistoryFilter && pendingHistoryFilter.itemCodeFilter) {
+        // ...ghi đè bộ lọc mã hàng trong bộ lọc cuối cùng của chúng ta.
+        finalFilters.itemCodeFilter = pendingHistoryFilter.itemCodeFilter;
+
+        // Cập nhật ô input trên giao diện để người dùng thấy bộ lọc đang được áp dụng.
+        document.getElementById('historyItemCodeFilter').value = finalFilters.itemCodeFilter;
+
+        // Xóa "mệnh lệnh" ngay sau khi sử dụng để nó không bị áp dụng lại ở lần sau.
+        //pendingHistoryFilter = null;
+    }
+
+    // --- Phần 3: Tải dữ liệu với bộ lọc đã được quyết định ---
+    loadAllHistory(finalFilters);
 }
 
 function safeModalOperation(operation, context = 'modal operation') {
@@ -5387,7 +5436,7 @@ function createHistoryPagination(allData, container) {
             const row = document.createElement('tr');
             const date = data.timestamp ? data.timestamp.toDate().toLocaleString('vi-VN') : 'N/A';
             let performedBy = data.performedByName || data.modifiedByName || data.deletedByName || 'N/A';
-            
+
             const typeConfig = {
             'import': { label: 'Nhập kho', badgeClass: 'bg-success', icon: 'fas fa-download' },
             'import_edited': { label: 'Sửa Nhập', badgeClass: 'bg-warning text-dark', icon: 'fas fa-pencil-alt' },
@@ -5543,7 +5592,7 @@ function createHistoryPagination(allData, container) {
         });
 
         // Create pagination
-const paginationContainer = document.createElement('div');
+        const paginationContainer = document.createElement('div');
         paginationContainer.className = 'd-flex justify-content-between align-items-center mt-3';
         paginationContainer.innerHTML = `
             <small class="text-muted">Hiển thị ${startIndex + 1} - ${endIndex} của ${allData.length} kết quả</small>
@@ -5553,7 +5602,7 @@ const paginationContainer = document.createElement('div');
         container.innerHTML = '';
         container.appendChild(table);
         container.appendChild(paginationContainer);
-
+        await forceUIRefresh();
         updatePaginationControls(page, totalPages, 'historyPagination', renderPage);
     }
 
@@ -6103,15 +6152,14 @@ function createAdjustRejectionDetailsModal(data) {
     return modal;
 }
 
-// Sửa đổi hàm loadAllHistory trong warehouse.js
-async function loadAllHistory() {
+async function loadAllHistory(filters = {}) {
     try {
-        const fromDate = document.getElementById('fromDate').value;
-        const toDate = document.getElementById('toDate').value;
-        const filter = document.getElementById('historyFilter').value;
-        const itemCodeFilter = document.getElementById('historyItemCodeFilter')?.value.trim().toLowerCase();
+        // BƯỚC 1: LẤY ĐIỀU KIỆN LỌC TỪ THAM SỐ, KHÔNG LẤY TỪ DOM
+        const fromDate = filters.fromDate;
+        const toDate = filters.toDate;
+        const filterType = filters.filterType || 'all';
+        const itemCodeFilter = (filters.itemCodeFilter || '').trim().toLowerCase();
 
-        // THAY ĐỔI LỚN: Sử dụng một "bản đồ" để nhóm các loại giao dịch
         const transactionTypeMap = {
             'import': ['import', 'import_edited', 'import_deleted'],
             'export': ['export', 'export_edited', 'export_deleted'],
@@ -6123,9 +6171,8 @@ async function loadAllHistory() {
         let historyQuery = collection(db, 'transactions');
         const constraints = [];
 
-        // Áp dụng bộ lọc nhóm nếu người dùng không chọn "Tất cả"
-        if (filter !== 'all' && transactionTypeMap[filter]) {
-            constraints.push(where('type', 'in', transactionTypeMap[filter]));
+        if (filterType !== 'all' && transactionTypeMap[filterType]) {
+            constraints.push(where('type', 'in', transactionTypeMap[filterType]));
         }
 
         if (fromDate) {
@@ -6146,7 +6193,7 @@ async function loadAllHistory() {
         const snapshot = await getDocs(historyQuery);
         let docs = snapshot.docs;
 
-        // Lọc phía client theo mã hàng (giữ nguyên)
+        // BƯỚC 2: LỌC PHÍA CLIENT VẪN GIỮ NGUYÊN
         if (itemCodeFilter) {
             docs = docs.filter(doc => {
                 const data = doc.data();
@@ -6175,8 +6222,6 @@ async function loadAllHistory() {
         showToast('Lỗi tải lịch sử giao dịch', 'danger');
     }
 }
-
-
 
 // Initialize all functions
 document.addEventListener('DOMContentLoaded', function () {
@@ -6257,10 +6302,6 @@ function initializeFilters() {
     // Adjust filters
     document.getElementById('filterAdjust')?.addEventListener('click', filterDirectAdjustHistory);
     document.getElementById('clearAdjustFilter')?.addEventListener('click', clearDirectAdjustFilter);
-
-    // History filters
-    document.getElementById('filterHistory')?.addEventListener('click', filterHistory);
-    document.getElementById('clearHistoryFilter')?.addEventListener('click', clearHistoryFilter);
 }
 
 // Import Filter Functions
@@ -9722,9 +9763,8 @@ async function onScanSuccess(decodedText, decodedResult) {
     }
 }
 
-// Thêm hàm mới này vào warehouse.js
 window.viewItemHistoryFromScan = function(itemCode) {
-    // Đóng modal chi tiết nếu nó đang mở
+    // Đóng modal chi tiết nếu có
     const modal = document.getElementById('scannedItemDetailsModal');
     if (modal) {
         const bsModal = bootstrap.Modal.getInstance(modal);
@@ -9733,17 +9773,13 @@ window.viewItemHistoryFromScan = function(itemCode) {
         }
     }
 
-    // Kích hoạt link Lịch sử trên sidebar
-    document.querySelector('a[data-section="history"]').click();
+    // Đặt "mệnh lệnh" lọc với mã hàng đã quét.
+    // Các bộ lọc khác như ngày tháng sẽ được hàm loadHistorySection lấy từ giao diện.
+    pendingHistoryFilter = { itemCodeFilter: itemCode };
 
-    // Đợi một chút để section Lịch sử được hiển thị, sau đó điền và kích hoạt bộ lọc
-    setTimeout(() => {
-        const historyCodeFilter = document.getElementById('historyItemCodeFilter');
-        if (historyCodeFilter) {
-            historyCodeFilter.value = itemCode;
-            document.getElementById('filterHistory').click(); // Tự động nhấn nút "Lọc"
-        }
-    }, 200); // 200ms là đủ để DOM cập nhật
+    // Kích hoạt sự kiện nhấn vào tab "Lịch sử" để điều hướng
+    // và kích hoạt hàm `loadHistorySection` đã được sửa lỗi.
+    document.querySelector('a[data-section="history"]').click();
 }
 
 function onScanFailure(error) {
