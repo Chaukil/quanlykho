@@ -9349,6 +9349,7 @@ function populateTemplateSelector() {
         loader.appendChild(option);
     });
 }
+// Sửa đổi hàm searchItemsForBarcode trong warehouse.js
 async function searchItemsForBarcode(event) {
     const searchTerm = event.target.value.trim().toLowerCase();
     const resultsContainer = document.getElementById('barcodeSearchResults');
@@ -9357,11 +9358,19 @@ async function searchItemsForBarcode(event) {
     if (searchTerm.length < 2) return;
 
     try {
-        const inventoryQuery = query(collection(db, 'inventory'), orderBy('code'), where('code', '>=', searchTerm.toUpperCase()), limit(5));
+        // THAY ĐỔI: Thêm where('quantity', '>', 0) để chỉ tìm hàng còn tồn kho
+        const inventoryQuery = query(
+            collection(db, 'inventory'), 
+            where('quantity', '>', 0),
+            orderBy('quantity'), // Ưu tiên sắp xếp theo số lượng
+            orderBy('code'), 
+            where('code', '>=', searchTerm.toUpperCase()), 
+            limit(5)
+        );
         const snapshot = await getDocs(inventoryQuery);
 
         if (snapshot.empty) {
-            resultsContainer.innerHTML = '<div class="list-group-item">Không tìm thấy sản phẩm.</div>';
+            resultsContainer.innerHTML = '<div class="list-group-item">Không tìm thấy sản phẩm phù hợp.</div>';
             return;
         }
 
@@ -9372,7 +9381,8 @@ async function searchItemsForBarcode(event) {
             const button = document.createElement('button');
             button.type = 'button';
             button.className = 'list-group-item list-group-item-action';
-            button.textContent = `${item.code} - ${item.name}`;
+            // THAY ĐỔI: Hiển thị mã hàng và vị trí
+            button.textContent = `${item.code} - (Vị trí: ${item.location})`;
             button.onclick = () => selectItemForBarcode({ id: doc.id, ...item });
             listGroup.appendChild(button);
         });
@@ -9384,35 +9394,94 @@ async function searchItemsForBarcode(event) {
     }
 }
 
+
+// Sửa đổi hàm selectItemForBarcode trong warehouse.js
 function selectItemForBarcode(item) {
     currentBarcodeItem = item;
     document.getElementById('barcodeSearchResults').innerHTML = '';
     document.getElementById('barcodeItemSearch').value = `${item.code} - ${item.name}`;
-    document.getElementById('printBarcodeBtn').disabled = false;
     
-    // Render barcode lên canvas
+    const printBtn = document.getElementById('printBarcodeBtn');
+    printBtn.disabled = false;
+
+    // THÊM MỚI: Logic phân quyền in
+    if (userRole === 'staff') {
+        printBtn.disabled = true;
+        printBtn.title = 'Chỉ Admin trở lên mới có thể in tem';
+    }
+    
     renderBarcodeLabel();
 }
 
-// Sửa đổi hàm renderBarcodeLabel để nhận layout
+function createScannedItemDetailsModal(item) {
+    const modal = document.createElement('div');
+    modal.className = 'modal fade';
+    modal.id = 'scannedItemDetailsModal';
+    modal.setAttribute('tabindex', '-1');
+
+    modal.innerHTML = `
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header bg-info text-white">
+                    <h5 class="modal-title">
+                        <i class="fas fa-box-open"></i> Chi tiết tồn kho
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <h4 class="text-info">${item.name}</h4>
+                    <div class="row">
+                        <div class="col-6"><strong>Mã hàng:</strong></div>
+                        <div class="col-6"><span class="badge bg-primary fs-6">${item.code}</span></div>
+                    </div>
+                    <hr class="my-2">
+                    <div class="row">
+                        <div class="col-6"><strong>Số lượng tồn:</strong></div>
+                        <div class="col-6"><span class="badge bg-success fs-6">${item.quantity} ${item.unit}</span></div>
+                    </div>
+                    <hr class="my-2">
+                    <div class="row">
+                        <div class="col-6"><strong>Vị trí:</strong></div>
+                        <div class="col-6"><span class="badge bg-secondary fs-6">${item.location}</span></div>
+                    </div>
+                     <hr class="my-2">
+                    <div class="row">
+                        <div class="col-6"><strong>Danh mục:</strong></div>
+                        <div class="col-6">${item.category}</div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Đóng</button>
+                </div>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(modal);
+    const bsModal = new bootstrap.Modal(modal);
+    bsModal.show();
+
+    modal.addEventListener('hidden.bs.modal', () => modal.remove());
+}
+// Sửa đổi hàm renderBarcodeLabel trong warehouse.js
 function renderBarcodeLabel(layout = null) {
     const canvas = document.getElementById('barcode-canvas');
     canvas.innerHTML = ''; 
 
     if (!currentBarcodeItem) return;
 
-    // Định nghĩa các thuộc tính mặc định
+    // THÊM MỚI: Thêm số lượng và vị trí vào các thuộc tính mặc định
     const defaultElements = {
         code: { text: `Mã: ${currentBarcodeItem.code}`, top: 5, left: 5 },
         name: { text: `Tên: ${currentBarcodeItem.name}`, top: 25, left: 5 },
-        barcode: { type: 'barcode', value: currentBarcodeItem.code, top: 45, left: 5, width: 2, height: 40 },
+        quantity: { text: `SL: ${currentBarcodeItem.quantity}`, top: 45, left: 5 },
+        location: { text: `Vị trí: ${currentBarcodeItem.location}`, top: 65, left: 5 },
+        barcode: { type: 'barcode', value: currentBarcodeItem.code, top: 85, left: 5, width: 2, height: 40 },
     };
     
     for (const key in defaultElements) {
         const defaultData = defaultElements[key];
-        // Nếu có layout từ template thì dùng, không thì dùng mặc định
         const pos = layout ? layout[key] : { top: defaultData.top, left: defaultData.left };
-
         const div = document.createElement('div');
         
         if(defaultData.type === 'barcode'){
@@ -9420,7 +9489,7 @@ function renderBarcodeLabel(layout = null) {
             svg.id = 'barcode-svg';
             div.appendChild(svg);
              JsBarcode(svg, defaultData.value, {
-                format: document.getElementById('barcodeTypeSelector').value,
+                // BỎ ĐI: không cần format nữa, dùng mặc định CODE128
                 width: defaultData.width,
                 height: defaultData.height,
                 displayValue: true
@@ -9438,6 +9507,7 @@ function renderBarcodeLabel(layout = null) {
         canvas.appendChild(div);
     }
 }
+
 
 function makeElementDraggable(element) {
     let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
@@ -9532,11 +9602,9 @@ function stopScanner() {
 }
 
 async function onScanSuccess(decodedText, decodedResult) {
-    // Dừng quét sau khi thành công
     stopScanner();
     showToast(`Quét thành công: ${decodedText}`, 'success');
     
-    // Tìm sản phẩm trong DB
     try {
         const inventoryQuery = query(collection(db, 'inventory'), where('code', '==', decodedText), limit(1));
         const snapshot = await getDocs(inventoryQuery);
@@ -9547,20 +9615,30 @@ async function onScanSuccess(decodedText, decodedResult) {
                 <div class="alert alert-danger">Không tìm thấy sản phẩm với mã: <strong>${decodedText}</strong></div>
             `;
         } else {
-            const item = snapshot.docs[0].data();
+            const itemDoc = snapshot.docs[0];
+            const item = itemDoc.data();
+            
+            // THAY ĐỔI: Logic phân quyền cho các nút hành động
+            const actionButtons = userRole !== 'staff' 
+                ? `
+                    <button class="btn btn-success" onclick="showImportFromScan('${JSON.stringify(item).replace(/"/g, '&quot;')}')"><i class="fas fa-download"></i> Nhập kho</button>
+                    <button class="btn btn-warning" onclick="showExportFromScan('${itemDoc.id}', ${item.quantity})"><i class="fas fa-upload"></i> Xuất kho</button>
+                ` 
+                : `
+                    <p class="text-center text-muted"><small>Bạn cần quyền Admin trở lên để thực hiện Nhập/Xuất kho.</small></p>
+                `;
+
             resultContainer.innerHTML = `
                 <h5 class="card-title">${item.name}</h5>
                 <p class="card-text">
                     <strong>Mã hàng:</strong> ${item.code}<br>
                     <strong>Tồn kho:</strong> ${item.quantity} ${item.unit}<br>
-                    <strong>Danh mục:</strong> ${item.category}<br>
                     <strong>Vị trí:</strong> ${item.location}
                 </p>
                 <hr>
                 <div class="d-grid gap-2">
-                    <button class="btn btn-info" onclick="viewInventoryDetailsFromScan('${snapshot.docs[0].id}')">Xem tồn kho</button>
-                    <button class="btn btn-success" onclick="showImportFromScan('${JSON.stringify(item).replace(/"/g, '&quot;')}')">Nhập kho</button>
-                    <button class="btn btn-warning" onclick="showExportFromScan('${snapshot.docs[0].id}', ${item.quantity})">Xuất kho</button>
+                    <button class="btn btn-info" onclick="viewInventoryDetailsFromScan('${itemDoc.id}')"><i class="fas fa-eye"></i> Xem chi tiết tồn kho</button>
+                    ${actionButtons}
                 </div>
             `;
         }
@@ -9574,14 +9652,10 @@ function onScanFailure(error) {
     // Không làm gì để tránh log liên tục
 }
 
-// Các hàm hành động sau khi quét
 window.viewInventoryDetailsFromScan = async function(inventoryId) {
-    // Có thể tạo một modal chi tiết đơn giản hoặc tái sử dụng modal đã có
-    // Đây là ví dụ đơn giản
     const docSnap = await getDoc(doc(db, 'inventory', inventoryId));
     if(docSnap.exists()){
-        const item = docSnap.data();
-        alert(`Chi tiết sản phẩm:\n- Tên: ${item.name}\n- Mã: ${item.code}\n- Tồn kho: ${item.quantity} ${item.unit}\n- Vị trí: ${item.location}`);
+        createScannedItemDetailsModal(docSnap.data());
     }
 }
 
