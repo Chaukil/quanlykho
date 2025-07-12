@@ -9579,9 +9579,27 @@ export function loadScanBarcodeSection() {
     document.getElementById('stopScanBtn').onclick = stopScanner;
 }
 
+// THAY THẾ HÀM NÀY BẰNG PHIÊN BẢN MỚI
+
 function startScanner() {
+    // --- THÊM LOGIC "MỞ KHÓA" QUYỀN PHÁT ÂM THANH ---
+    // Chỉ tạo AudioContext khi người dùng nhấn nút "Bắt đầu"
+    if (!audioContext) {
+        try {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            console.log("AudioContext đã được tạo và mở khóa.");
+        } catch (e) {
+            console.error("Không thể tạo AudioContext.");
+            showToast("Thiết bị không hỗ trợ âm thanh.", "warning");
+        }
+    }
+    // Phát một tiếng bíp cực nhỏ để đảm bảo quyền được kích hoạt
+    playLoudBeep(1, 440, 0.01); // duration: 1ms, volume: 1% (gần như im lặng)
+    // --- KẾT THÚC LOGIC MỞ KHÓA ---
+
+
     const scannerContainer = document.getElementById('barcode-scanner-container');
-    scannerContainer.innerHTML = ''; // Xóa nội dung cũ để khởi tạo lại
+    scannerContainer.innerHTML = '';
     
     html5QrcodeScanner = new Html5Qrcode("barcode-scanner-container");
 
@@ -9591,7 +9609,7 @@ function startScanner() {
     };
     
     html5QrcodeScanner.start(
-        { facingMode: "environment" }, // Ưu tiên camera sau
+        { facingMode: "environment" },
         config,
         onScanSuccess,
         onScanFailure
@@ -9603,13 +9621,13 @@ function startScanner() {
     });
 }
 
+
 function stopScanner() {
     if (html5QrcodeScanner) {
         html5QrcodeScanner.stop().then(() => {
             document.getElementById('barcode-scanner-container').innerHTML = '';
             document.getElementById('startScanBtn').style.display = 'inline-block';
             document.getElementById('stopScanBtn').style.display = 'none';
-            showToast("Đã dừng quét.", "info");
         }).catch(err => {
             console.error("Lỗi khi dừng quét:", err);
         });
@@ -9621,7 +9639,8 @@ function stopScanner() {
 // Tạo một AudioContext duy nhất để sử dụng lại, tăng hiệu suất.
 let audioContext;
 try {
-    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    // Phải tạo AudioContext trong một hành động của người dùng (như click)
+    // nên chúng ta sẽ khởi tạo nó sau.
 } catch (e) {
     console.error("Trình duyệt không hỗ trợ Web Audio API.");
 }
@@ -9636,33 +9655,33 @@ function playLoudBeep(duration = 200, frequency = 880, volume = 1.0) {
     // Chỉ hoạt động nếu trình duyệt hỗ trợ
     if (!audioContext) return;
 
-    // "Mở khóa" context nếu nó đang ở trạng thái treo (do chính sách trình duyệt)
+    // "Mở khóa" context nếu nó đang ở trạng thái treo
     if (audioContext.state === 'suspended') {
         audioContext.resume();
     }
 
-    // Tạo các thành phần âm thanh
-    const oscillator = audioContext.createOscillator(); // Tạo sóng âm
-    const gainNode = audioContext.createGain(); // Điều khiển âm lượng
+    const oscillator = audioContext.createOscillator();
+    const gainNode = audioContext.createGain();
 
-    // Kết nối các thành phần: Sóng âm -> Âm lượng -> Loa
     oscillator.connect(gainNode);
     gainNode.connect(audioContext.destination);
 
-    // Thiết lập các thông số
-    gainNode.gain.value = volume; // Đặt âm lượng
-    oscillator.frequency.value = frequency; // Đặt cao độ (880Hz là một nốt La cao, rất dễ nghe)
-    oscillator.type = 'sine'; // Loại sóng 'sine' cho âm thanh sạch, giống tiếng bíp
+    gainNode.gain.value = volume;
+    oscillator.frequency.value = frequency;
+    oscillator.type = 'sine';
 
-    // Bắt đầu và kết thúc âm thanh
     oscillator.start(audioContext.currentTime);
-    oscillator.stop(audioContext.currentTime + duration / 1000); // Chuyển ms sang giây
+    oscillator.stop(audioContext.currentTime + duration / 1000);
 }
 
+// THAY THẾ HÀM NÀY BẰNG PHIÊN BẢN MỚI
 
 async function onScanSuccess(decodedText, decodedResult) {
     stopScanner();
-     playLoudBeep();
+    
+    // PHÁT ÂM THANH THẬT (to và rõ) KHI QUÉT THÀNH CÔNG
+    playLoudBeep(200, 880, 1.0);
+    
     showToast(`Quét thành công: ${decodedText}`, 'success');
     
     try {
@@ -9697,17 +9716,16 @@ async function onScanSuccess(decodedText, decodedResult) {
                 <hr>
                 <div class="d-grid gap-2">
                     <button class="btn btn-info" onclick="viewInventoryDetailsFromScan('${itemDoc.id}')"><i class="fas fa-eye"></i> Xem chi tiết tồn kho</button>
-                    <!-- THÊM MỚI: Nút xem lịch sử -->
                     <button class="btn btn-secondary" onclick="viewItemHistoryFromScan('${item.code}')"><i class="fas fa-history"></i> Xem lịch sử mã hàng</button>
                     ${actionButtons}
                 </div>
             `;
         }
-
     } catch (error) {
         showToast('Lỗi khi truy vấn dữ liệu sản phẩm', 'danger');
     }
 }
+
 
 // THAY THẾ TOÀN BỘ HÀM NÀY TRONG WAREHOUSE.JS
 
