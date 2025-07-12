@@ -1,0 +1,807 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - Quản lý kho</title>
+    <link rel="icon" href="data:;base64,iVBORw0KGgo=">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="css/styles.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
+    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+</head>
+
+<body>
+    <div class="container-fluid">
+        <div class="row">
+            <!-- Sidebar -->
+            <nav class="col-md-3 col-lg-2 d-md-block sidebar">
+                <div class="position-sticky pt-3">
+                    <div class="text-center mb-4">
+                        <h7 id="userGreeting">Hi, User</h7>
+                        <button class="btn btn-outline-danger btn-sm" id="logoutBtn">
+                            <i class="fas fa-sign-out-alt"></i> Đăng xuất
+                        </button>
+                    </div>
+
+                    <ul class="nav flex-column">
+                        <li class="nav-item">
+                            <a class="nav-link active" href="#" data-section="dashboard">
+                                <i class="fas fa-tachometer-alt"></i> Dashboard
+                            </a>
+                        </li>
+                        <li class="nav-item admin-only">
+                            <a class="nav-link" href="#" data-section="import">
+                                <i class="fas fa-download"></i> Nhập kho
+                            </a>
+                        </li>
+                        <li class="nav-item admin-only">
+                            <a class="nav-link" href="#" data-section="export">
+                                <i class="fas fa-upload"></i> Xuất kho
+                            </a>
+                        </li>
+                        <li class="nav-item admin-only">
+                            <a class="nav-link" href="#" data-section="transfer">
+                                <i class="fas fa-exchange-alt"></i> Chuyển kho
+                            </a>
+                        </li>
+                        <!-- Chức năng yêu cầu chỉnh số cho Admin -->
+                        <li class="nav-item admin-only">
+                            <a class="nav-link" href="#" data-section="request-adjust">
+                                <i class="fas fa-edit"></i> Yêu cầu chỉnh số
+                            </a>
+                        </li>
+                        <li class="nav-item super-admin-only">
+                            <a class="nav-link" href="#" data-section="adjust">
+                                <i class="fas fa-cogs"></i> Chỉnh số trực tiếp
+                            </a>
+                        </li>
+                        <!-- Chức năng duyệt chỉnh số cho Super Admin -->
+                        <li class="nav-item super-admin-only" id="pendingAdjustmentsNav" style="display: none;">
+                            <a class="nav-link" href="#" data-section="pending-adjustments">
+                                <i class="fas fa-clipboard-check"></i>
+                                Duyệt chỉnh số <span class="badge bg-warning" id="pendingAdjustmentCount">0</span>
+                            </a>
+                        </li>
+                        <li class="nav-item super-admin-only" id="userManagementNav" style="display: none;">
+                            <a class="nav-link" href="#" data-section="user-management">
+                                <i class="fas fa-users-cog"></i>
+                                Quản lý user <span class="badge bg-warning" id="userCountBadge">0</span>
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="#" data-section="history">
+                                <i class="fas fa-history"></i> Lịch sử
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" data-bs-toggle="collapse" href="#barcodeSubmenu" role="button"
+                                aria-expanded="false" aria-controls="barcodeSubmenu">
+                                <i class="fas fa-barcode"></i> Barcode
+                            </a>
+                            <div class="collapse" id="barcodeSubmenu">
+                                <ul class="nav flex-column ms-3">
+                                    <li class="nav-item">
+                                        <a class="nav-link" href="#" data-section="print-barcode">
+                                            <i class="fas fa-print"></i> In Barcode
+                                        </a>
+                                    </li>
+                                    <li class="nav-item">
+                                        <a class="nav-link" href="#" data-section="scan-barcode">
+                                            <i class="fas fa-camera"></i> Quét Barcode
+                                        </a>
+                                    </li>
+                                </ul>
+                            </div>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="#" data-section="settings">
+                                <i class="fas fa-cog"></i> Cài đặt
+                            </a>
+                        </li>
+                    </ul>
+                </div>
+            </nav>
+
+            <!-- Main content -->
+            <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4">
+
+
+                <div id="content">
+                    <!-- Dashboard Section -->
+                    <div id="dashboard-section" class="content-section">
+                        <div class="row">
+                            <!-- Statistics cards remain the same -->
+                            <div class="col-md-3">
+                                <div class="card text-white bg-primary">
+                                    <div class="card-header">Tổng sản phẩm</div>
+                                    <div class="card-body">
+                                        <h3 class="card-title" id="totalProducts">0</h3>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="card text-white bg-success">
+                                    <div class="card-header">Nhập kho hôm nay</div>
+                                    <div class="card-body">
+                                        <h3 class="card-title" id="todayImports">0</h3>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="card text-white bg-warning">
+                                    <div class="card-header">Xuất kho hôm nay</div>
+                                    <div class="card-body">
+                                        <h3 class="card-title" id="todayExports">0</h3>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="card text-white bg-info">
+                                    <div class="card-header">Tồn kho thấp</div>
+                                    <div class="card-body">
+                                        <h3 class="card-title" id="lowStock">0</h3>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Filter cho Dashboard Inventory -->
+                        <div class="card mb-3 mt-4">
+                            <div class="card-body">
+                                <h6 class="card-title">Bộ lọc</h6>
+                                <div class="row">
+                                    <div class="col-md-3">
+                                        <label class="form-label">Mã hàng</label>
+                                        <input type="text" class="form-control" id="dashboardCodeFilter"
+                                            placeholder="Mã hàng">
+                                    </div>
+                                    <div class="col-md-2">
+                                        <label class="form-label">Danh mục</label>
+                                        <select class="form-select" id="dashboardCategoryFilter">
+                                            <option value="">Tất cả danh mục</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-2">
+                                        <label class="form-label">Tồn kho</label>
+                                        <select class="form-select" id="dashboardStockFilter">
+                                            <option value="">Tất cả</option>
+                                            <option value="low">Tồn kho thấp (< 10)</option>
+                                            <option value="normal">Tồn kho bình thường (>= 10)</option>
+                                            <option value="zero">Hết hàng (= 0)</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label">&nbsp;</label>
+                                        <div>
+                                            <button class="btn btn-primary" id="filterDashboard">
+                                                <i class="fas fa-search"></i> Lọc
+                                            </button>
+                                            <button class="btn btn-secondary" id="clearDashboardFilter">
+                                                <i class="fas fa-times"></i> Xóa bộ lọc
+                                            </button>
+                                            <button class="btn btn-success btn-sm" id="exportDashboardExcel">
+                                                <i class="fas fa-file-excel"></i> Excel
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="mt-4">
+                            <h4>Danh sách tồn kho</h4>
+                            <div class="table-responsive">
+                                <table class="table table-striped">
+                                    <thead>
+                                        <tr>
+                                            <th>Mã hàng</th>
+                                            <th>Tên mô tả</th>
+                                            <th>Đơn vị tính</th>
+                                            <th>Số lượng</th>
+                                            <th>Danh mục</th>
+                                            <th>Vị trí</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="inventoryTable"></tbody>
+                                </table>
+                            </div>
+                            <div class="d-flex justify-content-between align-items-center mt-3">
+                                <small class="text-muted" id="dashboardPaginationInfo">Hiển thị 0 - 0 của 0 kết
+                                    quả</small>
+                                <nav aria-label="Dashboard pagination">
+                                    <ul class="pagination pagination-sm mb-0" id="dashboardPagination">
+                                    </ul>
+                                </nav>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- <div class="admin-only mt-3" style="display: none;">
+                        <button class="btn btn-warning btn-sm" onclick="migrateUserApprovalData()">
+                            <i class="fas fa-database"></i> Migration User Approval Data
+                        </button>
+                        <small class="text-muted">Chỉ cần chạy 1 lần để cập nhật dữ liệu cũ</small>
+                    </div> -->
+
+                    <!-- Import Section -->
+                    <div id="import-section" class="content-section" style="display: none;">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+
+                            <div>
+                                <button class="btn btn-info me-2" id="downloadTemplate">
+                                    <i class="fas fa-download"></i> Tải mẫu Excel Nhập kho
+                                </button>
+                                <button class="btn btn-warning me-2" id="importExcel">
+                                    <i class="fas fa-file-excel"></i> Nhập từ Excel
+                                </button>
+                                <button class="btn btn-primary" id="addImportBtn">
+                                    <i class="fas fa-plus"></i> Thêm phiếu nhập
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Filter cho Import -->
+                        <div class="card mb-3">
+                            <div class="card-body">
+                                <h6 class="card-title">Bộ lọc</h6>
+                                <div class="row">
+                                    <div class="col-md-3">
+                                        <label class="form-label">Từ ngày</label>
+                                        <input type="date" class="form-control" id="importFromDate">
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label class="form-label">Đến ngày</label>
+                                        <input type="date" class="form-control" id="importToDate">
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label class="form-label">Mã hàng</label>
+                                        <input type="text" class="form-control" id="importItemCodeFilter"
+                                            placeholder="Mã hàng">
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label class="form-label">&nbsp;</label>
+                                        <div>
+                                            <button class="btn btn-primary" id="filterImport">
+                                                <i class="fas fa-search"></i> Lọc
+                                            </button>
+                                            <button class="btn btn-secondary" id="clearImportFilter">
+                                                <i class="fas fa-times"></i> Xóa bộ lọc
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="importContent"></div>
+                    </div>
+
+
+                    <!-- Export Section -->
+                    <!-- Export Section -->
+                    <div id="export-section" class="content-section" style="display: none;">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <div>
+                                <button class="btn btn-info me-2" id="downloadExportTemplate">
+                                    <i class="fas fa-download"></i> Tải mẫu Excel Xuất kho
+                                </button>
+                                <button class="btn btn-warning me-2" id="importExportExcel">
+                                    <i class="fas fa-file-excel"></i> Nhập từ Excel
+                                </button>
+                                <button class="btn btn-primary" id="addExportBtn">
+                                    <i class="fas fa-plus"></i> Thêm phiếu xuất
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Filter cho Export -->
+                        <div class="card mb-3">
+                            <div class="card-body">
+                                <h6 class="card-title">Bộ lọc</h6>
+                                <div class="row">
+                                    <div class="col-md-3">
+                                        <label class="form-label">Từ ngày</label>
+                                        <input type="date" class="form-control" id="exportFromDate">
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label class="form-label">Đến ngày</label>
+                                        <input type="date" class="form-control" id="exportToDate">
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label class="form-label">Mã hàng</label>
+                                        <input type="text" class="form-control" id="exportItemCodeFilter"
+                                            placeholder="Mã hàng">
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label class="form-label">&nbsp;</label>
+                                        <div>
+                                            <button class="btn btn-primary" id="filterExport">
+                                                <i class="fas fa-search"></i> Lọc
+                                            </button>
+                                            <button class="btn btn-secondary" id="clearExportFilter">
+                                                <i class="fas fa-times"></i> Xóa bộ lọc
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="exportContent"></div>
+                    </div>
+
+
+                    <!-- Transfer Section -->
+                    <div id="transfer-section" class="content-section" style="display: none;">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <div>
+                                <button class="btn btn-info me-2" id="downloadTransferTemplate">
+                                    <i class="fas fa-download"></i> Tải mẫu Excel Chuyển kho
+                                </button>
+                                <button class="btn btn-warning me-2" id="importTransferExcel">
+                                    <i class="fas fa-file-excel"></i> Nhập từ Excel
+                                </button>
+                                <button class="btn btn-primary" id="addTransferBtn">
+                                    <i class="fas fa-plus"></i> Thêm phiếu chuyển
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Filter cho Transfer -->
+                        <div class="card mb-3">
+                            <div class="card-body">
+                                <h6 class="card-title">Bộ lọc</h6>
+                                <div class="row">
+                                    <div class="col-md-3">
+                                        <label class="form-label">Từ ngày</label>
+                                        <input type="date" class="form-control" id="transferFromDate">
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label class="form-label">Đến ngày</label>
+                                        <input type="date" class="form-control" id="transferToDate">
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label class="form-label">Mã hàng</label>
+                                        <input type="text" class="form-control" id="transferItemCodeFilter"
+                                            placeholder="Mã hàng">
+                                    </div>
+
+                                    <div class="col-md-3">
+                                        <label class="form-label">&nbsp;</label>
+                                        <div>
+                                            <button class="btn btn-primary" id="filterTransfer">
+                                                <i class="fas fa-search"></i> Lọc
+                                            </button>
+                                            <button class="btn btn-secondary" id="clearTransferFilter">
+                                                <i class="fas fa-times"></i> Xóa bộ lọc
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="transferContent"></div>
+                    </div>
+
+
+                    <!-- Adjust Section -->
+                    <!-- Adjust Section -->
+                    <div id="adjust-section" class="content-section" style="display: none;">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <div>
+                                <button class="btn btn-info me-2" id="downloadAdjustTemplate">
+                                    <i class="fas fa-download"></i> Tải mẫu Excel Chỉnh số
+                                </button>
+                                <button class="btn btn-warning me-2" id="importAdjustExcel">
+                                    <i class="fas fa-file-excel"></i> Nhập từ Excel
+                                </button>
+                                <button class="btn btn-primary" id="addAdjustBtn">
+                                    <i class="fas fa-plus"></i> Chỉnh sửa tồn kho
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Filter cho Adjust -->
+                        <div class="card mb-3">
+                            <div class="card-body">
+                                <h6 class="card-title">Bộ lọc</h6>
+                                <div class="row">
+                                    <div class="col-md-3">
+                                        <label class="form-label">Từ ngày</label>
+                                        <input type="date" class="form-control" id="adjustFromDate">
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label class="form-label">Đến ngày</label>
+                                        <input type="date" class="form-control" id="adjustToDate">
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label class="form-label">Mã hàng</label>
+                                        <input type="text" class="form-control" id="adjustItemCodeFilter"
+                                            placeholder="Mã hàng">
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label class="form-label">&nbsp;</label>
+                                        <div>
+                                            <button class="btn btn-primary" id="filterAdjust">
+                                                <i class="fas fa-search"></i> Lọc
+                                            </button>
+                                            <button class="btn btn-secondary" id="clearAdjustFilter">
+                                                <i class="fas fa-times"></i> Xóa bộ lọc
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="adjustContent"></div>
+                    </div>
+
+
+                    <!-- History Section -->
+                    <!-- History Section -->
+                    <div id="history-section" class="content-section" style="display: none;">
+                        <!-- Thêm card filter với nút Xóa lọc -->
+                        <div class="card mb-3">
+                            <div class="card-body">
+                                <h6 class="card-title">Bộ lọc</h6>
+                                <div class="row mb-3">
+                                    <div class="col-md-3">
+                                        <label class="form-label">Từ ngày</label>
+                                        <input type="date" class="form-control" id="fromDate">
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label class="form-label">Đến ngày</label>
+                                        <input type="date" class="form-control" id="toDate">
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label class="form-label">Loại giao dịch</label>
+                                        <select class="form-control" id="historyFilter">
+                                            <option value="all">Tất cả</option>
+                                            <option value="import">Nhập kho</option>
+                                            <option value="export">Xuất kho</option>
+                                            <option value="transfer">Chuyển kho</option>
+                                            <option value="adjust">Chỉnh số</option>
+                                            <option value="user_approval">Chấp nhận user</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label class="form-label">&nbsp;</label>
+                                        <div>
+                                            <button class="btn btn-primary" id="filterHistory">
+                                                <i class="fas fa-search"></i> Lọc
+                                            </button>
+                                            <button class="btn btn-secondary" id="clearHistoryFilter">
+                                                <i class="fas fa-times"></i> Xóa bộ lọc
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="historyContent"></div>
+                    </div>
+
+                    <div id="request-adjust-section" class="content-section" style="display: none;">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <div>
+                                <button class="btn btn-info me-2" id="downloadRequestAdjustTemplate">
+                                    <i class="fas fa-download"></i> Tải mẫu Excel Yêu cầu chỉnh số
+                                </button>
+                                <button class="btn btn-warning me-2" id="importRequestAdjustExcel">
+                                    <i class="fas fa-file-excel"></i> Nhập từ Excel
+                                </button>
+                                <button class="btn btn-primary" id="addAdjustRequestBtn">
+                                    <i class="fas fa-plus"></i> Tạo yêu cầu chỉnh số
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Filter cho Adjustment Requests -->
+                        <div class="card mb-3">
+                            <div class="card-body">
+                                <h6 class="card-title">Bộ lọc</h6>
+                                <div class="row">
+                                    <div class="col-md-3">
+                                        <label class="form-label">Từ ngày</label>
+                                        <input type="date" class="form-control" id="requestFromDate">
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label class="form-label">Đến ngày</label>
+                                        <input type="date" class="form-control" id="requestToDate">
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label class="form-label">Trạng thái</label>
+                                        <select class="form-select" id="requestStatusFilter">
+                                            <option value="">Tất cả</option>
+                                            <option value="pending">Chờ duyệt</option>
+                                            <option value="approved">Đã duyệt</option>
+                                            <option value="rejected">Từ chối</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label class="form-label">&nbsp;</label>
+                                        <div>
+                                            <button class="btn btn-primary" id="filterAdjustRequest">
+                                                <i class="fas fa-search"></i> Lọc
+                                            </button>
+                                            <button class="btn btn-secondary" id="clearAdjustRequestFilter">
+                                                <i class="fas fa-times"></i> Xóa bộ lọc
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="adjustRequestContent"></div>
+                    </div>
+
+                    <!-- Pending Adjustments Section for Super Admin -->
+                    <div id="pending-adjustments-section" class="content-section" style="display: none;">
+                        <h4>Duyệt yêu cầu chỉnh số</h4>
+                        <div id="pendingAdjustmentsContent"></div>
+                    </div>
+                </div>
+
+                <div id="user-management-section" class="content-section" style="display: none;">
+                    <h4>Quản lý người dùng</h4>
+
+                    <!-- Filter cho User Management -->
+                    <div class="card mb-3">
+                        <div class="card-body">
+                            <h6 class="card-title">Bộ lọc</h6>
+                            <div class="row">
+                                <div class="col-md-3">
+                                    <label class="form-label">Tên hoặc Email</label>
+                                    <input type="text" class="form-control" id="userNameFilter"
+                                        placeholder="Tìm theo tên hoặc email...">
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label">Vai trò</label>
+                                    <select class="form-select" id="userRoleFilter">
+                                        <option value="">Tất cả</option>
+                                        <option value="super_admin">Super Admin</option>
+                                        <option value="admin">Admin</option>
+                                        <option value="staff">Staff</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label">Trạng thái</label>
+                                    <select class="form-select" id="userStatusFilter">
+                                        <option value="">Tất cả</option>
+                                        <option value="approved">Đã phê duyệt</option>
+                                        <option value="pending">Chờ phê duyệt</option>
+                                        <option value="rejected">Đã từ chối</option>
+                                        <option value="disabled">Đã vô hiệu hóa</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label">&nbsp;</label>
+                                    <div>
+                                        <button class="btn btn-primary" id="filterUsersBtn">
+                                            <i class="fas fa-search"></i> Lọc
+                                        </button>
+                                        <button class="btn btn-secondary" id="clearUserFilterBtn">
+                                            <i class="fas fa-times"></i> Xóa lọc
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="userManagementContent"></div>
+                </div>
+
+                <div id="print-barcode-section" class="content-section" style="display: none;">
+                    <h4>In Barcode sản phẩm</h4>
+                    <div class="row">
+                        <!-- Cột điều khiển -->
+<!-- Cột điều khiển (Nội dung mới) -->
+<div class="col-md-4">
+    <div class="card">
+        <div class="card-body">
+            <h6 class="card-title">1. Tìm sản phẩm</h6>
+            <input type="text" class="form-control" id="barcodeItemSearch" placeholder="Nhập mã hàng hoặc tên sản phẩm...">
+            <div id="barcodeSearchResults"></div>
+            <hr>
+
+            <h6 class="card-title">2. Tùy chỉnh tem</h6>
+            <div class="mb-3">
+                <label class="form-label">Loại giấy in (inch)</label>
+                <select id="paperSizeSelector" class="form-select">
+                    <option value="4x6">4" x 6"</option>
+                    <option value="3x4">3" x 4"</option>
+                    <option value="5x10">5" x 10"</option>
+                    <option value="custom">Tùy chỉnh (mặc định)</option>
+                </select>
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Loại barcode</label>
+                <select id="barcodeTypeSelector" class="form-select">
+                    <option value="CODE128">CODE128</option>
+                    <option value="CODE39">CODE39</option>
+                    <option value="EAN13">EAN13</option>
+                </select>
+            </div>
+
+            <!-- Khu vực quản lý Template -->
+            <div class="template-management mt-3 border-top pt-3">
+                <h6 class="card-title">Quản lý Mẫu tem</h6>
+                <div class="mb-3">
+                    <label class="form-label">Tải mẫu đã lưu</label>
+                    <select id="templateLoader" class="form-select">
+                        <option value="">-- Chọn một mẫu --</option>
+                    </select>
+                </div>
+                 <div class="input-group mb-3">
+                    <input type="text" id="templateName" class="form-control" placeholder="Đặt tên cho mẫu mới...">
+                    <button class="btn btn-outline-success" type="button" id="saveTemplateBtn">Lưu</button>
+                </div>
+                <button class="btn btn-outline-danger btn-sm" id="deleteTemplateBtn">Xóa mẫu đang chọn</button>
+            </div>
+            <hr>
+            
+            <h6 class="card-title">3. In</h6>
+            <button class="btn btn-primary w-100" id="printBarcodeBtn" disabled>
+                <i class="fas fa-print"></i> In tem
+            </button>
+        </div>
+    </div>
+</div>
+
+                        <!-- Cột hiển thị và chỉnh sửa tem -->
+                        <div class="col-md-8">
+                            <h6>Kéo thả để chỉnh sửa vị trí. Click để tùy chỉnh.</h6>
+                            <div id="barcode-canvas-container" class="barcode-canvas-container">
+                                <div id="barcode-canvas" class="barcode-canvas">
+                                    <!-- Các thuộc tính sẽ được thêm vào đây bằng JS -->
+                                    <p class="text-muted text-center mt-5">Chọn một sản phẩm để bắt đầu</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Scan Barcode Section -->
+                <div id="scan-barcode-section" class="content-section" style="display: none;">
+                    <h4>Quét Barcode</h4>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div id="barcode-scanner-container" style="width: 100%;"></div>
+                            <div class="mt-2">
+                                <button class="btn btn-success" id="startScanBtn"><i class="fas fa-play"></i> Bắt đầu
+                                    quét</button>
+                                <button class="btn btn-danger" id="stopScanBtn" style="display: none;"><i
+                                        class="fas fa-stop"></i> Dừng quét</button>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="card">
+                                <div class="card-header">Kết quả quét</div>
+                                <div class="card-body" id="scanResultContainer">
+                                    <p class="text-muted">Chưa có kết quả. Vui lòng hướng camera vào mã vạch.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+        </div>
+
+        <!-- Thêm vào trong <div id="content">, cùng cấp với các section khác -->
+        <div id="settings-section" class="content-section" style="display: none;">
+
+            <!-- Card 1: Tùy chỉnh giao diện -->
+            <div class="card text-start mt-4">
+                <div class="card-header">
+                    Tùy chỉnh Giao diện
+                </div>
+                <div class="card-body">
+                    <!-- Chức năng Dark mode / Light mode -->
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <label for="darkModeSwitch" class="form-check-label">Chế độ tối (Dark Mode)</label>
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" role="switch" id="darkModeSwitch">
+                        </div>
+                    </div>
+                    <hr>
+
+                    <!-- Chức năng Custom color themes -->
+                    <div class="mb-3">
+                        <label class="form-label">Màu chủ đạo</label>
+                        <div id="themeColorSelector" class="d-flex gap-2">
+                            <button class="color-box" data-color="#007bff" style="background-color: #007bff;"></button>
+                            <button class="color-box" data-color="#6f42c1" style="background-color: #6f42c1;"></button>
+                            <button class="color-box" data-color="#d63384" style="background-color: #d63384;"></button>
+                            <button class="color-box" data-color="#fd7e14" style="background-color: #fd7e14;"></button>
+                            <button class="color-box" data-color="#198754" style="background-color: #198754;"></button>
+                            <button class="color-box" data-color="#dc3545" style="background-color: #dc3545;"></button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Card 2: Bố cục -->
+            <div class="card text-start mt-4">
+                <div class="card-header">
+                    Tùy chỉnh Bố cục
+                </div>
+                <div class="card-body">
+                    <!-- Chức năng Dashboard widgets tuỳ chỉnh (phiên bản đơn giản) -->
+                    <div class="d-flex justify-content-between align-items-center">
+                        <label for="toggleStatsWidgetsSwitch" class="form-check-label">Hiện các thẻ thống kê
+                            nhanh</label>
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" role="switch" id="toggleStatsWidgetsSwitch"
+                                checked>
+                        </div>
+                    </div>
+                    <small class="form-text text-muted">Bật/tắt các thẻ "Tổng sản phẩm", "Nhập kho hôm nay",
+                        v.v. trên Dashboard.</small>
+                </div>
+            </div>
+
+            <!-- Card 3: Bảo mật -->
+            <div class="card text-start mt-4">
+                <div class="card-header">
+                    Bảo mật tài khoản
+                </div>
+                <div class="card-body">
+                    <h6 class="card-title">Đổi mật khẩu</h6>
+                    <form id="changePasswordForm">
+                        <div class="mb-3">
+                            <label for="oldPassword" class="form-label">Mật khẩu cũ</label>
+                            <input type="password" class="form-control" id="oldPassword" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="newPassword" class="form-label">Mật khẩu mới</label>
+                            <input type="password" class="form-control" id="newPassword" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="confirmPassword" class="form-label">Xác nhận mật khẩu mới</label>
+                            <input type="password" class="form-control" id="confirmPassword" required>
+                        </div>
+                        <button type="submit" class="btn btn-primary" id="changePasswordBtn">Đổi mật
+                            khẩu</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+    </div>
+    </main>
+    </div>
+    </div>
+
+    <!-- Hidden file input for Excel import -->
+    <input type="file" id="excelFileInput" accept=".xlsx,.xls" style="display: none;">
+    <input type="file" id="exportExcelFileInput" accept=".xlsx,.xls" style="display: none;">
+    <input type="file" id="transferExcelFileInput" accept=".xlsx,.xls" style="display: none;">
+    <input type="file" id="adjustExcelFileInput" accept=".xlsx,.xls" style="display: none;">
+    <input type="file" id="requestAdjustExcelFileInput" accept=".xlsx,.xls" style="display: none;">
+
+    <!-- Toast notifications -->
+    <div class="toast-container position-fixed bottom-0 end-0 p-3">
+        <div id="toast" class="toast" role="alert">
+            <div class="toast-header">
+                <strong class="me-auto">Thông báo</strong>
+                <button type="button" class="btn-close" data-bs-dismiss="toast"></button>
+            </div>
+            <div class="toast-body" id="toastMessage"></div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script type="module" src="js/connect.js"></script>
+    <script type="module" src="js/auth.js"></script> <!-- THÊM FILE NÀY -->
+    <script type="module" src="js/dashboard.js"></script>
+    <script type="module" src="js/warehouse.js"></script>
+</body>
+
+</html>
