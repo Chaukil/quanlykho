@@ -5201,7 +5201,7 @@ export function loadHistorySection() {
         document.getElementById('historyItemCodeFilter').value = finalFilters.itemCodeFilter;
 
         // Xóa "mệnh lệnh" ngay sau khi sử dụng để nó không bị áp dụng lại ở lần sau.
-        //pendingHistoryFilter = null;
+        pendingHistoryFilter = null;
     }
 
     // --- Phần 3: Tải dữ liệu với bộ lọc đã được quyết định ---
