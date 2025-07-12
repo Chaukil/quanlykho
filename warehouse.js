@@ -5154,60 +5154,54 @@ export function loadAdjustSection() {
     initializeDirectAdjustSection();
 }
 
-// Trong warehouse.js
+// TRONG WAREHOUSE.JS
+
 export function loadHistorySection() {
-    // THÊM MỚI: Gắn các event listener mỗi khi section được tải
-    // Điều này đảm bảo chúng luôn hoạt động đúng
+    // --- BỘ PHẬN GẮN EVENT LISTENER MỚI ---
     const filterBtn = document.getElementById('filterHistory');
     const clearBtn = document.getElementById('clearHistoryFilter');
     
-    // Sử dụng cloneNode để xóa listener cũ trước khi gắn listener mới, tránh gắn nhiều lần
-    const newFilterBtn = filterBtn.cloneNode(true);
-    filterBtn.parentNode.replaceChild(newFilterBtn, filterBtn);
-    
-    const newClearBtn = clearBtn.cloneNode(true);
-    clearBtn.parentNode.replaceChild(newClearBtn, clearBtn);
-
-    newFilterBtn.addEventListener('click', () => loadAllHistory());
-    newClearBtn.addEventListener('click', () => {
-        // Đặt lại giá trị các ô lọc và tải lại
-        const today = new Date();
-        const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-
-        document.getElementById('fromDate').value = firstDayOfMonth.toISOString().split('T')[0];
-        document.getElementById('toDate').value = today.toISOString().split('T')[0];
-        document.getElementById('historyItemCodeFilter').value = '';
-        document.getElementById('historyFilter').value = 'all';
-        pendingItemCodeFilter = null;
-        loadAllHistory();
+    // Hàm trợ giúp để lấy các giá trị lọc từ DOM
+    const getFiltersFromDOM = () => ({
+        fromDate: document.getElementById('fromDate').value,
+        toDate: document.getElementById('toDate').value,
+        filterType: document.getElementById('historyFilter').value,
+        itemCodeFilter: document.getElementById('historyItemCodeFilter').value
     });
 
+    // Sự kiện nút Lọc
+    const newFilterBtn = filterBtn.cloneNode(true);
+    filterBtn.parentNode.replaceChild(newFilterBtn, filterBtn);
+    newFilterBtn.addEventListener('click', () => loadAllHistory(getFiltersFromDOM()));
 
-    // Phần code cũ của hàm giữ nguyên
-    const today = new Date();
-    const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-
-    const fromDateEl = document.getElementById('fromDate');
-    const toDateEl = document.getElementById('toDate');
-     const historyCodeFilter = document.getElementById('historyItemCodeFilter');
-    if (pendingItemCodeFilter) {
-        // Nếu có mã hàng đang chờ lọc (từ chức năng quét)
-        // thì điền nó vào ô lọc.
-        if (historyCodeFilter) {
-            historyCodeFilter.value = pendingItemCodeFilter;
-        }
-        // Xóa biến tạm sau khi đã sử dụng để không ảnh hưởng lần sau.
-        pendingItemCodeFilter = null; 
-    }
-
-    // BƯỚC 2: ĐIỀN NGÀY THÁNG MẶC ĐỊNH (NẾU RỖNG)
-    if (fromDateEl.value === '') fromDateEl.value = firstDayOfMonth.toISOString().split('T')[0];
-    if (toDateEl.value === '') toDateEl.value = today.toISOString().split('T')[0];
+    // Sự kiện nút Xóa Lọc
+    const newClearBtn = clearBtn.cloneNode(true);
+    clearBtn.parentNode.replaceChild(newClearBtn, clearBtn);
+    newClearBtn.addEventListener('click', () => {
+        // Reset DOM
+        document.getElementById('fromDate').value = '';
+        document.getElementById('toDate').value = '';
+        document.getElementById('historyItemCodeFilter').value = '';
+        document.getElementById('historyFilter').value = 'all';
+        // Tải lại với bộ lọc rỗng
+        loadAllHistory(getFiltersFromDOM());
+    });
     
-    // BƯỚC 3: LUÔN GỌI loadAllHistory() ĐỂ TẢI DỮ LIỆU
-    // Hàm này sẽ tự động đọc giá trị từ các ô lọc (bao gồm cả ô mã hàng vừa được điền)
-    loadAllHistory();
+    // --- PHẦN TẢI DỮ LIỆU BAN ĐẦU ---
+    // Kiểm tra xem có yêu cầu lọc đang chờ không
+    if (pendingHistoryFilter) {
+        // Điền các giá trị đang chờ vào DOM
+        document.getElementById('historyItemCodeFilter').value = pendingHistoryFilter.itemCodeFilter || '';
+        // Gọi loadAllHistory với "mệnh lệnh" đang chờ
+        loadAllHistory(pendingHistoryFilter);
+        // Xóa yêu cầu đang chờ
+        pendingHistoryFilter = null;
+    } else {
+        // Nếu không có, tải với các giá trị hiện tại trên DOM
+        loadAllHistory(getFiltersFromDOM());
+    }
 }
+
 
 
 function safeModalOperation(operation, context = 'modal operation') {
@@ -6155,14 +6149,14 @@ function createAdjustRejectionDetailsModal(data) {
 }
 
 // Sửa đổi hàm loadAllHistory trong warehouse.js
-async function loadAllHistory() {
+async function loadAllHistory(filters = {}) {
     try {
-        const fromDate = document.getElementById('fromDate').value;
-        const toDate = document.getElementById('toDate').value;
-        const filter = document.getElementById('historyFilter').value;
-        const itemCodeFilter = document.getElementById('historyItemCodeFilter')?.value.trim().toLowerCase();
-
-        // THAY ĐỔI LỚN: Sử dụng một "bản đồ" để nhóm các loại giao dịch
+        // Thay vì đọc từ DOM, giờ chúng ta đọc từ tham số `filters`
+        const fromDate = filters.fromDate;
+        const toDate = filters.toDate;
+        const filterType = filters.filterType || 'all';
+        const itemCodeFilter = (filters.itemCodeFilter || '').trim().toLowerCase();
+        
         const transactionTypeMap = {
             'import': ['import', 'import_edited', 'import_deleted'],
             'export': ['export', 'export_edited', 'export_deleted'],
@@ -6174,14 +6168,11 @@ async function loadAllHistory() {
         let historyQuery = collection(db, 'transactions');
         const constraints = [];
 
-        // Áp dụng bộ lọc nhóm nếu người dùng không chọn "Tất cả"
-        if (filter !== 'all' && transactionTypeMap[filter]) {
-            constraints.push(where('type', 'in', transactionTypeMap[filter]));
+        if (filterType !== 'all' && transactionTypeMap[filterType]) {
+            constraints.push(where('type', 'in', transactionTypeMap[filterType]));
         }
 
-        if (fromDate) {
-            constraints.push(where('timestamp', '>=', new Date(fromDate)));
-        }
+        if (fromDate) constraints.push(where('timestamp', '>=', new Date(fromDate)));
         if (toDate) {
             const endDate = new Date(toDate);
             endDate.setHours(23, 59, 59, 999);
