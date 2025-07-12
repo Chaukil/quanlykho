@@ -5154,59 +5154,59 @@ export function loadAdjustSection() {
     initializeDirectAdjustSection();
 }
 
-// SỬA ĐỔI HÀM NÀY
 export function loadHistorySection() {
-    // --- Helper function to get all current filter values from the UI ---
-    const getFiltersFromDOM = () => ({
-        fromDate: document.getElementById('fromDate').value,
-        toDate: document.getElementById('toDate').value,
-        filterType: document.getElementById('historyFilter').value,
-        itemCodeFilter: document.getElementById('historyItemCodeFilter').value
-    });
-
-    // --- Re-bind event listeners for the buttons to prevent duplicates ---
+    // --- Phần 1: Gắn các sự kiện cho nút ---
+    // Luôn gắn lại sự kiện để đảm bảo chúng hoạt động sau khi tab được hiển thị.
+    // Sử dụng cloneNode để xóa các listener cũ, tránh việc chạy nhiều lần.
     const filterBtn = document.getElementById('filterHistory');
-    const newFilterBtn = filterBtn.cloneNode(true); // Clone to remove old listeners
+    const newFilterBtn = filterBtn.cloneNode(true);
     filterBtn.parentNode.replaceChild(newFilterBtn, filterBtn);
     newFilterBtn.addEventListener('click', () => {
-        // When clicking "Filter", we just call this main function again,
-        // which will read the latest values from the form.
+        // Khi nhấn "Lọc", chỉ cần gọi lại chính hàm này.
+        // Nó sẽ tự động đọc các giá trị mới nhất từ giao diện.
         loadHistorySection();
     });
 
     const clearBtn = document.getElementById('clearHistoryFilter');
-    const newClearBtn = clearBtn.cloneNode(true); // Clone to remove old listeners
+    const newClearBtn = clearBtn.cloneNode(true);
     clearBtn.parentNode.replaceChild(newClearBtn, clearBtn);
     newClearBtn.addEventListener('click', () => {
-        // Reset the form fields
+        // Xóa các giá trị trong ô input
         document.getElementById('fromDate').value = '';
         document.getElementById('toDate').value = '';
         document.getElementById('historyItemCodeFilter').value = '';
         document.getElementById('historyFilter').value = 'all';
-        // Then call the main function again to load with cleared filters
-        loadHistorySection();
+        // Tải lại với bộ lọc trống
+        loadAllHistory({});
     });
 
-    // --- Logic to determine which filters to apply ---
-    let activeFilters = getFiltersFromDOM();
+    // --- Phần 2: Quyết định bộ lọc sẽ được sử dụng ---
+    // Hàm helper để đọc tất cả các giá trị lọc hiện tại từ giao diện
+    const getFiltersFromDOM = () => ({
+        fromDate: document.getElementById('fromDate').value,
+        toDate: document.getElementById('toDate').value,
+        filterType: document.getElementById('historyFilter').value,
+        itemCodeFilter: document.getElementById('historyItemCodeFilter').value.trim()
+    });
 
-    // Check if there's a pending filter from the barcode scan
-    if (pendingHistoryFilter) {
-        // Merge the pending item code into our active filters
-        activeFilters.itemCodeFilter = pendingHistoryFilter.itemCodeFilter;
+    let finalFilters = getFiltersFromDOM();
 
-        // Update the input field on the screen so the user sees the applied filter
-        document.getElementById('historyItemCodeFilter').value = activeFilters.itemCodeFilter;
+    // *** ĐÂY LÀ THAY ĐỔI QUAN TRỌNG NHẤT ***
+    // Nếu có một "mệnh lệnh" lọc đang chờ từ chức năng quét...
+    if (pendingHistoryFilter && pendingHistoryFilter.itemCodeFilter) {
+        // ...ghi đè bộ lọc mã hàng trong bộ lọc cuối cùng của chúng ta.
+        finalFilters.itemCodeFilter = pendingHistoryFilter.itemCodeFilter;
 
-        // Clear the pending filter so it's only used once
+        // Cập nhật ô input trên giao diện để người dùng thấy bộ lọc đang được áp dụng.
+        document.getElementById('historyItemCodeFilter').value = finalFilters.itemCodeFilter;
+
+        // Xóa "mệnh lệnh" ngay sau khi sử dụng để nó không bị áp dụng lại ở lần sau.
         pendingHistoryFilter = null;
     }
 
-    // --- Load the history data using the final, consolidated filters ---
-    loadAllHistory(activeFilters);
+    // --- Phần 3: Tải dữ liệu với bộ lọc đã được quyết định ---
+    loadAllHistory(finalFilters);
 }
-
-
 
 function safeModalOperation(operation, context = 'modal operation') {
     try {
