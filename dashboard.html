@@ -83,7 +83,7 @@
                             </a>
                             <div class="collapse" id="barcodeSubmenu">
                                 <ul class="nav flex-column ms-3">
-                                    <li class="nav-item">
+                                    <li class="nav-item admin-only-feature">
                                         <a class="nav-link" href="#" data-section="print-barcode">
                                             <i class="fas fa-print"></i> In Barcode
                                         </a>
@@ -449,15 +449,19 @@
                             <div class="card-body">
                                 <h6 class="card-title">Bộ lọc</h6>
                                 <div class="row mb-3">
-                                    <div class="col-md-3">
+                                    <div class="col-md-2">
                                         <label class="form-label">Từ ngày</label>
                                         <input type="date" class="form-control" id="fromDate">
                                     </div>
-                                    <div class="col-md-3">
+                                    <div class="col-md-2">
                                         <label class="form-label">Đến ngày</label>
                                         <input type="date" class="form-control" id="toDate">
                                     </div>
-                                    <div class="col-md-3">
+                                    <div class="col-md-2">
+                <label class="form-label">Mã hàng</label>
+                <input type="text" class="form-control" id="historyItemCodeFilter" placeholder="Tìm theo mã hàng...">
+            </div>
+                                    <div class="col-md-2">
                                         <label class="form-label">Loại giao dịch</label>
                                         <select class="form-control" id="historyFilter">
                                             <option value="all">Tất cả</option>

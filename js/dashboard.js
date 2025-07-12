@@ -110,17 +110,22 @@ function initializeAuth() {
     });
 }
 
+// Trong dashboard.js
 function setupUserInterface() {
     document.getElementById('userGreeting').textContent = `Hi, ${currentUser.name}`;
 
     if (userRole === 'staff') {
-        // Hide admin and super admin features
+        // Hide admin and super admin sections
         document.querySelectorAll('.admin-only, .super-admin-only').forEach(element => {
+            element.style.display = 'none';
+        });
+        // THÊM MỚI: Ẩn các tính năng riêng lẻ chỉ dành cho admin trở lên
+        document.querySelectorAll('.admin-only-feature').forEach(element => {
             element.style.display = 'none';
         });
     } else if (userRole === 'admin') {
         // Show admin features but hide super admin features
-        document.querySelectorAll('.admin-only').forEach(element => {
+        document.querySelectorAll('.admin-only, .admin-only-feature').forEach(element => {
             element.style.display = 'block';
         });
         document.querySelectorAll('.super-admin-only').forEach(element => {
@@ -128,11 +133,10 @@ function setupUserInterface() {
         });
     } else if (userRole === 'super_admin') {
         // Show all features for super admin
-        document.querySelectorAll('.admin-only, .super-admin-only').forEach(element => {
+        document.querySelectorAll('.admin-only, .super-admin-only, .admin-only-feature').forEach(element => {
             element.style.display = 'block';
         });
         
-        // Hide request-adjust section for super admin (they do direct adjust)
         const requestAdjustNav = document.querySelector('[data-section="request-adjust"]');
         if (requestAdjustNav) {
             requestAdjustNav.parentElement.style.display = 'none';
@@ -149,6 +153,7 @@ function setupUserInterface() {
         }
     });
 }
+
 
 // Initialize navigation
 function initializeNavigation() {

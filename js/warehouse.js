@@ -2549,8 +2549,8 @@ window.deleteAdjustTransaction = async function (transactionId) {
             deletedAdjustment: data.adjustment,
             deletedReason: data.reason,
             revertedTo: data.previousQuantity,
-            deletedBy: currentUser.uid,
-            deletedByName: currentUser.name,
+            performedBy: currentUser.uid,
+            performedByName: currentUser.name,
             date: serverTimestamp(),
             timestamp: serverTimestamp()
         });
@@ -5386,25 +5386,29 @@ function createHistoryPagination(allData, container) {
             const data = item.data;
             const row = document.createElement('tr');
             const date = data.timestamp ? data.timestamp.toDate().toLocaleString('vi-VN') : 'N/A';
-            let performedBy = data.performedByName || data.modifiedByName || 'N/A';
-
+            let performedBy = data.performedByName || data.modifiedByName || data.deletedByName || 'N/A';
+            
             const typeConfig = {
-                'import': { label: 'Nhập kho', badgeClass: 'bg-success', icon: 'fas fa-download' },
-                'export': { label: 'Xuất kho', badgeClass: 'bg-warning text-dark', icon: 'fas fa-upload' },
-                'transfer': { label: 'Chuyển kho', badgeClass: 'bg-info', icon: 'fas fa-exchange-alt' },
-                'adjust': { label: 'Chỉnh số', badgeClass: 'bg-secondary', icon: 'fas fa-edit' },
-                'adjust_deleted': { label: 'Xóa chỉnh số', badgeClass: 'bg-danger', icon: 'fas fa-trash-alt' },
-                'adjust_rejected': { label: 'Từ chối chỉnh số', badgeClass: 'bg-secondary', icon: 'fas fa-times-circle' },
-                'user_approval': { label: 'Chấp nhận user', badgeClass: 'bg-primary', icon: 'fas fa-user-check' },
-                'user_management': { label: 'Quản lý User', badgeClass: 'bg-primary', icon: 'fas fa-users-cog' },
-                'import_deleted': { label: 'Xóa nhập kho', badgeClass: 'bg-danger', icon: 'fas fa-trash-alt' },
-                'export_deleted': { label: 'Xóa xuất kho', badgeClass: 'bg-danger', icon: 'fas fa-trash-alt' },
-                'transfer_deleted': { label: 'Xóa chuyển kho', badgeClass: 'bg-danger', icon: 'fas fa-trash-alt' },
-                'import_edited': { label: 'Sửa nhập kho', badgeClass: 'bg-warning text-dark', icon: 'fas fa-pencil-alt' },
-                'export_edited': { label: 'Sửa xuất kho', badgeClass: 'bg-warning text-dark', icon: 'fas fa-pencil-alt' },
-                'adjust_edited': { label: 'Sửa chỉnh số', badgeClass: 'bg-warning text-dark', icon: 'fas fa-pencil-alt' },
-                'transfer_edited': { label: 'Sửa chuyển kho', badgeClass: 'bg-warning text-dark', icon: 'fas fa-pencil-alt' },
-            };
+            'import': { label: 'Nhập kho', badgeClass: 'bg-success', icon: 'fas fa-download' },
+            'import_edited': { label: 'Sửa Nhập', badgeClass: 'bg-warning text-dark', icon: 'fas fa-pencil-alt' },
+            'import_deleted': { label: 'Xóa Nhập', badgeClass: 'bg-danger', icon: 'fas fa-trash-alt' },
+
+            'export': { label: 'Xuất kho', badgeClass: 'bg-warning text-dark', icon: 'fas fa-upload' },
+            'export_edited': { label: 'Sửa Xuất', badgeClass: 'bg-warning text-dark', icon: 'fas fa-pencil-alt' },
+            'export_deleted': { label: 'Xóa Xuất', badgeClass: 'bg-danger', icon: 'fas fa-trash-alt' },
+            
+            'transfer': { label: 'Chuyển kho', badgeClass: 'bg-info', icon: 'fas fa-exchange-alt' },
+            'transfer_edited': { label: 'Sửa Chuyển', badgeClass: 'bg-warning text-dark', icon: 'fas fa-pencil-alt' },
+            'transfer_deleted': { label: 'Xóa Chuyển', badgeClass: 'bg-danger', icon: 'fas fa-trash-alt' },
+
+            'adjust': { label: 'Chỉnh số', badgeClass: 'bg-secondary', icon: 'fas fa-edit' },
+            'adjust_edited': { label: 'Sửa Chỉnh số', badgeClass: 'bg-warning text-dark', icon: 'fas fa-pencil-alt' },
+            'adjust_deleted': { label: 'Xóa Chỉnh số', badgeClass: 'bg-danger', icon: 'fas fa-trash-alt' },
+            'adjust_rejected': { label: 'Từ chối CS', badgeClass: 'bg-secondary', icon: 'fas fa-times-circle' },
+
+            'user_approval': { label: 'Duyệt User', badgeClass: 'bg-primary', icon: 'fas fa-user-check' },
+            'user_management': { label: 'Quản lý User', badgeClass: 'bg-primary', icon: 'fas fa-users-cog' },
+        };
             const config = typeConfig[data.type] || { label: data.type, badgeClass: 'bg-dark', icon: 'fas fa-question' };
 
             let details = '';
@@ -6098,28 +6102,35 @@ function createAdjustRejectionDetailsModal(data) {
 
     return modal;
 }
+
+// Sửa đổi hàm loadAllHistory trong warehouse.js
 async function loadAllHistory() {
     try {
         const fromDate = document.getElementById('fromDate').value;
         const toDate = document.getElementById('toDate').value;
         const filter = document.getElementById('historyFilter').value;
+        const itemCodeFilter = document.getElementById('historyItemCodeFilter')?.value.trim().toLowerCase();
+
+        // THAY ĐỔI LỚN: Sử dụng một "bản đồ" để nhóm các loại giao dịch
+        const transactionTypeMap = {
+            'import': ['import', 'import_edited', 'import_deleted'],
+            'export': ['export', 'export_edited', 'export_deleted'],
+            'transfer': ['transfer', 'transfer_edited', 'transfer_deleted'],
+            'adjust': ['adjust', 'adjust_edited', 'adjust_deleted', 'adjust_rejected'],
+            'user_management': ['user_approval', 'user_management']
+        };
 
         let historyQuery = collection(db, 'transactions');
         const constraints = [];
 
-        // Xử lý filter đặc biệt cho chỉnh số
-        if (filter === 'adjust') {
-            // Lấy cả adjust và adjust_rejected
-            constraints.push(where('type', 'in', ['adjust', 'adjust_rejected']));
-        } else if (filter !== 'all') {
-            constraints.push(where('type', '==', filter));
+        // Áp dụng bộ lọc nhóm nếu người dùng không chọn "Tất cả"
+        if (filter !== 'all' && transactionTypeMap[filter]) {
+            constraints.push(where('type', 'in', transactionTypeMap[filter]));
         }
 
         if (fromDate) {
-            const startDate = new Date(fromDate);
-            constraints.push(where('timestamp', '>=', startDate));
+            constraints.push(where('timestamp', '>=', new Date(fromDate)));
         }
-
         if (toDate) {
             const endDate = new Date(toDate);
             endDate.setHours(23, 59, 59, 999);
@@ -6133,21 +6144,39 @@ async function loadAllHistory() {
         }
 
         const snapshot = await getDocs(historyQuery);
+        let docs = snapshot.docs;
+
+        // Lọc phía client theo mã hàng (giữ nguyên)
+        if (itemCodeFilter) {
+            docs = docs.filter(doc => {
+                const data = doc.data();
+                if (data.itemCode && data.itemCode.toLowerCase().includes(itemCodeFilter)) return true;
+                if (data.deletedItemCode && data.deletedItemCode.toLowerCase().includes(itemCodeFilter)) return true;
+                if (data.items && Array.isArray(data.items)) {
+                    return data.items.some(item => item.code && item.code.toLowerCase().includes(itemCodeFilter));
+                }
+                if (data.deletedItems && Array.isArray(data.deletedItems)) {
+                    return data.deletedItems.some(item => item.code && item.code.toLowerCase().includes(itemCodeFilter));
+                }
+                return false;
+            });
+        }
 
         const content = document.getElementById('historyContent');
-
-        if (snapshot.empty) {
-            content.innerHTML = '<p class="text-muted">Không có dữ liệu trong khoảng thời gian này.</p>';
+        if (docs.length === 0) {
+            content.innerHTML = '<p class="text-muted">Không có dữ liệu phù hợp.</p>';
             return;
         }
 
-        createHistoryPagination(snapshot.docs, content);
+        createHistoryPagination(docs, content);
 
     } catch (error) {
         console.error('Error loading history:', error);
         showToast('Lỗi tải lịch sử giao dịch', 'danger');
     }
 }
+
+
 
 // Initialize all functions
 document.addEventListener('DOMContentLoaded', function () {
@@ -6277,6 +6306,7 @@ function clearHistoryFilter() {
     document.getElementById('fromDate').value = firstDayOfMonth.toISOString().split('T')[0];
     document.getElementById('toDate').value = today.toISOString().split('T')[0];
     document.getElementById('historyFilter').value = 'all';
+     document.getElementById('historyItemCodeFilter').value = '';
     loadAllHistory();
 }
 
@@ -7258,8 +7288,8 @@ window.deleteImportTransaction = async function (transactionId) {
             originalTransactionId: transactionId,
             deletedImportNumber: data.importNumber,
             deletedItems: data.items,
-            deletedBy: currentUser.uid,
-            deletedByName: currentUser.name,
+            performedBy: currentUser.uid,
+            performedByName: currentUser.name,
             date: serverTimestamp(),
             timestamp: serverTimestamp()
         });
@@ -7546,8 +7576,8 @@ window.deleteExportTransaction = async function (transactionId) {
             originalTransactionId: transactionId,
             deletedExportNumber: data.exportNumber,
             deletedItems: data.items,
-            deletedBy: currentUser.uid,
-            deletedByName: currentUser.name,
+            performedBy: currentUser.uid,
+            performedByName: currentUser.name,
             date: serverTimestamp(),
             timestamp: serverTimestamp()
         });
@@ -7863,8 +7893,8 @@ window.deleteTransferTransaction = async function (transactionId) {
             deletedQuantity: data.quantity,
             deletedFromLocation: data.fromLocation,
             deletedToLocation: data.toLocation,
-            deletedBy: currentUser.uid,
-            deletedByName: currentUser.name,
+            performedBy: currentUser.uid,
+            performedByName: currentUser.name,
             date: serverTimestamp(),
             timestamp: serverTimestamp()
         });
@@ -9262,6 +9292,9 @@ async function deleteSelectedTemplate() {
         return;
     }
 
+    const templateToDelete = savedTemplates.find(t => t.name === templateName);
+    if (!templateToDelete) return;
+
     const confirmed = await showConfirmation(
         'Xác nhận xóa mẫu',
         `Bạn có chắc muốn xóa vĩnh viễn mẫu tem "${templateName}"?`,
@@ -9269,11 +9302,17 @@ async function deleteSelectedTemplate() {
     );
 
     if (confirmed) {
-        savedTemplates = savedTemplates.filter(t => t.name !== templateName);
-        localStorage.setItem(`barcodeTemplates_${currentUser.uid}`, JSON.stringify(savedTemplates));
-        
-        populateTemplateSelector();
-        showToast(`Đã xóa mẫu "${templateName}".`, "success");
+        try {
+            await deleteDoc(doc(db, "barcode_templates", templateToDelete.id));
+            showToast(`Đã xóa mẫu "${templateName}".`, "success");
+            
+            // Tải lại danh sách từ đầu
+            loadBarcodeTemplates();
+
+        } catch (error) {
+            console.error("Lỗi xóa mẫu tem:", error);
+            showToast("Lỗi khi xóa mẫu tem trên máy chủ.", "danger");
+        }
     }
 }
 
@@ -9283,20 +9322,15 @@ function applySelectedTemplate() {
 
     const template = savedTemplates.find(t => t.name === templateName);
     if (template) {
-        // 1. Set kích thước giấy
         document.getElementById('paperSizeSelector').value = template.paperSize;
-        
-        // 2. Cập nhật canvas (quan trọng)
         updateBarcodeCanvasSize();
-        
-        // 3. Render lại label với layout của template
         renderBarcodeLabel(template.layout);
-        
         showToast(`Đã áp dụng mẫu "${templateName}".`, "info");
     }
 }
 
-function saveCurrentTemplate() {
+
+async function saveCurrentTemplate() {
     const templateName = document.getElementById('templateName').value.trim();
     if (!templateName) {
         showToast("Vui lòng đặt tên cho mẫu tem.", "warning");
@@ -9308,7 +9342,6 @@ function saveCurrentTemplate() {
         return;
     }
 
-    // Lấy layout hiện tại từ các element trên canvas
     const currentLayout = {};
     document.querySelectorAll('.barcode-element').forEach(el => {
         currentLayout[el.dataset.key] = {
@@ -9320,27 +9353,52 @@ function saveCurrentTemplate() {
     const newTemplate = {
         name: templateName,
         paperSize: document.getElementById('paperSizeSelector').value,
-        layout: currentLayout
+        layout: currentLayout,
+        userId: currentUser.uid, // Quan trọng: lưu ID người tạo
+        createdAt: serverTimestamp()
     };
 
-    savedTemplates.push(newTemplate);
-    localStorage.setItem(`barcodeTemplates_${currentUser.uid}`, JSON.stringify(savedTemplates));
-    
-    populateTemplateSelector();
-    showToast(`Đã lưu mẫu "${templateName}" thành công!`, "success");
-    document.getElementById('templateName').value = '';
-    document.getElementById('templateLoader').value = newTemplate.name; // Tự động chọn mẫu vừa lưu
+    try {
+        const docRef = await addDoc(collection(db, "barcode_templates"), newTemplate);
+        showToast(`Đã lưu mẫu "${templateName}" thành công!`, "success");
+        
+        // Cập nhật lại danh sách local và dropdown
+        newTemplate.id = docRef.id;
+        savedTemplates.push(newTemplate);
+        populateTemplateSelector();
+
+        document.getElementById('templateName').value = '';
+        document.getElementById('templateLoader').value = newTemplate.name;
+
+    } catch (error) {
+        console.error("Lỗi lưu mẫu tem:", error);
+        showToast("Lỗi khi lưu mẫu tem lên máy chủ.", "danger");
+    }
 }
 
-function loadBarcodeTemplates() {
-    const templates = localStorage.getItem(`barcodeTemplates_${currentUser.uid}`);
-    savedTemplates = templates ? JSON.parse(templates) : [];
-    populateTemplateSelector();
+async function loadBarcodeTemplates() {
+    if (!currentUser) return;
+
+    try {
+        const q = query(collection(db, "barcode_templates"), where("userId", "==", currentUser.uid));
+        const querySnapshot = await getDocs(q);
+        
+        savedTemplates = []; // Reset
+        querySnapshot.forEach((doc) => {
+            savedTemplates.push({ id: doc.id, ...doc.data() });
+        });
+        
+        populateTemplateSelector();
+
+    } catch (error) {
+        console.error("Lỗi tải mẫu tem từ Firebase:", error);
+        showToast("Không thể tải các mẫu tem đã lưu.", "danger");
+    }
 }
 
 function populateTemplateSelector() {
     const loader = document.getElementById('templateLoader');
-    loader.innerHTML = '<option value="">-- Chọn một mẫu --</option>'; // Reset
+    loader.innerHTML = '<option value="">-- Chọn một mẫu --</option>'; 
     
     savedTemplates.forEach(template => {
         const option = document.createElement('option');
@@ -9470,29 +9528,45 @@ function renderBarcodeLabel(layout = null) {
 
     if (!currentBarcodeItem) return;
 
-    // THÊM MỚI: Thêm số lượng và vị trí vào các thuộc tính mặc định
+    // THAY ĐỔI LỚN: Định nghĩa lại layout mặc định của tem
     const defaultElements = {
-        code: { text: `Mã: ${currentBarcodeItem.code}`, top: 5, left: 5 },
-        name: { text: `Tên: ${currentBarcodeItem.name}`, top: 25, left: 5 },
-        quantity: { text: `SL: ${currentBarcodeItem.quantity}`, top: 45, left: 5 },
-        location: { text: `Vị trí: ${currentBarcodeItem.location}`, top: 65, left: 5 },
-        barcode: { type: 'barcode', value: currentBarcodeItem.code, top: 85, left: 5, width: 2, height: 40 },
+        // Dòng 1: Mã hàng - Mô tả
+        itemInfo: { 
+            text: `${currentBarcodeItem.code} - ${currentBarcodeItem.name}`, 
+            top: 5, 
+            left: 5 
+        },
+        // Dòng 2: Số lượng - Vị trí
+        stockInfo: { 
+            text: `SL: ${currentBarcodeItem.quantity} - Vị trí: ${currentBarcodeItem.location}`, 
+            top: 30, 
+            left: 5 
+        },
+        // Dòng 3: Barcode
+        barcode: { 
+            type: 'barcode', 
+            value: currentBarcodeItem.code, 
+            top: 55, 
+            left: 5, 
+            width: 2, 
+            height: 40 
+        },
     };
     
     for (const key in defaultElements) {
         const defaultData = defaultElements[key];
         const pos = layout ? layout[key] : { top: defaultData.top, left: defaultData.left };
+
         const div = document.createElement('div');
         
-        if(defaultData.type === 'barcode'){
+        if (defaultData.type === 'barcode') {
             const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
             svg.id = 'barcode-svg';
             div.appendChild(svg);
              JsBarcode(svg, defaultData.value, {
-                // BỎ ĐI: không cần format nữa, dùng mặc định CODE128
                 width: defaultData.width,
                 height: defaultData.height,
-                displayValue: true
+                displayValue: true // Tắt hiển thị text dưới barcode vì đã có ở dòng 1
             });
         } else {
              div.textContent = defaultData.text;
@@ -9501,13 +9575,12 @@ function renderBarcodeLabel(layout = null) {
         div.className = 'barcode-element';
         div.style.top = `${pos.top}px`;
         div.style.left = `${pos.left}px`;
-        div.dataset.key = key;
+        div.dataset.key = key; // Dùng key để lưu layout
 
         makeElementDraggable(div);
         canvas.appendChild(div);
     }
 }
-
 
 function makeElementDraggable(element) {
     let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
@@ -9618,7 +9691,6 @@ async function onScanSuccess(decodedText, decodedResult) {
             const itemDoc = snapshot.docs[0];
             const item = itemDoc.data();
             
-            // THAY ĐỔI: Logic phân quyền cho các nút hành động
             const actionButtons = userRole !== 'staff' 
                 ? `
                     <button class="btn btn-success" onclick="showImportFromScan('${JSON.stringify(item).replace(/"/g, '&quot;')}')"><i class="fas fa-download"></i> Nhập kho</button>
@@ -9638,6 +9710,8 @@ async function onScanSuccess(decodedText, decodedResult) {
                 <hr>
                 <div class="d-grid gap-2">
                     <button class="btn btn-info" onclick="viewInventoryDetailsFromScan('${itemDoc.id}')"><i class="fas fa-eye"></i> Xem chi tiết tồn kho</button>
+                    <!-- THÊM MỚI: Nút xem lịch sử -->
+                    <button class="btn btn-secondary" onclick="viewItemHistoryFromScan('${item.code}')"><i class="fas fa-history"></i> Xem lịch sử mã hàng</button>
                     ${actionButtons}
                 </div>
             `;
@@ -9646,6 +9720,30 @@ async function onScanSuccess(decodedText, decodedResult) {
     } catch (error) {
         showToast('Lỗi khi truy vấn dữ liệu sản phẩm', 'danger');
     }
+}
+
+// Thêm hàm mới này vào warehouse.js
+window.viewItemHistoryFromScan = function(itemCode) {
+    // Đóng modal chi tiết nếu nó đang mở
+    const modal = document.getElementById('scannedItemDetailsModal');
+    if (modal) {
+        const bsModal = bootstrap.Modal.getInstance(modal);
+        if (bsModal) {
+            bsModal.hide();
+        }
+    }
+
+    // Kích hoạt link Lịch sử trên sidebar
+    document.querySelector('a[data-section="history"]').click();
+
+    // Đợi một chút để section Lịch sử được hiển thị, sau đó điền và kích hoạt bộ lọc
+    setTimeout(() => {
+        const historyCodeFilter = document.getElementById('historyItemCodeFilter');
+        if (historyCodeFilter) {
+            historyCodeFilter.value = itemCode;
+            document.getElementById('filterHistory').click(); // Tự động nhấn nút "Lọc"
+        }
+    }, 200); // 200ms là đủ để DOM cập nhật
 }
 
 function onScanFailure(error) {
