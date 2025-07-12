@@ -95,6 +95,7 @@ function initializeAuth() {
                 loadSettings();
 
                 setupUserInterface();
+                initializeSidebarToggle();
                 loadDashboardData();
                 updateUserManagementBadge();
             } else {
@@ -326,31 +327,35 @@ function loadUserManagementSection() {
     // Tải bảng lần đầu khi vào tab
     loadUsersTable();
     
-    // Gán sự kiện tìm kiếm trực tiếp, chỉ chạy một lần
+    // Gán sự kiện tìm kiếm, chỉ chạy một lần
     if (!window.userManagementFiltersInitialized) {
-        document.getElementById('userNameFilter')?.addEventListener('input', debounce(() => loadUsersTable(true), 500));
-        document.getElementById('userRoleFilter')?.addEventListener('change', () => loadUsersTable(true));
-        document.getElementById('userStatusFilter')?.addEventListener('change', () => loadUsersTable(true));
+        // Sửa các hàm gọi này để luôn quay về trang 1
+        document.getElementById('userNameFilter')?.addEventListener('input', debounce(() => loadUsersTable(true, 1), 500));
+        document.getElementById('userRoleFilter')?.addEventListener('change', () => loadUsersTable(true, 1));
+        document.getElementById('userStatusFilter')?.addEventListener('change', () => loadUsersTable(true, 1));
+        
         window.userManagementFiltersInitialized = true;
     }
 }
 
-async function loadUsersTable(useFilter = false) {
+// Thay thế toàn bộ hàm này trong dashboard.js
+async function loadUsersTable(useFilter = false, page = 1) {
     if (userRole !== 'super_admin') return;
 
     try {
         const usersQuery = query(collection(db, 'users'), orderBy('createdAt', 'desc'));
         const snapshot = await getDocs(usersQuery);
 
-        let users = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        let allUsers = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        let filteredUsers = allUsers;
 
-        // Lọc dữ liệu (giữ nguyên)
+        // Lọc dữ liệu (giữ nguyên logic)
         if (useFilter) {
             const nameFilter = document.getElementById('userNameFilter').value.toLowerCase();
             const roleFilter = document.getElementById('userRoleFilter').value;
             const statusFilter = document.getElementById('userStatusFilter').value;
 
-            users = users.filter(user => {
+            filteredUsers = allUsers.filter(user => {
                 const nameMatch = nameFilter === '' || user.name.toLowerCase().includes(nameFilter) || user.email.toLowerCase().includes(nameFilter);
                 const roleMatch = roleFilter === '' || user.role === roleFilter;
                 const statusMatch = statusFilter === '' || user.status === statusFilter;
@@ -361,10 +366,19 @@ async function loadUsersTable(useFilter = false) {
         const content = document.getElementById('userManagementContent');
         content.innerHTML = '';
 
-        if (users.length === 0) {
+        if (filteredUsers.length === 0) {
             content.innerHTML = '<p class="text-muted">Không tìm thấy người dùng nào.</p>';
             return;
         }
+
+        // --- BẮT ĐẦU LOGIC PHÂN TRANG ---
+        const itemsPerPage = 10; // Hiển thị 10 user mỗi trang
+        const totalItems = filteredUsers.length;
+        const totalPages = Math.ceil(totalItems / itemsPerPage);
+        const startIndex = (page - 1) * itemsPerPage;
+        const endIndex = Math.min(startIndex + itemsPerPage, totalItems);
+        const pageData = filteredUsers.slice(startIndex, endIndex);
+        // --- KẾT THÚC LOGIC PHÂN TRANG ---
 
         const table = document.createElement('table');
         table.className = 'table table-striped';
@@ -383,7 +397,9 @@ async function loadUsersTable(useFilter = false) {
         `;
         const tbody = table.querySelector('tbody');
 
-        users.forEach(user => {
+        // Chỉ lặp qua dữ liệu của trang hiện tại
+        pageData.forEach(user => {
+            // Logic tạo hàng (row) giữ nguyên như cũ
             const row = document.createElement('tr');
             if (user.status === 'pending') row.classList.add('table-warning');
             if (user.status === 'rejected') row.classList.add('table-danger', 'bg-opacity-10');
@@ -405,34 +421,18 @@ async function loadUsersTable(useFilter = false) {
             
             const createdAt = user.createdAt ? user.createdAt.toDate().toLocaleDateString('vi-VN') : 'N/A';
 
-            // --- LOGIC HIỂN THỊ BUTTON ĐỘNG ---
             let actionButtonsHtml = '';
-            const isCurrentUser = currentUser.uid === user.id; // Không cho thao tác trên chính mình
+            const isCurrentUser = currentUser.uid === user.id;
 
             switch (user.status) {
                 case 'pending':
-                    actionButtonsHtml = `
-                        <button class="btn btn-success btn-sm me-1" onclick="approveUser('${user.id}', '${user.name}')" ${isCurrentUser ? 'disabled' : ''} title="Chấp nhận">
-                            <i class="fas fa-check"></i>
-                        </button>
-                        <button class="btn btn-danger btn-sm" onclick="rejectUser('${user.id}', '${user.name}')" ${isCurrentUser ? 'disabled' : ''} title="Từ chối">
-                            <i class="fas fa-times"></i>
-                        </button>
-                    `;
+                    actionButtonsHtml = `<button class="btn btn-success btn-sm me-1" onclick="approveUser('${user.id}', '${user.name}')" ${isCurrentUser ? 'disabled' : ''} title="Chấp nhận"><i class="fas fa-check"></i></button> <button class="btn btn-danger btn-sm" onclick="rejectUser('${user.id}', '${user.name}')" ${isCurrentUser ? 'disabled' : ''} title="Từ chối"><i class="fas fa-times"></i></button>`;
                     break;
                 case 'rejected':
-                    actionButtonsHtml = `
-                        <button class="btn btn-info btn-sm" onclick="restoreUser('${user.id}', '${user.name}')" ${isCurrentUser ? 'disabled' : ''} title="Khôi phục yêu cầu">
-                            <i class="fas fa-undo"></i> Khôi phục
-                        </button>
-                    `;
+                    actionButtonsHtml = `<button class="btn btn-info btn-sm" onclick="restoreUser('${user.id}', '${user.name}')" ${isCurrentUser ? 'disabled' : ''} title="Khôi phục yêu cầu"><i class="fas fa-undo"></i> Khôi phục</button>`;
                     break;
-                default: // 'approved' và 'disabled'
-                    actionButtonsHtml = `
-                        <button class="btn btn-warning btn-sm" onclick="showEditUserModal('${user.id}')" ${isCurrentUser ? 'disabled' : ''}>
-                            <i class="fas fa-edit"></i> Sửa
-                        </button>
-                    `;
+                default:
+                    actionButtonsHtml = `<button class="btn btn-warning btn-sm" onclick="showEditUserModal('${user.id}')" ${isCurrentUser ? 'disabled' : ''}><i class="fas fa-edit"></i> Sửa</button>`;
                     break;
             }
 
@@ -449,9 +449,59 @@ async function loadUsersTable(useFilter = false) {
 
         content.appendChild(table);
 
+        // THÊM MỚI: Gọi hàm tạo thanh phân trang
+        updateUserManagementPagination(page, totalPages, totalItems, startIndex, endIndex);
+
     } catch (error) {
-        console.error('Error loading users:', error);
+        console.error('Lỗi tải danh sách người dùng:', error);
         showToast('Lỗi tải danh sách người dùng', 'danger');
+    }
+}
+
+// THÊM 2 HÀM MỚI NÀY VÀO CUỐI dashboard.js
+
+/**
+ * Tạo các nút bấm và thông tin cho thanh phân trang của trang Quản lý user
+ */
+function updateUserManagementPagination(currentPage, totalPages, totalItems, startIndex, endIndex) {
+    const container = document.getElementById('userManagementContent');
+    
+    let paginationHTML = '';
+    
+    // Nút "Trước"
+    paginationHTML += `<li class="page-item ${currentPage === 1 ? 'disabled' : ''}"><a class="page-link" href="#" onclick="goToUserPage(${currentPage - 1})">Trước</a></li>`;
+
+    // Các nút số trang
+    const maxVisiblePages = 5;
+    let startPage = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2));
+    let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
+    if (endPage - startPage + 1 < maxVisiblePages) {
+        startPage = Math.max(1, endPage - maxVisiblePages + 1);
+    }
+    for (let i = startPage; i <= endPage; i++) {
+        paginationHTML += `<li class="page-item ${i === currentPage ? 'active' : ''}"><a class="page-link" href="#" onclick="goToUserPage(${i})">${i}</a></li>`;
+    }
+    
+    // Nút "Sau"
+    paginationHTML += `<li class="page-item ${currentPage === totalPages || totalPages === 0 ? 'disabled' : ''}"><a class="page-link" href="#" onclick="goToUserPage(${currentPage + 1})">Sau</a></li>`;
+    
+    // Tạo container cho thanh phân trang
+    const paginationContainer = document.createElement('div');
+    paginationContainer.className = 'd-flex justify-content-between align-items-center mt-3';
+    paginationContainer.innerHTML = `
+        <small class="text-muted">Hiển thị ${startIndex + 1} - ${endIndex} của ${totalItems} kết quả</small>
+        <nav aria-label="User management pagination">
+            <ul class="pagination pagination-sm mb-0">${paginationHTML}</ul>
+        </nav>
+    `;
+
+    container.appendChild(paginationContainer);
+}
+
+window.goToUserPage = function(page) {
+    if (page >= 1) {
+        // Gọi lại hàm loadUsersTable với trang mới và vẫn sử dụng bộ lọc hiện tại
+        loadUsersTable(true, page);
     }
 }
 
@@ -1007,7 +1057,7 @@ async function loadInventoryTable(useFilter = false, page = 1) {
             const row = document.createElement('tr');
             
             // Add low stock warning
-            if (data.quantity < 10) {
+            if (parseInt(data.quantity) < 10) { 
                 row.classList.add('table-warning');
             }
             
@@ -1030,6 +1080,42 @@ async function loadInventoryTable(useFilter = false, page = 1) {
         console.error('Error loading inventory table:', error);
     }
 }
+
+// Thêm hàm mới này vào dashboard.js
+function initializeSidebarToggle() {
+    const toggleButton = document.getElementById('sidebarToggle');
+    const sidebar = document.getElementById('sidebarMenu');
+    const overlay = document.getElementById('sidebarOverlay');
+
+    // Nếu các phần tử không tồn tại thì không làm gì cả
+    if (!toggleButton || !sidebar || !overlay) {
+        return;
+    }
+
+    // Hàm để đóng sidebar
+    const closeSidebar = () => {
+        sidebar.classList.remove('show');
+        overlay.classList.remove('show');
+    };
+
+    // Sự kiện khi nhấn nút Menu: Mở sidebar
+    toggleButton.addEventListener('click', () => {
+        sidebar.classList.add('show');
+        overlay.classList.add('show');
+    });
+
+    // Sự kiện khi nhấn vào lớp phủ: Đóng sidebar
+    overlay.addEventListener('click', closeSidebar);
+
+    // Sự kiện khi nhấn vào một liên kết trong sidebar: Đóng sidebar
+    sidebar.addEventListener('click', (event) => {
+        // Chỉ đóng nếu mục được nhấn là một liên kết điều hướng
+        if (event.target.matches('.nav-link')) {
+            closeSidebar();
+        }
+    });
+}
+
 
 function updateDashboardPagination(totalPages, currentPage, totalItems, startIndex, endIndex) {
     const pagination = document.getElementById('dashboardPagination');

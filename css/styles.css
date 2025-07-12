@@ -1,5 +1,6 @@
 :root {
     --primary-color: #007bff;
+    --primary-rgb: 0, 123, 255;
     --bg-color: #f8f9fa;
     --card-bg-color: #ffffff;
     --text-color: #212529;
@@ -20,6 +21,75 @@
     --sidebar-text-color: #e0e0e0;
     --border-color: #333;
     --hover-bg-color: #333;
+}
+
+[data-theme="dark"] .table-striped > tbody > tr:nth-of-type(odd) > * {
+    /* Đặt một màu nền sọc sáng hơn một chút cho chế độ tối */
+    --bs-table-accent-bg: rgba(255, 255, 255, 0.05); 
+    color: var(--text-color);
+}
+
+[data-theme="dark"] .text-muted {
+    /* Dùng !important để đảm bảo quy tắc của chúng ta thắng quy tắc mặc định của Bootstrap */
+    color: var(--text-muted-color) !important; 
+}
+
+/* --- SỬA LỖI PHÂN TRANG TRONG CHẾ ĐỘ TỐI --- */
+[data-theme="dark"] .pagination .page-link {
+    /* Màu nền và chữ mặc định của nút phân trang */
+    background-color: var(--card-bg-color);
+    color: var(--primary-color);
+    border-color: var(--border-color);
+}
+
+[data-theme="dark"] .pagination .page-link:hover {
+    /* Khi di chuột qua */
+    background-color: var(--hover-bg-color);
+    border-color: var(--primary-color);
+}
+
+[data-theme="dark"] .pagination .page-item.active .page-link {
+    /* Nút đang được chọn (active) */
+    background-color: var(--primary-color);
+    border-color: var(--primary-color);
+    color: white; /* Giữ màu chữ trắng cho dễ đọc trên nền màu */
+}
+
+[data-theme="dark"] .pagination .page-item.disabled .page-link {
+    /* Nút bị vô hiệu hóa (disabled) */
+    background-color: var(--card-bg-color);
+    color: var(--text-muted-color);
+    border-color: var(--border-color);
+}
+
+/* --- SỬA LỖI HIỂN THỊ Ô NHẬP LIỆU TRONG CHẾ ĐỘ TỐI --- */
+[data-theme="dark"] .form-control,
+[data-theme="dark"] .form-select {
+    background-color: var(--card-bg-color); /* Nền ô nhập liệu */
+    color: var(--text-color);             /* Màu chữ khi nhập */
+    border-color: var(--border-color);      /* Màu viền */
+}
+
+/* Sửa cả trạng thái khi được chọn (focus) */
+[data-theme="dark"] .form-control:focus,
+[data-theme="dark"] .form-select:focus {
+    background-color: var(--card-bg-color);
+    color: var(--text-color);
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 0.2rem rgba(var(--primary-rgb), .25); /* Cần biến --primary-rgb */
+}
+
+/* Sửa màu chữ placeholder (chữ mờ) */
+[data-theme="dark"] .form-control::placeholder {
+    color: var(--text-muted-color);
+    opacity: 0.7;
+}
+
+[data-theme="dark"] .table-warning,
+[data-theme="dark"] .table-warning > th,
+[data-theme="dark"] .table-warning > td {
+    color: #000 !important; /* Dùng !important để đảm bảo quy tắc này luôn được ưu tiên */
+    background-color: #fff3cd; 
 }
 
 * {
@@ -95,12 +165,20 @@ body {
     padding: 8px 12px; /* Giảm padding từ mặc định (thường là 12px 16px) */
     vertical-align: middle;
     line-height: 1.2; /* Giảm line height */
+    background-color: transparent; /* Để nền của thẻ cha (hàng/bảng) được hiển thị */
+    color: var(--text-color);      /* Đảm bảo màu chữ luôn đúng theo theme */
+    border-color: var(--border-color); /* Đảm bảo màu đường viền đúng theo theme */
 }
 
 .table .btn-sm {
     padding: 4px 8px; /* Giảm padding button */
     font-size: 0.75rem;
     line-height: 1.2;
+}
+
+main.col-md-9 {
+    background-color: var(--bg-color);
+    transition: background-color 0.3s ease; /* Thêm hiệu ứng chuyển màu mượt mà */
 }
 
 .table-striped>tbody>tr:nth-of-type(odd)>* {
@@ -348,6 +426,12 @@ body {
 .table-warning th {
     background-color: rgba(255, 193, 7, 0.1) !important;
     border-color: rgba(255, 193, 7, 0.2) !important;
+}
+
+.table-warning > th,
+.table-warning > td {
+    background-color: #fff3cd !important; /* Dùng !important để đảm bảo màu nền luôn là vàng */
+    color: #664d03 !important;           /* Màu chữ mặc định cho nền vàng là màu sẫm */
 }
 
 .table-info th {
@@ -752,6 +836,8 @@ body {
     padding: 0.4rem 0.5rem;
     font-size: 0.8rem;
     height: 32px;
+    width: 100%; /* Giúp ô nhập liệu co giãn theo khung */
+    box-sizing: border-box;
 }
 
 .form-select-compact {
@@ -761,6 +847,8 @@ body {
     font-size: 0.8rem;
     height: 32px;
     background-color: var(--card-bg-color);
+    width: 100%; /* Giúp ô lựa chọn co giãn theo khung */
+    box-sizing: border-box;
 }
 
 /* Compact unit selector */
@@ -1176,7 +1264,53 @@ body {
 }
 
 .template-management {
-    background-color: #f8f9fa;
+    background-color: var(--card-bg-color);
     padding: 1rem;
     border-radius: 5px;
+    border: 1px solid var(--border-color);
+}
+
+/* --- CSS CHO SIDEBAR RESPONSIVE --- */
+
+/* Lớp phủ mờ phía sau sidebar khi nó hiện ra */
+.sidebar-overlay {
+    display: none; /* Mặc định ẩn đi */
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.5);
+    z-index: 1040; /* Nằm dưới sidebar nhưng trên nội dung chính */
+}
+
+/* Hiển thị lớp phủ khi sidebar có lớp .show */
+.sidebar-overlay.show {
+    display: block;
+}
+
+/* Các quy tắc cho màn hình nhỏ (điện thoại, tablet đứng) */
+@media (max-width: 767.98px) {
+    /* Biến sidebar thành menu trượt từ bên trái */
+    .sidebar {
+        position: fixed; /* Lấy sidebar ra khỏi luồng trang bình thường */
+        top: 0;
+        left: 0;
+        bottom: 0;
+        width: 250px; /* Đặt chiều rộng cố định cho sidebar */
+        z-index: 1050; /* Luôn nằm trên cùng */
+        transform: translateX(-100%); /* Ẩn nó hoàn toàn sang bên trái */
+        transition: transform 0.3s ease-in-out; /* Hiệu ứng trượt mượt mà */
+        box-shadow: 0 0 15px rgba(0,0,0,0.2); /* Thêm bóng đổ cho đẹp */
+    }
+
+    /* Khi sidebar có lớp .show, trượt nó vào trong màn hình */
+    .sidebar.show {
+        transform: translateX(0);
+    }
+    
+    /* Ghi đè lại margin của Bootstrap cho nội dung chính trên màn hình nhỏ */
+    main.col-md-9 {
+        margin-left: 0 !important;
+    }
 }

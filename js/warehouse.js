@@ -5285,6 +5285,23 @@ async function loadInventoryForAdjust() {
     }
 }
 
+const beepAudio = new Audio('data:audio/mpeg;base64,SUQzBAAAAAAAI_imR3ABcAAAAtASx9AAD/8D5iAABA4w/A3/9A3iBAQCRBwUAAAAA//89gAQCAwABAwgAACE4f//895gAAB5oZAAAAA//9+sAACA4QkAAAAA//895gGAAAEAAAAA//9+sAGAAAEAAAKAEDlQW8AAAAAtDRpAkBIjIGAAAAA//895gqEAAMBAQAAAQAA//9+sAXAwEAAAAAAFlQgAADIiVEP//uQAAA+iBMAAAAA//895gGAAAAAABAAAD//9+sAEABwcEAAAAADlQTWEAAAEAAAD//895gAAAQAAAAAAAAAA//9+sAIAAAAHDgAAAAA5UExhAAAQAAAQAAAA//895gYAAAEAAAAAAAAA//9+sAMAAAQAAAAAAAA5UExhAAABAQAAAQAA');
+
+/**
+ * Hàm này phát ra âm thanh "bíp" ngắn.
+ */
+function playBeepSound() {
+    try {
+        // Đặt lại thời gian về đầu để đảm bảo âm thanh luôn phát từ đầu,
+        // ngay cả khi người dùng quét rất nhanh.
+        beepAudio.currentTime = 0;
+        beepAudio.play();
+    } catch (e) {
+        // Ghi lại lỗi nếu không thể phát âm thanh, nhưng không làm gián đoạn ứng dụng
+        console.error("Không thể phát âm thanh:", e);
+    }
+}
+
 function createHistoryPagination(allData, container) {
     let currentPage = 1;
     const itemsPerPage = 15;
@@ -9159,17 +9176,21 @@ let barcodeElementsLayout = {};
 let savedTemplates = []; // Biến lưu các template
 const INCH_TO_PX = 96;
 
-// Sửa đổi hàm loadPrintBarcodeSection
+// Thay thế hàm này trong warehouse.js
 export function loadPrintBarcodeSection() {
     // Gán sự kiện cho các control cũ
     document.getElementById('barcodeItemSearch').addEventListener('input', debounce(searchItemsForBarcode, 300));
     document.getElementById('paperSizeSelector').addEventListener('change', updateBarcodeCanvasSize);
     document.getElementById('printBarcodeBtn').addEventListener('click', () => window.print());
-    
-    // Gán sự kiện cho các control Template MỚI
+
+    // Gán sự kiện cho các control Template
     document.getElementById('saveTemplateBtn').addEventListener('click', saveCurrentTemplate);
     document.getElementById('templateLoader').addEventListener('change', applySelectedTemplate);
     document.getElementById('deleteTemplateBtn').addEventListener('click', deleteSelectedTemplate);
+
+    // THÊM MỚI: Gán sự kiện cho các ô nhập liệu tùy chỉnh
+    document.getElementById('customWidthInput')?.addEventListener('input', debounce(updateBarcodeCanvasSize, 300));
+    document.getElementById('customHeightInput')?.addEventListener('input', debounce(updateBarcodeCanvasSize, 300));
 
     // Tải các template đã lưu khi khởi tạo
     loadBarcodeTemplates();
@@ -9177,6 +9198,7 @@ export function loadPrintBarcodeSection() {
     // Cập nhật kích thước canvas ban đầu
     updateBarcodeCanvasSize();
 }
+
 
 async function deleteSelectedTemplate() {
     const templateName = document.getElementById('templateLoader').value;
@@ -9209,20 +9231,33 @@ async function deleteSelectedTemplate() {
     }
 }
 
+// Thay thế hàm này trong warehouse.js
 function applySelectedTemplate() {
     const templateName = document.getElementById('templateLoader').value;
     if (!templateName) return;
 
     const template = savedTemplates.find(t => t.name === templateName);
     if (template) {
+        // Áp dụng kích thước giấy
         document.getElementById('paperSizeSelector').value = template.paperSize;
+
+        // THÊM MỚI: Nếu là mẫu tùy chỉnh, điền giá trị vào các ô input
+        if (template.paperSize === 'custom') {
+            document.getElementById('customWidthInput').value = template.customWidth || 4;
+            document.getElementById('customHeightInput').value = template.customHeight || 3;
+        }
+
+        // Cập nhật lại kích thước canvas (hàm này sẽ tự xử lý việc ẩn/hiện)
         updateBarcodeCanvasSize();
+        
+        // Áp dụng layout và hiển thị thông báo
         renderBarcodeLabel(template.layout);
         showToast(`Đã áp dụng mẫu "${templateName}".`, "info");
     }
 }
 
 
+// Thay thế hàm này trong warehouse.js
 async function saveCurrentTemplate() {
     const templateName = document.getElementById('templateName').value.trim();
     if (!templateName) {
@@ -9243,19 +9278,25 @@ async function saveCurrentTemplate() {
         };
     });
 
+    // Tạo đối tượng template cơ bản
     const newTemplate = {
         name: templateName,
         paperSize: document.getElementById('paperSizeSelector').value,
         layout: currentLayout,
-        userId: currentUser.uid, // Quan trọng: lưu ID người tạo
+        userId: currentUser.uid,
         createdAt: serverTimestamp()
     };
+    
+    // THÊM MỚI: Nếu là kích thước tùy chỉnh, lưu lại giá trị width và height
+    if (newTemplate.paperSize === 'custom') {
+        newTemplate.customWidth = parseFloat(document.getElementById('customWidthInput').value) || 4;
+        newTemplate.customHeight = parseFloat(document.getElementById('customHeightInput').value) || 3;
+    }
 
     try {
         const docRef = await addDoc(collection(db, "barcode_templates"), newTemplate);
         showToast(`Đã lưu mẫu "${templateName}" thành công!`, "success");
         
-        // Cập nhật lại danh sách local và dropdown
         newTemplate.id = docRef.id;
         savedTemplates.push(newTemplate);
         populateTemplateSelector();
@@ -9268,6 +9309,7 @@ async function saveCurrentTemplate() {
         showToast("Lỗi khi lưu mẫu tem lên máy chủ.", "danger");
     }
 }
+
 
 async function loadBarcodeTemplates() {
     if (!currentUser) return;
@@ -9510,24 +9552,39 @@ function makeElementDraggable(element) {
     }
 }
 
-// Sửa đổi hàm updateBarcodeCanvasSize
+// Thay thế hàm này trong warehouse.js
 function updateBarcodeCanvasSize() {
-    const paperSize = document.getElementById('paperSizeSelector').value;
+    const selector = document.getElementById('paperSizeSelector');
+    const paperSize = selector.value;
     const canvas = document.getElementById('barcode-canvas');
-    
-    let width, height;
+    const customSizeContainer = document.getElementById('customSizeContainer');
 
+    let widthInInches, heightInInches;
+
+    // Hiển thị hoặc ẩn ô nhập liệu tùy chỉnh
     if (paperSize === 'custom') {
-        width = 4 * INCH_TO_PX; // Kích thước mặc định khi tùy chỉnh
-        height = 3 * INCH_TO_PX;
+        customSizeContainer.style.display = 'flex'; // 'flex' để các cột nằm ngang
     } else {
-        [width, height] = paperSize.split('x').map(Number);
+        customSizeContainer.style.display = 'none';
     }
 
-    canvas.style.width = `${width * INCH_TO_PX}px`;
-    canvas.style.height = `${height * INCH_TO_PX}px`;
-}
+    // Lấy kích thước
+    if (paperSize === 'custom') {
+        widthInInches = parseFloat(document.getElementById('customWidthInput').value) || 4; // Mặc định là 4 nếu rỗng
+        heightInInches = parseFloat(document.getElementById('customHeightInput').value) || 3; // Mặc định là 3 nếu rỗng
+    } else {
+        [widthInInches, heightInInches] = paperSize.split('x').map(Number);
+    }
 
+    // Áp dụng kích thước (chuyển từ inch sang pixel)
+    canvas.style.width = `${widthInInches * INCH_TO_PX}px`;
+    canvas.style.height = `${heightInInches * INCH_TO_PX}px`;
+
+    // Vẽ lại barcode nếu có sản phẩm được chọn
+    if (currentBarcodeItem) {
+        renderBarcodeLabel();
+    }
+}
 
 // Thêm vào file warehouse.js
 let html5QrcodeScanner = null;
@@ -9576,6 +9633,7 @@ function stopScanner() {
 
 async function onScanSuccess(decodedText, decodedResult) {
     stopScanner();
+    playBeepSound();
     showToast(`Quét thành công: ${decodedText}`, 'success');
     
     try {
