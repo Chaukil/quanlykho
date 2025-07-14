@@ -10004,15 +10004,15 @@ function playScannerSound() {
     }
 }
 
-let scannedExportItems = [];
 
 // THAY THẾ TOÀN BỘ HÀM NÀY
 async function onScanSuccess(decodedText, decodedResult) {
+    stopScanner(); // Dừng camera ngay khi quét thành công
     playScannerSound();
     showToast(`Đã quét: ${decodedText}`, 'success');
 
     try {
-        const q = query(collection(db, 'inventory'), where('code', '==', decodedText), limit(1));
+        const q = query(collection(db, 'inventory'), where('code', '==', decodedText));
         const snapshot = await getDocs(q);
 
         if (snapshot.empty) {
@@ -10020,39 +10020,14 @@ async function onScanSuccess(decodedText, decodedResult) {
             return;
         }
 
-        const itemDoc = snapshot.docs[0];
-        const itemData = itemDoc.data();
+        // Lấy tất cả các vị trí của mã hàng này
+        const itemLocations = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+        }));
 
-        if (itemData.quantity <= 0) {
-            showToast(`Sản phẩm "${decodedText}" đã hết hàng!`, 'warning');
-            return;
-        }
-
-        // Kiểm tra xem sản phẩm đã có trong danh sách chưa
-        const existingItemIndex = scannedExportItems.findIndex(item => item.inventoryId === itemDoc.id);
-
-        if (existingItemIndex > -1) {
-            // Nếu đã có, tăng số lượng yêu cầu lên 1
-            const currentRequested = scannedExportItems[existingItemIndex].requestedQuantity;
-            if (currentRequested < itemData.quantity) {
-                scannedExportItems[existingItemIndex].requestedQuantity++;
-            } else {
-                showToast('Đã đạt số lượng tồn kho tối đa.', 'info');
-            }
-        } else {
-            // Nếu chưa có, thêm mới vào danh sách
-            scannedExportItems.push({
-                inventoryId: itemDoc.id,
-                code: itemData.code,
-                name: itemData.name,
-                unit: itemData.unit,
-                availableQuantity: itemData.quantity,
-                requestedQuantity: 1 // Mặc định là 1
-            });
-        }
-        
-        // Cập nhật lại giao diện danh sách
-        renderScannedExportList();
+        // Hiển thị modal lựa chọn hành động
+        showActionChoiceModal(itemLocations);
 
     } catch (error) {
         console.error("Lỗi xử lý mã quét:", error);
@@ -10060,140 +10035,318 @@ async function onScanSuccess(decodedText, decodedResult) {
     }
 }
 
-function renderScannedExportList() {
-    const container = document.getElementById('scanResultContainer');
-    const footer = document.getElementById('scanActionFooter');
-    const countBadge = document.getElementById('scannedItemCount');
+function showActionChoiceModal(items) {
+    const item = items[0]; // Lấy thông tin chung từ sản phẩm đầu tiên
+    const modal = document.createElement('div');
+    modal.className = 'modal fade';
+    modal.innerHTML = `
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">${item.name}</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body text-center">
+                    <p>Mã hàng: <strong>${item.code}</strong></p>
+                    <p>Bạn muốn làm gì?</p>
+                    <div class="d-grid gap-2">
+                        <button class="btn btn-info" id="viewStockBtn">
+                            <i class="fas fa-warehouse"></i> Xem tồn kho (${items.length} vị trí)
+                        </button>
+                        <button class="btn btn-secondary" id="viewHistoryBtn">
+                            <i class="fas fa-history"></i> Xem lịch sử mã hàng
+                        </button>
+                        <button class="btn btn-warning" id="startExportBtn">
+                            <i class="fas fa-upload"></i> Xuất kho
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    const bsModal = new bootstrap.Modal(modal);
 
-    container.innerHTML = ''; // Xóa nội dung cũ
-    countBadge.textContent = `${scannedExportItems.length} mặt hàng`;
+    // Gán sự kiện cho các nút
+    modal.querySelector('#viewStockBtn').onclick = () => {
+        bsModal.hide();
+        // Hàm này cần được tạo để hiển thị chi tiết tồn kho ở nhiều vị trí
+        showMultiLocationStockModal(items);
+    };
+    modal.querySelector('#viewHistoryBtn').onclick = () => {
+        bsModal.hide();
+        viewItemHistoryFromScan(item.code);
+    };
+    modal.querySelector('#startExportBtn').onclick = () => {
+        bsModal.hide();
+        // Mở modal xuất kho và thêm sản phẩm đầu tiên vào
+        showScanExportModal(items);
+    };
+    
+    bsModal.show();
+    modal.addEventListener('hidden.bs.modal', () => modal.remove());
+}
 
-    if (scannedExportItems.length === 0) {
-        container.innerHTML = '<p class="text-muted text-center mt-5">Chưa có sản phẩm nào được quét.</p>';
-        footer.style.display = 'none';
+function showMultiLocationStockModal(items) {
+    const modal = document.createElement('div');
+    modal.className = 'modal fade';
+    let stockHtml = items.map(item => `
+        <tr>
+            <td><strong>${item.location}</strong></td>
+            <td class="text-end">${item.quantity}</td>
+        </tr>
+    `).join('');
+
+    modal.innerHTML = `
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Tồn kho: ${items[0].name}</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <table class="table">
+                        <thead><tr><th>Vị trí</th><th class="text-end">Số lượng</th></tr></thead>
+                        <tbody>${stockHtml}</tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    new bootstrap.Modal(modal).show();
+    modal.addEventListener('hidden.bs.modal', () => modal.remove());
+}
+
+// Biến toàn cục để quản lý modal xuất kho
+let currentExportModal = null; 
+let exportItemsList = [];
+
+/**
+ * Hiển thị modal chính để thực hiện việc xuất kho.
+ * @param {Array} initialItems - Mảng sản phẩm đầu tiên được quét.
+ */
+function showScanExportModal(initialItems) {
+    // Chọn sản phẩm có tồn kho lớn nhất để thêm vào phiếu trước
+    const firstItem = initialItems.sort((a, b) => b.quantity - a.quantity)[0];
+
+    exportItemsList = [{
+        inventoryId: firstItem.id,
+        code: firstItem.code,
+        name: firstItem.name,
+        unit: firstItem.unit,
+        location: firstItem.location,
+        availableQuantity: firstItem.quantity,
+        requestedQuantity: 1
+    }];
+
+    const modal = document.createElement('div');
+    currentExportModal = modal; // Lưu lại tham chiếu đến modal
+    modal.className = 'modal fade';
+    modal.id = 'scanExportModal';
+    modal.setAttribute('tabindex', '-1');
+
+    modal.innerHTML = `
+        <div class="modal-dialog modal-xl modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header bg-warning text-dark">
+                    <h5 class="modal-title">Tạo Phiếu Xuất Kho</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="exportItemListContainer">
+                        <!-- Danh sách sản phẩm sẽ được vẽ vào đây -->
+                    </div>
+                </div>
+                <div class="modal-footer justify-content-between">
+                    <button class="btn btn-success" onclick="scanMoreItemsForExport()">
+                        <i class="fas fa-barcode"></i> Quét để thêm
+                    </button>
+                    <div id="exportActionButtons">
+                        <!-- Nút xác nhận/gửi yêu cầu -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    const bsModal = new bootstrap.Modal(modal);
+    bsModal.show();
+    
+    // Vẽ danh sách lần đầu
+    renderExportListInModal();
+
+    modal.addEventListener('hidden.bs.modal', () => {
+        currentExportModal = null; // Dọn dẹp
+        exportItemsList = [];
+        modal.remove();
+    });
+}
+
+/**
+ * Hàm để vẽ (hoặc vẽ lại) danh sách sản phẩm trong modal xuất kho.
+ */
+function renderExportListInModal() {
+    if (!currentExportModal) return;
+    const container = currentExportModal.querySelector('#exportItemListContainer');
+    const actionContainer = currentExportModal.querySelector('#exportActionButtons');
+
+    if (exportItemsList.length === 0) {
+        container.innerHTML = '<p class="text-muted">Chưa có sản phẩm nào.</p>';
+        actionContainer.innerHTML = '';
         return;
     }
 
-    const table = document.createElement('table');
-    table.className = 'table table-sm';
-    table.innerHTML = `
-        <thead>
-            <tr>
-                <th>Sản phẩm</th>
-                <th style="width: 100px;">SL Xuất</th>
-                <th style="width: 50px;"></th>
-            </tr>
-        </thead>
-        <tbody></tbody>
-    `;
-    const tbody = table.querySelector('tbody');
-
-    scannedExportItems.forEach((item, index) => {
-        const row = document.createElement('tr');
-        row.innerHTML = `
+    let tableHtml = exportItemsList.map((item, index) => `
+        <tr>
             <td>
                 <strong>${item.code}</strong><br>
-                <small class="text-muted">${item.name}</small>
+                <small class="text-muted">${item.name} (${item.location})</small>
             </td>
             <td>
                 <input type="number" class="form-control form-control-sm" 
-                       value="${item.requestedQuantity}" 
-                       min="1" max="${item.availableQuantity}" 
-                       onchange="updateScannedItemQuantity(${index}, this.value)">
+                       value="${item.requestedQuantity}" min="1" max="${item.availableQuantity}"
+                       onchange="updateExportItemQuantity(${index}, this.value)">
                 <small>Tồn: ${item.availableQuantity}</small>
             </td>
-            <td>
-                <button class="btn btn-outline-danger btn-sm" onclick="removeScannedItem(${index})">
-                    <i class="fas fa-times"></i>
-                </button>
-            </td>
-        `;
-        tbody.appendChild(row);
-    });
+            <td><button class="btn btn-sm btn-outline-danger" onclick="removeExportItemFromList(${index})"><i class="fas fa-times"></i></button></td>
+        </tr>
+    `).join('');
 
-    container.appendChild(table);
+    container.innerHTML = `
+        <table class="table">
+            <thead><tr><th>Sản phẩm (Vị trí)</th><th style="width:120px;">SL Xuất</th><th style="width:50px;"></th></tr></thead>
+            <tbody>${tableHtml}</tbody>
+        </table>
+    `;
     
-    // Hiển thị nút hành động dựa trên vai trò
-    footer.style.display = 'block';
+    // Cập nhật nút hành động
     if (userRole === 'staff') {
-        footer.innerHTML = `<button class="btn btn-primary" onclick="submitScannedExport()">Gửi yêu cầu xuất kho</button>`;
+        actionContainer.innerHTML = `<button class="btn btn-primary" onclick="finalizeExport()">Gửi yêu cầu xuất kho</button>`;
     } else {
-        footer.innerHTML = `<button class="btn btn-warning" onclick="submitScannedExport()">Xác nhận xuất kho trực tiếp</button>`;
+        actionContainer.innerHTML = `<button class="btn btn-warning" onclick="finalizeExport()">Xác nhận xuất kho</button>`;
     }
 }
 
-async function submitScannedExport() {
-    if (scannedExportItems.length === 0) {
-        showToast('Vui lòng quét ít nhất một sản phẩm.', 'warning');
+/**
+ * Các hàm tiện ích để quản lý danh sách trong modal
+ */
+window.updateExportItemQuantity = (index, newQty) => {
+    const qty = parseInt(newQty);
+    const item = exportItemsList[index];
+    if (qty > 0 && qty <= item.availableQuantity) {
+        item.requestedQuantity = qty;
+    }
+    renderExportListInModal(); // Vẽ lại để cập nhật
+};
+window.removeExportItemFromList = (index) => {
+    exportItemsList.splice(index, 1);
+    renderExportListInModal();
+};
+
+/**
+ * Bắt đầu quét thêm sản phẩm khi đang ở trong modal xuất kho.
+ */
+window.scanMoreItemsForExport = function() {
+    if (currentExportModal) {
+        bootstrap.Modal.getInstance(currentExportModal).hide(); // Tạm ẩn modal xuất kho
+    }
+    startScanner(); // Mở lại camera
+    // onScanSuccess sẽ tự thêm sản phẩm vào danh sách và mở lại modal
+};
+
+// THÊM HÀM MỚI NÀY VÀO CUỐI TỆP WAREHOUSE.JS
+
+/**
+ * Hoàn tất quy trình xuất kho từ màn hình quét:
+ * - Tạo yêu cầu nếu là Staff.
+ * - Xuất kho trực tiếp nếu là Admin hoặc Super Admin.
+ */
+window.finalizeExport = async function() {
+    if (exportItemsList.length === 0) {
+        showToast('Danh sách xuất kho đang trống.', 'warning');
         return;
     }
 
-    if (userRole === 'staff') {
-        // Tạo yêu cầu xuất kho
-        const confirmed = await showConfirmation(
-            'Xác nhận gửi yêu cầu',
-            `Bạn có chắc muốn gửi yêu cầu xuất kho cho ${scannedExportItems.length} mặt hàng?`,
-            'Gửi yêu cầu', 'Hủy', 'info'
-        );
-        if (!confirmed) return;
+    // Xác nhận hành động dựa trên vai trò của người dùng
+    const actionText = userRole === 'staff' ? 'Gửi yêu cầu' : 'Xác nhận xuất kho';
+    const confirmTitle = userRole === 'staff' ? 'Xác nhận Gửi Yêu cầu' : 'Xác nhận Xuất kho Trực tiếp';
+    const confirmType = userRole === 'staff' ? 'info' : 'warning';
 
+    const confirmed = await showConfirmation(
+        confirmTitle,
+        `Bạn có chắc muốn ${actionText.toLowerCase()} cho <strong>${exportItemsList.length}</strong> mặt hàng trong danh sách?`,
+        actionText,
+        'Hủy',
+        confirmType
+    );
+
+    if (!confirmed) return;
+
+    // --- XỬ LÝ CHO STAFF: TẠO YÊU CẦU ---
+    if (userRole === 'staff') {
         try {
+            // Tạo một document mới trong collection 'export_requests'
             await addDoc(collection(db, 'export_requests'), {
                 requestedBy: currentUser.uid,
                 requestedByName: currentUser.name,
                 timestamp: serverTimestamp(),
-                status: 'pending',
-                items: scannedExportItems
+                status: 'pending', // Trạng thái ban đầu là chờ duyệt
+                items: exportItemsList // Danh sách các mặt hàng yêu cầu
             });
+
             showToast('Đã gửi yêu cầu xuất kho thành công!', 'success');
-            scannedExportItems = []; // Xóa danh sách
-            renderScannedExportList();
+            
+            // Đóng modal và dọn dẹp
+            if (currentExportModal) {
+                bootstrap.Modal.getInstance(currentExportModal).hide();
+            }
+
         } catch (error) {
-            console.error("Lỗi tạo yêu cầu xuất kho:", error);
-            showToast('Lỗi khi gửi yêu cầu.', 'danger');
+            console.error("Lỗi khi tạo yêu cầu xuất kho:", error);
+            showToast('Đã xảy ra lỗi khi gửi yêu cầu.', 'danger');
         }
-
-    } else {
-        // Xuất kho trực tiếp
-        const confirmed = await showConfirmation(
-            'Xác nhận xuất kho',
-            `Bạn sẽ xuất kho trực tiếp cho ${scannedExportItems.length} mặt hàng. Bạn có chắc chắn?`,
-            'Xác nhận', 'Hủy', 'warning'
-        );
-        if (!confirmed) return;
-
+    }
+    // --- XỬ LÝ CHO ADMIN & SUPER ADMIN: XUẤT TRỰC TIẾP ---
+    else {
         const batch = writeBatch(db);
 
-        // 1. Tạo transaction log
-        const transRef = doc(collection(db, 'transactions'));
-        batch.set(transRef, {
+        // 1. Tạo một phiếu xuất kho (transaction) mới
+        const transactionRef = doc(collection(db, 'transactions'));
+        batch.set(transactionRef, {
             type: 'export',
-            exportNumber: `SCAN-${Date.now()}`,
+            exportNumber: `SCAN-${Date.now()}`, // Tạo một mã phiếu xuất tự động
             recipient: 'Quét tại quầy',
-            items: scannedExportItems.map(item => ({...item, availableQuantityBefore: item.availableQuantity})),
+            items: exportItemsList.map(item => ({ ...item, availableQuantityBefore: item.availableQuantity })),
             performedBy: currentUser.uid,
             performedByName: currentUser.name,
             timestamp: serverTimestamp(),
-            source: 'scan'
+            source: 'scan' // Đánh dấu là xuất kho từ chức năng quét
         });
 
-        // 2. Trừ tồn kho
-        scannedExportItems.forEach(item => {
-            const invRef = doc(db, 'inventory', item.inventoryId);
-            batch.update(invRef, { quantity: increment(-item.requestedQuantity) });
-        });
+        // 2. Trừ tồn kho cho từng mặt hàng trong danh sách
+        for (const item of exportItemsList) {
+            const inventoryRef = doc(db, 'inventory', item.inventoryId);
+            batch.update(inventoryRef, {
+                quantity: increment(-item.requestedQuantity)
+            });
+        }
 
         try {
-            await batch.commit();
+            await batch.commit(); // Gửi tất cả các thay đổi lên server
             showToast('Xuất kho trực tiếp thành công!', 'success');
-            scannedExportItems = []; // Xóa danh sách
-            renderScannedExportList();
+
+            // Đóng modal và dọn dẹp
+            if (currentExportModal) {
+                bootstrap.Modal.getInstance(currentExportModal).hide();
+            }
+
         } catch (error) {
-            console.error("Lỗi xuất kho trực tiếp:", error);
-            showToast('Lỗi khi cập nhật kho.', 'danger');
+            console.error("Lỗi khi xuất kho trực tiếp:", error);
+            showToast('Lỗi khi cập nhật kho. Vui lòng thử lại.', 'danger');
         }
     }
-}
+};
 
 window.loadApproveExportsSection = async function() {
     const content = document.getElementById('pendingExportsContent');
@@ -10234,31 +10387,6 @@ window.loadApproveExportsSection = async function() {
         content.innerHTML = '<p class="text-danger">Lỗi tải dữ liệu.</p>';
     }
 }
-
-window.updateScannedItemQuantity = function(index, newQuantity) {
-    const quantity = parseInt(newQuantity);
-    const item = scannedExportItems[index];
-
-    if (isNaN(quantity) || quantity < 1) {
-        scannedExportItems[index].requestedQuantity = 1;
-        showToast('Số lượng phải lớn hơn 0.', 'warning');
-    } else if (quantity > item.availableQuantity) {
-        scannedExportItems[index].requestedQuantity = item.availableQuantity;
-        showToast('Số lượng vượt quá tồn kho.', 'warning');
-    } else {
-        scannedExportItems[index].requestedQuantity = quantity;
-    }
-    renderScannedExportList();
-}
-
-/**
- * Xóa một mặt hàng khỏi danh sách đã quét.
- */
-window.removeScannedItem = function(index) {
-    scannedExportItems.splice(index, 1);
-    renderScannedExportList();
-}
-// THAY THẾ TOÀN BỘ HÀM NÀY TRONG WAREHOUSE.JS
 
 window.viewItemHistoryFromScan = async function(itemCode) {
     try {
