@@ -30,10 +30,7 @@ export function debounce(func, delay) {
 
 // Global variables
 let currentImportItems = [];
-let currentEditingId = null;
 let currentExportItems = [];
-let pendingItemCodeFilter = null;
-let isScanningForExport = false;
 
 let itemCodeCache = new Map();
 let unitCache = new Set(['Cái', 'Chiếc', 'Bộ', 'Hộp', 'Thùng', 'Cuộn', 'Tấm', 'Túi', 'Gói', 'Chai', 'Lọ', 'Lon', 'Bao', 'Kg', 'Gam', 'Tấn', 'Mét', 'Cây', 'Thanh', 'Đôi']);
@@ -98,40 +95,6 @@ export function initializeWarehouseFunctions() {
 
     // Đánh dấu là đã khởi tạo
     listenersInitialized = true;
-}
-
-
-function removeExistingListeners() {
-    // Clone and replace elements to remove all event listeners
-    const buttonsToClean = [
-        'addImportBtn', 'downloadTemplate', 'importExcel',
-        'addExportBtn', 'downloadExportTemplate', 'importExportExcel',
-        'addTransferBtn', 'downloadTransferTemplate', 'importTransferExcel',
-        'addAdjustBtn', 'downloadAdjustTemplate', 'importAdjustExcel',
-        'addAdjustRequestBtn', 'downloadRequestAdjustTemplate', 'importRequestAdjustExcel'
-    ];
-
-    buttonsToClean.forEach(buttonId => {
-        const button = document.getElementById(buttonId);
-        if (button) {
-            const newButton = button.cloneNode(true);
-            button.parentNode.replaceChild(newButton, button);
-        }
-    });
-
-    // Also clean file inputs
-    const fileInputsToClean = [
-        'excelFileInput', 'exportExcelFileInput', 'transferExcelFileInput',
-        'adjustExcelFileInput', 'requestAdjustExcelFileInput'
-    ];
-
-    fileInputsToClean.forEach(inputId => {
-        const input = document.getElementById(inputId);
-        if (input) {
-            const newInput = input.cloneNode(true);
-            input.parentNode.replaceChild(newInput, input);
-        }
-    });
 }
 
 // Import Section Functions
@@ -725,158 +688,6 @@ function updateUnitSelector(selectedUnit) {
         button.classList.toggle('selected', button.textContent === selectedUnit);
     });
 }
-
-window.addImportItem = function () {
-    // Lưu lại focus của nút "Thêm mặt hàng"
-    const lastFocusedElement = document.activeElement;
-
-    const itemModal = createItemModal();
-    document.body.appendChild(itemModal);
-    const bsModal = new bootstrap.Modal(itemModal);
-    bsModal.show();
-
-    // Lắng nghe sự kiện khi modal đã đóng
-    itemModal.addEventListener('hidden.bs.modal', () => {
-        // Trả focus về và dọn dẹp modal
-        if (lastFocusedElement) {
-            lastFocusedElement.focus();
-        }
-        itemModal.remove();
-    });
-};
-
-
-// Thay thế hàm này trong warehouse.js
-
-function createItemModal(item = null) {
-    const modal = document.createElement('div');
-    modal.className = 'modal fade';
-    modal.id = 'itemModal'; // Thêm ID để dễ dàng quản lý
-    modal.setAttribute('tabindex', '-1');
-
-    // Danh sách đơn vị tính đầy đủ
-    const units = [
-        'Cái', 'Chiếc', 'Bộ', 'Hộp', 'Thùng', 'Cuộn', 'Tấm', 'Túi', 'Gói',
-        'Chai', 'Lọ', 'Lon', 'Bao', 'Kg', 'Gam', 'Tấn', 'Mét', 'Cây', 'Thanh', 'Đôi'
-    ].sort(); // Sắp xếp theo alphabet
-
-    modal.innerHTML = `
-        <div class="modal-dialog modal-lg"> <!-- Tăng kích thước modal thành modal-lg -->
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">${item ? 'Sửa mặt hàng' : 'Thêm mặt hàng mới'}</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body">
-                    <form id="itemForm">
-                        <div class="row">
-                            <!-- CỘT BÊN TRÁI -->
-                            <div class="col-md-6">
-                                <div class="mb-3">
-                                    <label for="itemCode" class="form-label">Mã hàng <span class="text-danger">*</span></label>
-                                    <input type="text" class="form-control" id="itemCode" value="${item?.code || ''}" required>
-                                </div>
-                                <div class="mb-3">
-                                    <label for="itemName" class="form-label">Tên mô tả <span class="text-danger">*</span></label>
-                                    <input type="text" class="form-control" id="itemName" value="${item?.name || ''}" required>
-                                </div>
-                                <div class="mb-3">
-                                    <label for="itemCategory" class="form-label">Danh mục <span class="text-danger">*</span></label>
-                                    <input type="text" class="form-control" id="itemCategory" value="${item?.category || ''}" required>
-                                </div>
-                            </div>
-
-                            <!-- CỘT BÊN PHẢI -->
-                            <div class="col-md-6">
-                                <div class="mb-3">
-                                    <label for="itemQuantity" class="form-label">Số lượng <span class="text-danger">*</span></label>
-                                    <input type="number" class="form-control" id="itemQuantity" value="${item?.quantity || ''}" required min="0">
-                                </div>
-                                <div class="mb-3">
-                                    <label for="itemUnit" class="form-label">Đơn vị tính <span class="text-danger">*</span></label>
-                                    <select class="form-select" id="itemUnit" required>
-                                        <option value="" disabled ${!item ? 'selected' : ''}>-- Chọn đơn vị --</option>
-                                        ${units.map(unit =>
-        `<option value="${unit}" ${item?.unit === unit ? 'selected' : ''}>${unit}</option>`
-    ).join('')}
-                                    </select>
-                                </div>
-                                <div class="mb-3">
-                                    <label for="itemLocation" class="form-label">Vị trí <span class="text-danger">*</span></label>
-                                    <input type="text" class="form-control" id="itemLocation" value="${item?.location || ''}" required>
-                                    <!-- Diễn giải vị trí -->
-                                    <small id="locationHelp" class="form-text text-muted">
-                                        Gợi ý đặt tên: <strong>A1-01</strong> (Dãy A, Ô số 1, Tầng 1)
-                                    </small>
-                                </div>
-                            </div>
-                        </div>
-                    </form>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy</button>
-                    <button type="button" class="btn btn-primary" onclick="saveImportItem(${item ? item.index : -1})">
-                        ${item ? 'Cập nhật' : 'Thêm vào phiếu'}
-                    </button>
-                </div>
-            </div>
-        </div>
-    `;
-    return modal;
-}
-
-
-// Thay thế hàm này trong warehouse.js
-
-window.saveImportItem = function (index = -1) {
-    // 1. Lấy dữ liệu từ form
-    const code = document.getElementById('itemCode').value.trim();
-    const name = document.getElementById('itemName').value.trim();
-    const category = document.getElementById('itemCategory').value.trim();
-    const quantity = document.getElementById('itemQuantity').value;
-    const unit = document.getElementById('itemUnit').value;
-    const location = document.getElementById('itemLocation').value.trim();
-
-    // 2. Kiểm tra dữ liệu (Validation)
-    if (!code || !name || !category || !quantity || !unit || !location) {
-        showToast('Vui lòng điền đầy đủ các trường bắt buộc (*)', 'warning');
-        return;
-    }
-
-    if (parseInt(quantity) < 0) {
-        showToast('Số lượng không thể là số âm', 'warning');
-        return;
-    }
-
-    // 3. Tạo đối tượng item
-    const item = {
-        code: code,
-        name: name,
-        unit: unit,
-        quantity: parseInt(quantity),
-        category: category,
-        location: location
-    };
-
-    // 4. Thêm hoặc cập nhật vào danh sách
-    if (index >= 0) {
-        currentImportItems[index] = item;
-    } else {
-        currentImportItems.push(item);
-    }
-
-    // 5. Cập nhật lại bảng hàng hóa trong phiếu nhập
-    updateImportItemsTable();
-
-    // 6. Đóng modal thêm/sửa mặt hàng
-    const itemModal = document.getElementById('itemModal');
-    if (itemModal) {
-        const bsModal = bootstrap.Modal.getInstance(itemModal);
-        if (bsModal) {
-            bsModal.hide();
-        }
-    }
-};
 
 function updateImportItemsTable() {
     const tbody = document.getElementById('importItemsTable');
@@ -1593,7 +1404,7 @@ function createImportDetailsModal(data) {
                     </div>
 
                     <!-- THÔNG TIN CHUNG -->
-                    <div class="row mb-3 p-3 bg-light rounded border">
+                    <div class="row mb-3 theme-aware-info-box">
                         <div class="col-12 mb-2">
                             <span class="badge bg-success">
                                 <i class="fas fa-download"></i> Phiếu nhập kho
@@ -1761,7 +1572,7 @@ function createExportModal() {
                                                 <input type="hidden" id="selectedExportInventoryId">
                                             </div>
                                         </div>
-                                        <div class="col-md-2">
+                                        <div class="col-md-3">
                                             <label class="form-label-compact">
                                                 <i class="fas fa-tag text-warning"></i> Tên sản phẩm
                                             </label>
@@ -2284,7 +2095,7 @@ function createEditAdjustModal(transactionId, data) {
                     
                     <form id="editAdjustForm">
                         <!-- THÔNG TIN SẢN PHẨM -->
-                        <div class="row mb-3 p-3 bg-light rounded">
+                        <div class="row mb-3 p-3 theme-aware-inset-box rounded">
                             <div class="col-md-6">
                                 <strong>Mã hàng:</strong> ${data.itemCode}
                             </div>
@@ -2637,103 +2448,6 @@ async function handleExportItemCodeInput(event) {
         console.error("Error fetching item for export:", error);
         nameInput.value = 'Lỗi truy vấn';
         showToast('Lỗi khi tìm kiếm mã hàng', 'danger');
-    }
-}
-
-
-
-async function handleItemCodeInput(event) {
-    const code = event.target.value.trim();
-    const nameInput = document.getElementById('exportItemName');
-    const stockInput = document.getElementById('currentStock');
-    const quantityInput = document.getElementById('exportQuantity');
-    const hiddenIdInput = document.getElementById('selectedInventoryId');
-
-    // Reset các ô input
-    nameInput.value = '';
-    stockInput.value = '';
-    quantityInput.value = '';
-    quantityInput.max = '';
-    hiddenIdInput.value = '';
-
-    if (!code) {
-        return; // Không làm gì nếu input rỗng
-    }
-
-    try {
-        // Query database để tìm sản phẩm có mã hàng tương ứng
-        const inventoryQuery = query(
-            collection(db, 'inventory'),
-            where('code', '==', code),
-            limit(1)
-        );
-        const snapshot = await getDocs(inventoryQuery);
-
-        if (snapshot.empty) {
-            // Không tìm thấy sản phẩm
-            nameInput.value = 'Không tìm thấy';
-            stockInput.value = '';
-        } else {
-            // Tìm thấy sản phẩm
-            const doc = snapshot.docs[0];
-            const data = doc.data();
-
-            nameInput.value = data.name;
-            stockInput.value = data.quantity;
-            hiddenIdInput.value = doc.id; // Lưu ID vào input ẩn
-            nameInput.dataset.unit = data.unit || '';
-
-            if (data.quantity > 0) {
-                quantityInput.max = data.quantity;
-                quantityInput.focus(); // Tự động focus vào ô số lượng
-            } else {
-                // Hàng đã hết, không cho nhập số lượng
-                quantityInput.max = 0;
-            }
-        }
-    } catch (error) {
-        console.error("Error fetching item by code:", error);
-        nameInput.value = 'Lỗi truy vấn';
-        showToast('Lỗi khi tìm kiếm mã hàng', 'danger');
-    }
-}
-
-async function loadInventoryForExport() {
-    try {
-        const inventoryQuery = query(collection(db, 'inventory'), orderBy('name'));
-        const snapshot = await getDocs(inventoryQuery);
-
-        const select = document.getElementById('inventorySelect');
-        select.innerHTML = '<option value="">-- Chọn mặt hàng --</option>';
-
-        snapshot.forEach(doc => {
-            const data = doc.data();
-            if (data.quantity > 0) {
-                const option = document.createElement('option');
-                option.value = doc.id;
-                option.textContent = `${data.code} - ${data.name} (Tồn: ${data.quantity})`;
-                option.dataset.quantity = data.quantity;
-                option.dataset.code = data.code;
-                option.dataset.name = data.name;
-                select.appendChild(option);
-            }
-        });
-
-        // Handle selection change
-        select.addEventListener('change', function () {
-            const selectedOption = this.options[this.selectedIndex];
-            if (selectedOption.value) {
-                document.getElementById('currentStock').value = selectedOption.dataset.quantity;
-                document.getElementById('exportQuantity').max = selectedOption.dataset.quantity;
-            } else {
-                document.getElementById('currentStock').value = '';
-                document.getElementById('exportQuantity').max = '';
-            }
-        });
-
-    } catch (error) {
-        console.error('Error loading inventory:', error);
-        showToast('Lỗi tải danh sách tồn kho', 'danger');
     }
 }
 
@@ -3790,7 +3504,7 @@ function createExportDetailsModal(data) {
                     </div>
 
                     <!-- THÔNG TIN CHUNG - ĐÃ CẬP NHẬT -->
-                    <div class="row mb-3 p-3 bg-light rounded border">
+                    <div class="row mb-3 theme-aware-info-box">
                         <div class="col-12 mb-2">
                             <span class="badge bg-warning text-dark">
                                 <i class="fas fa-upload"></i> Phiếu xuất kho
@@ -3809,7 +3523,7 @@ function createExportDetailsModal(data) {
                     </h6>
                     <div class="table-responsive">
                         <table class="table table-bordered table-compact" >
-                            <thead class="table-warning" >
+                            <thead>
                                 <tr>
                                     <th>STT</th>
                                     <th>Mã hàng</th>
@@ -4200,7 +3914,7 @@ function createAdjustRequestDetailsModal(data) {
                 </div>
                 <div class="modal-body">
                     ${alertHtml}
-                    <div class="row mb-3 p-3 bg-light rounded border">
+                    <div class="row mb-3 theme-aware-info-box">
                         <div class="col-md-6"><strong>Mã hàng:</strong> ${data.itemCode}</div>
                         <div class="col-md-6"><strong>Tên mô tả:</strong> ${data.itemName}</div>
                         <div class="col-md-6"><strong>Vị trí:</strong> ${data.location}</div>
@@ -4213,7 +3927,7 @@ function createAdjustRequestDetailsModal(data) {
                         <div class="col-4"><div class="card h-100"><div class="card-body"><h6 class="card-title text-muted">Số lượng đề xuất</h6><p class="card-text fs-4 fw-bold ${data.status === 'rejected' ? 'text-muted' : 'text-primary'}">${data.status === 'rejected' ? `<s>${data.requestedQuantity}</s>` : data.requestedQuantity}</p></div></div></div>
                         <div class="col-4"><div class="card h-100"><div class="card-body"><h6 class="card-title text-muted">Chênh lệch</h6><p class="card-text fs-4 fw-bold ${data.status === 'rejected' ? 'text-muted' : adjustmentClass}">${data.status === 'rejected' ? `<s>${adjustmentSymbol}${adjustment}</s>` : `${adjustmentSymbol}${adjustment}`}</p></div></div></div>
                     </div>
-                    <div class="mb-3"><strong>Lý do yêu cầu:</strong><p class="ms-2 mt-1 mb-0 fst-italic bg-light p-2 rounded">${data.reason}</p></div>
+                    <div class="mb-3"><strong>Lý do yêu cầu:</strong><p class="ms-2 mt-1 mb-0 fst-italic theme-aware-inset-box p-2 rounded">${data.reason}</p></div>
                 </div>
                 <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Đóng</button></div>
             </div>
@@ -4463,34 +4177,6 @@ async function handleTransferItemCodeInput(event) {
         console.error("Error fetching item for transfer:", error);
         nameInput.value = 'Lỗi truy vấn';
         showToast('Lỗi khi tìm kiếm mã hàng', 'danger');
-    }
-}
-
-async function loadInventoryForTransfer() {
-    try {
-        const inventoryQuery = query(collection(db, 'inventory'), orderBy('name'));
-        const snapshot = await getDocs(inventoryQuery);
-
-        const select = document.getElementById('transferInventorySelect');
-        select.innerHTML = '<option value="">-- Chọn mặt hàng --</option>';
-
-        snapshot.forEach(doc => {
-            const data = doc.data();
-            const option = document.createElement('option');
-            option.value = doc.id;
-            option.textContent = `${data.code} - ${data.name}`;
-            option.dataset.location = data.location;
-            select.appendChild(option);
-        });
-
-        select.addEventListener('change', function () {
-            const selectedOption = this.options[this.selectedIndex];
-            document.getElementById('currentLocation').value = selectedOption.dataset.location || '';
-        });
-
-    } catch (error) {
-        console.error('Error loading inventory for transfer:', error);
-        showToast('Lỗi tải danh sách tồn kho', 'danger');
     }
 }
 
@@ -5367,21 +5053,21 @@ function createHistoryPagination(allData, container) {
 
                 case 'import_deleted':
                     details = `Xóa phiếu nhập: ${data.deletedImportNumber || 'N/A'}`;
-                    viewButton = `<button class="btn btn-info btn-sm" onclick="viewImportDeletionDetails('${docId}')">
+                    viewButton = `<button class="btn btn-info btn-sm" onclick="viewDeletionDetails('${docId}')">
                         <i class="fas fa-eye"></i> Xem
                     </button>`;
                     break;
 
                 case 'export_deleted':
                     details = `Xóa phiếu xuất: ${data.deletedExportNumber || 'N/A'}`;
-                    viewButton = `<button class="btn btn-info btn-sm" onclick="viewExportDeletionDetails('${docId}')">
+                    viewButton = `<button class="btn btn-info btn-sm" onclick="viewDeletionDetails('${docId}')">
                         <i class="fas fa-eye"></i> Xem
                     </button>`;
                     break;
 
                 case 'transfer_deleted':
                     details = `Xóa chuyển kho: ${data.deletedItemCode || 'N/A'} (${data.deletedQuantity || 0})`;
-                    viewButton = `<button class="btn btn-info btn-sm" onclick="viewTransferDeletionDetails('${docId}')">
+                    viewButton = `<button class="btn btn-info btn-sm" onclick="viewDeletionDetails('${docId}')">
                         <i class="fas fa-eye"></i> Xem
                     </button>`;
                     break;
@@ -5524,7 +5210,6 @@ function createDeletionDetailsModal(data) {
             generalInfoHtml = `
                 <div class="col-md-6"><strong>Mã hàng:</strong> ${data.deletedItemCode}</div>
                 <div class="col-md-6"><strong>Người xóa:</strong> ${data.performedByName}</div>
-                <div class="col-md-6"><strong>Thời gian xóa:</strong> ${date}</div>
             `;
             detailsTitle = 'Thông tin phiếu chỉnh số đã hủy';
             detailsContentHtml = `
@@ -5533,33 +5218,91 @@ function createDeletionDetailsModal(data) {
                     <div class="col-4"><div class="card h-100"><div class="card-body"><h6 class="card-title text-muted">Số lượng đã chỉnh</h6><p class="card-text fs-4 text-muted"><s>${data.deletedNewQuantity}</s></p><small class="text-danger">✗ Đã hủy</small></div></div></div>
                     <div class="col-4"><div class="card h-100"><div class="card-body"><h6 class="card-title text-muted">Chênh lệch</h6><p class="card-text fs-4 text-muted"><s>${data.deletedAdjustment >= 0 ? '+' : ''}${data.deletedAdjustment}</s></p><small class="text-danger">✗ Đã hủy</small></div></div></div>
                 </div>`;
-            reasonHtml = `<p class="ms-2 mt-1 mb-0 fst-italic bg-light p-2 rounded">${data.deletedReason}</p>`;
+            reasonHtml = `<p class="ms-2 mt-1 mb-0 fst-italic theme-aware-inset-box p-2 rounded">${data.deletedReason}</p>`;
             impactHtml = `<strong>Tác động:</strong> Tồn kho đã được khôi phục về ${data.revertedTo}.`;
             break;
         
         case 'import_deleted':
+            const deletedImportItems = data.deletedItems || [];
+            modalTitle = 'Chi tiết Xóa Phiếu Nhập';
+            alertMainText = 'Phiếu nhập đã bị xóa';
+            alertSubText = 'Số lượng hàng hóa trong phiếu đã được thu hồi khỏi tồn kho.';
+            generalInfoHtml = `
+                <div class="col-md-6"><strong>Số phiếu đã xóa:</strong> ${data.deletedImportNumber}</div>
+                <div class="col-md-6"><strong>Nhà cung cấp gốc:</strong> ${data.deletedSupplier || 'N/A'}</div>
+                <div class="col-md-6"><strong>Người xóa:</strong> ${data.performedByName}</div>
+            `;
+            detailsTitle = 'Các mặt hàng đã được TRỪ khỏi tồn kho';
+            detailsContentHtml = `
+                <div class="table-responsive" style="max-height: 200px;">
+                    <table class="table table-sm table-bordered">
+                        <thead class="table-light"><tr><th>Mã hàng</th><th>Tên</th><th>Số lượng thu hồi</th></tr></thead>
+                        <tbody>
+                            ${deletedImportItems.map(item => `<tr><td>${item.code}</td><td>${item.name}</td><td class="text-danger fw-bold">-${item.quantity}</td></tr>`).join('')}
+                        </tbody>
+                    </table>
+                </div>`;
+            impactHtml = `<strong>Tác động:</strong> Toàn bộ số lượng từ phiếu nhập này đã được <strong>trừ</strong> khỏi tồn kho hệ thống.`;
+            break;
         case 'export_deleted':
-            const isImport = data.type === 'import_deleted';
-            const deletedItems = data.deletedItems || [];
-            modalTitle = isImport ? 'Chi tiết Xóa Phiếu Nhập' : 'Chi tiết Xóa Phiếu Xuất';
-            alertMainText = isImport ? 'Phiếu nhập đã bị xóa' : 'Phiếu xuất đã bị xóa';
+            const deletedExportItems = data.deletedItems || [];
+            modalTitle = 'Chi tiết Xóa Phiếu Xuất';
+            alertMainText = 'Phiếu xuất đã bị xóa';
             alertSubText = 'Số lượng hàng hóa trong phiếu đã được hoàn lại vào tồn kho.';
             generalInfoHtml = `
-                <div class="col-md-6"><strong>Số phiếu đã xóa:</strong> ${data.deletedImportNumber || data.deletedExportNumber}</div>
+                <div class="col-md-6"><strong>Số phiếu đã xóa:</strong> ${data.deletedExportNumber}</div>
+                <div class="col-md-6"><strong>Người nhận gốc:</strong> ${data.deletedRecipient || 'N/A'}</div>
                 <div class="col-md-6"><strong>Người xóa:</strong> ${data.performedByName}</div>
-                <div class="col-md-6"><strong>Thời gian xóa:</strong> ${date}</div>
             `;
-            detailsTitle = 'Các mặt hàng đã được hoàn lại vào tồn kho';
+            detailsTitle = 'Các mặt hàng đã được HOÀN LẠI vào tồn kho';
             detailsContentHtml = `
                 <div class="table-responsive" style="max-height: 200px;">
                     <table class="table table-sm table-bordered">
                         <thead class="table-light"><tr><th>Mã hàng</th><th>Tên</th><th>Số lượng hoàn lại</th></tr></thead>
                         <tbody>
-                            ${deletedItems.map(item => `<tr><td>${item.code}</td><td>${item.name}</td><td class="text-success fw-bold">+${item.quantity}</td></tr>`).join('')}
+                            ${deletedExportItems.map(item => `<tr><td>${item.code}</td><td>${item.name}</td><td class="text-success fw-bold">+${item.quantity}</td></tr>`).join('')}
                         </tbody>
                     </table>
                 </div>`;
-            impactHtml = `<strong>Tác động:</strong> Toàn bộ số lượng từ phiếu này đã được hoàn lại vào tồn kho hệ thống.`;
+            impactHtml = `<strong>Tác động:</strong> Toàn bộ số lượng từ phiếu xuất này đã được <strong>hoàn trả</strong> vào tồn kho hệ thống.`;
+            break;
+        case 'transfer_deleted':
+            modalTitle = 'Chi tiết Xóa Phiếu Chuyển Kho';
+            alertMainText = 'Phiếu chuyển kho đã bị xóa';
+            alertSubText = 'Số lượng đã được hoàn trả về vị trí ban đầu.';
+            generalInfoHtml = `
+                <div class="col-md-6"><strong>Mã hàng:</strong> ${data.deletedItemCode}</div>
+                <div class="col-md-6"><strong>Người xóa:</strong> ${data.performedByName}</div>
+                <div class="col-md-6"><strong>Thời gian xóa:</strong> ${date}</div>
+            `;
+            detailsTitle = 'Thông tin hoàn tác chuyển kho';
+            detailsContentHtml = `
+                <div class="row text-center">
+                    <div class="col-5">
+                        <div class="card h-100">
+                            <div class="card-body">
+                                <h6 class="card-title text-muted">VỊ TRÍ NGUỒN</h6>
+                                <p class="card-text fs-4 fw-bold">${data.deletedFromLocation}</p>
+                                <strong class="text-success">+${data.deletedQuantity}</strong>
+                                <br><small class="text-success">✓ Đã hoàn trả</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-2 d-flex align-items-center justify-content-center">
+                        <i class="fas fa-undo fa-2x text-primary"></i>
+                    </div>
+                    <div class="col-5">
+                        <div class="card h-100">
+                            <div class="card-body">
+                                <h6 class="card-title text-muted">VỊ TRÍ ĐÍCH</h6>
+                                <p class="card-text fs-4 fw-bold">${data.deletedToLocation}</p>
+                                <strong class="text-danger">-${data.deletedQuantity}</strong>
+                                <br><small class="text-danger">✗ Đã thu hồi</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>`;
+            impactHtml = `<strong>Tác động:</strong> Số lượng đã được hoàn trả về vị trí <strong>${data.deletedFromLocation}</strong> và thu hồi từ vị trí <strong>${data.deletedToLocation}</strong>.`;
             break;
             
         case 'inventory_archived':
@@ -5572,7 +5315,7 @@ function createDeletionDetailsModal(data) {
                 <div class="col-md-6"><strong>Thời gian xóa:</strong> ${date}</div>
             `;
             detailsTitle = 'Thông tin chi tiết';
-            detailsContentHtml = `<p class="p-3 bg-light rounded border">${data.details}</p>`;
+            detailsContentHtml = `<p class="p-3 theme-aware-inset-box rounded border">${data.details}</p>`;
             impactHtml = '<strong>Tác động:</strong> Sản phẩm này không còn hiển thị trong danh sách tồn kho chính.';
             break;
     }
@@ -5593,7 +5336,7 @@ function createDeletionDetailsModal(data) {
                     </div>
 
                     <!-- THÔNG TIN CHUNG -->
-                    <div class="row mb-3 p-3 bg-light rounded border">
+                    <div class="row mb-3 theme-aware-info-box">
                         ${generalInfoHtml}
                         <div class="col-md-6"><strong>Trạng thái:</strong> 
                             <span class="badge bg-danger"><i class="fas fa-trash-alt"></i> Đã xóa</span>
@@ -5698,7 +5441,7 @@ function createEditDetailsModal(data) {
                     </div>
 
                     <!-- THÔNG TIN CHUNG -->
-                    <div class="row mb-3 p-3 bg-light rounded border">
+                    <div class="row mb-3 theme-aware-info-box">
                         ${mainInfoHtml}
                     </div>
 
@@ -5793,7 +5536,7 @@ function createAdjustDeletionDetailsModal(data) {
                     </div>
 
                     <!-- THÔNG TIN CHUNG -->
-                    <div class="row mb-3 p-3 bg-light rounded border">
+                    <div class="row mb-3 theme-aware-info-box">
                         <div class="col-md-6"><strong>Mã hàng:</strong> ${data.deletedItemCode}</div>
                         <div class="col-md-6"><strong>Người xóa:</strong> ${data.deletedByName}</div>
                         <div class="col-md-6"><strong>Thời gian xóa:</strong> ${date}</div>
@@ -5843,7 +5586,7 @@ function createAdjustDeletionDetailsModal(data) {
                     <!-- LÝ DO CHỈNH SỐ BAN ĐẦU -->
                     <div class="mb-3">
                         <strong>Lý do chỉnh số ban đầu:</strong>
-                        <p class="ms-2 mt-1 mb-0 fst-italic bg-light p-2 rounded">${data.deletedReason}</p>
+                        <p class="ms-2 mt-1 mb-0 fst-italic theme-aware-inset-box p-2 rounded">${data.deletedReason}</p>
                     </div>
 
                     <!-- THÔNG TIN TÁC ĐỘNG -->
@@ -5982,7 +5725,7 @@ function createUserManagementDetailsModal(transData) {
                     </div>
 
                     <!-- THÔNG TIN CHUNG -->
-                    <div class="row mb-3 p-3 bg-light rounded border">
+                    <div class="row mb-3 theme-aware-info-box">
                         <div class="col-12 mb-2">
                             <span class="badge bg-primary">
                                 <i class="fas fa-users-cog"></i> Cập nhật thông tin User
@@ -6068,7 +5811,7 @@ function createAdjustRejectionDetailsModal(data) {
                     </div>
 
                     <!-- THÔNG TIN CHUNG -->
-                    <div class="row mb-3 p-3 bg-light rounded border">
+                    <div class="row mb-3 theme-aware-info-box">
                         <div class="col-md-6"><strong>Mã hàng:</strong> ${data.itemCode}</div>
                         <div class="col-md-6"><strong>Tên mô tả:</strong> ${data.itemName}</div>
                         <div class="col-md-6"><strong>Vị trí:</strong> ${data.location}</div>
@@ -6120,7 +5863,7 @@ function createAdjustRejectionDetailsModal(data) {
                     <!-- LÝ DO YÊU CẦU -->
                     <div class="mb-3">
                         <strong>Lý do yêu cầu chỉnh số ban đầu:</strong>
-                        <p class="ms-2 mt-1 mb-0 fst-italic bg-light p-2 rounded">${data.reason}</p>
+                        <p class="ms-2 mt-1 mb-0 fst-italic theme-aware-inset-box p-2 rounded">${data.reason}</p>
                     </div>
 
                     <!-- LÝ DO TỪ CHỐI -->
@@ -6242,58 +5985,6 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 });
 
-// Function chung để tạo pagination cho bất kỳ section nào
-function createGenericPagination(allData, container, tableConfig, paginationId) {
-    let currentPage = 1;
-    const itemsPerPage = 15;
-    const totalPages = Math.ceil(allData.length / itemsPerPage);
-
-    function renderPage(page) {
-        const startIndex = (page - 1) * itemsPerPage;
-        const endIndex = Math.min(startIndex + itemsPerPage, allData.length);
-        const pageData = allData.slice(startIndex, endIndex);
-
-        // Create table
-        const table = document.createElement('table');
-        table.className = 'table table-striped table-compact';
-        table.innerHTML = `
-            <thead>
-                <tr>
-                    ${tableConfig.headers.map(header => `<th>${header}</th>`).join('')}
-                </tr>
-            </thead>
-            <tbody></tbody>
-        `;
-
-        const tbody = table.querySelector('tbody');
-
-        pageData.forEach(doc => {
-            const row = document.createElement('tr');
-            row.innerHTML = tableConfig.renderRow(doc);
-            tbody.appendChild(row);
-        });
-
-        // Create pagination
-        const paginationContainer = document.createElement('div');
-        paginationContainer.className = 'd-flex justify-content-between align-items-center mt-3';
-        paginationContainer.innerHTML = `
-            <small class="text-muted">Hiển thị ${startIndex + 1} - ${endIndex} của ${allData.length} kết quả</small>
-            <nav aria-label="${tableConfig.label} pagination">
-                <ul class="pagination pagination-sm mb-0" id="${paginationId}">
-                </ul>
-            </nav>
-        `;
-
-        container.innerHTML = '';
-        container.appendChild(table);
-        container.appendChild(paginationContainer);
-
-        updatePaginationControls(page, totalPages, paginationId, renderPage);
-    }
-
-    renderPage(1);
-}
-
 function initializeFilters() {
     // Hàm trợ giúp để thiết lập bộ lọc trực tiếp cho một khu vực
     const setupLiveFilter = (config) => {
@@ -6397,7 +6088,7 @@ function createTransferDetailsModal(data) {
                     </div>
 
                     <!-- THÔNG TIN CHUNG -->
-                    <div class="row mb-3 p-3 bg-light rounded border">
+                    <div class="row mb-3 theme-aware-info-box">
                         <div class="col-12 mb-2">
                             <span class="badge bg-info">
                                 <i class="fas fa-exchange-alt"></i> Phiếu chuyển kho
@@ -6461,7 +6152,7 @@ function createTransferDetailsModal(data) {
                     ${data.note ? `
                         <div class="mb-3">
                             <strong>Ghi chú:</strong>
-                            <p class="ms-2 mt-1 mb-0 fst-italic bg-light p-2 rounded">${data.note}</p>
+                            <p class="ms-2 mt-1 mb-0 fst-italic theme-aware-inset-box p-2 rounded">${data.note}</p>
                         </div>
                     ` : ''}
 
@@ -6578,7 +6269,7 @@ function createAdjustDetailsModal(data) {
                 </div>
                 <div class="modal-body">
                     <!-- THÔNG TIN CHUNG -->
-                    <div class="row mb-3 p-3 bg-light rounded border">
+                    <div class="row mb-3 theme-aware-info-box">
                         <div class="col-md-6"><strong>Mã hàng:</strong> ${data.itemCode}</div>
                         <div class="col-md-6"><strong>Tên mô tả:</strong> ${data.itemName}</div>
                         <div class="col-md-6"><strong>Vị trí:</strong> ${data.location || 'N/A'}</div>
@@ -6619,7 +6310,7 @@ function createAdjustDetailsModal(data) {
                     <!-- LÝ DO -->
                     <div class="mt-4">
                         <strong>Lý do chỉnh số:</strong>
-                        <p class="ms-2 mt-1 mb-0 fst-italic bg-light p-2 rounded">${data.reason}</p>
+                        <p class="ms-2 mt-1 mb-0 fst-italic theme-aware-inset-box p-2 rounded">${data.reason}</p>
                     </div>
                 </div>
                 <div class="modal-footer">
@@ -6630,95 +6321,6 @@ function createAdjustDetailsModal(data) {
     `;
 
     return modal;
-}
-
-
-// Pagination utility functions
-function createPaginationComponent(containerId, data, renderFunction, itemsPerPage = 15) {
-    const container = document.getElementById(containerId);
-    if (!container) return;
-
-    let currentPage = 1;
-    const totalPages = Math.ceil(data.length / itemsPerPage);
-
-    function renderPage(page) {
-        const startIndex = (page - 1) * itemsPerPage;
-        const endIndex = Math.min(startIndex + itemsPerPage, data.length);
-        const pageData = data.slice(startIndex, endIndex);
-
-        renderFunction(pageData);
-        updatePaginationControls(page, totalPages, data.length, startIndex, endIndex);
-    }
-
-    function updatePaginationControls(page, totalPages, totalItems, startIndex, endIndex) {
-        // Create pagination HTML
-        let paginationHTML = `
-            <div class="d-flex justify-content-between align-items-center mt-3">
-                <small class="text-muted">Hiển thị ${startIndex + 1} - ${endIndex} của ${totalItems} kết quả</small>
-                <nav>
-                    <ul class="pagination pagination-sm mb-0">
-        `;
-
-        // Previous button
-        paginationHTML += `
-            <li class="page-item ${page === 1 ? 'disabled' : ''}">
-                <a class="page-link" href="#" onclick="goToPage(${page - 1})">Trước</a>
-            </li>
-        `;
-
-        // Page numbers
-        const maxVisiblePages = 5;
-        let startPage = Math.max(1, page - Math.floor(maxVisiblePages / 2));
-        let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
-
-        for (let i = startPage; i <= endPage; i++) {
-            paginationHTML += `
-                <li class="page-item ${i === page ? 'active' : ''}">
-                    <a class="page-link" href="#" onclick="goToPage(${i})">${i}</a>
-                </li>
-            `;
-        }
-
-        // Next button
-        paginationHTML += `
-            <li class="page-item ${page === totalPages ? 'disabled' : ''}">
-                <a class="page-link" href="#" onclick="goToPage(${page + 1})">Sau</a>
-            </li>
-                    </ul>
-                </nav>
-            </div>
-        `;
-
-        // Add pagination to container
-        const existingPagination = container.querySelector('.pagination-container');
-        if (existingPagination) {
-            existingPagination.remove();
-        }
-
-        const paginationDiv = document.createElement('div');
-        paginationDiv.className = 'pagination-container';
-        paginationDiv.innerHTML = paginationHTML;
-        container.appendChild(paginationDiv);
-
-        // Store goToPage function globally for this container
-        window.goToPage = function (newPage) {
-            if (newPage >= 1 && newPage <= totalPages) {
-                currentPage = newPage;
-                renderPage(currentPage);
-            }
-        };
-    }
-
-    // Initial render
-    renderPage(1);
-
-    return {
-        refresh: (newData) => {
-            data = newData;
-            currentPage = 1;
-            renderPage(1);
-        }
-    };
 }
 
 function createExportPagination(allData, container) {
@@ -6859,7 +6461,7 @@ window.viewExportRequestDetails = async function(requestId) {
                     </div>
 
                     <!-- THÔNG TIN CHUNG - ĐÃ CẬP NHẬT -->
-                    <div class="row mb-3 p-3 bg-light rounded border">
+                    <div class="row mb-3 theme-aware-info-box">
                         <div class="col-md-6"><strong>Số phiếu yêu cầu:</strong> ${req.exportNumber || 'N/A'}</div>
                         <div class="col-md-6"><strong>Người nhận (đề xuất):</strong> ${req.recipient || 'N/A'}</div>
                         <div class="col-md-6"><strong>Người yêu cầu:</strong> ${req.requestedByName}</div>
@@ -7113,7 +6715,7 @@ function createUserApprovalDetailsModal(data, userData) {
                     </div>
 
                     <!-- THÔNG TIN CHUNG -->
-                    <div class="row mb-3 p-3 bg-light rounded border">
+                    <div class="row mb-3 theme-aware-info-box">
                         <div class="col-12 mb-2">
                             <span class="badge ${actionBadgeClass}">
                                 <i class="${actionIconClass}"></i> ${actionText}
@@ -7488,6 +7090,7 @@ window.deleteImportTransaction = async function (transactionId) {
             type: 'import_deleted',
             originalTransactionId: transactionId,
             deletedImportNumber: data.importNumber,
+            deletedSupplier: data.supplier,
             deletedItems: data.items,
             performedBy: currentUser.uid,
             performedByName: currentUser.name,
@@ -7776,6 +7379,7 @@ window.deleteExportTransaction = async function (transactionId) {
             type: 'export_deleted',
             originalTransactionId: transactionId,
             deletedExportNumber: data.exportNumber,
+            deletedRecipient: data.recipient,
             deletedItems: data.items,
             performedBy: currentUser.uid,
             performedByName: currentUser.name,
@@ -9478,31 +9082,35 @@ async function deleteSelectedTemplate() {
     }
 }
 
-// Thay thế hàm này trong warehouse.js
 function applySelectedTemplate() {
     const templateName = document.getElementById('templateLoader').value;
     if (!templateName) return;
 
     const template = savedTemplates.find(t => t.name === templateName);
     if (template) {
-        // Áp dụng kích thước giấy
+        // Áp dụng kích thước giấy (phần này đã đúng)
         document.getElementById('paperSizeSelector').value = template.paperSize;
-
-        // THÊM MỚI: Nếu là mẫu tùy chỉnh, điền giá trị vào các ô input
         if (template.paperSize === 'custom') {
             document.getElementById('customWidthInput').value = template.customWidth || 4;
             document.getElementById('customHeightInput').value = template.customHeight || 3;
         }
-
-        // Cập nhật lại kích thước canvas (hàm này sẽ tự xử lý việc ẩn/hiện)
         updateBarcodeCanvasSize();
         
-        // Áp dụng layout và hiển thị thông báo
-        renderBarcodeLabel(template.layout);
+        // --- LOGIC MỚI: Định vị lại các phần tử hiện có ---
+        if (template.layout) {
+            document.querySelectorAll('.barcode-element').forEach(el => {
+                const key = el.dataset.key;
+                const savedPosition = template.layout[key];
+                if (savedPosition) {
+                    el.style.top = `${savedPosition.top}px`;
+                    el.style.left = `${savedPosition.left}px`;
+                }
+            });
+        }
+        
         showToast(`Đã áp dụng mẫu "${templateName}".`, "info");
     }
 }
-
 
 // Thay thế hàm này trong warehouse.js
 async function saveCurrentTemplate() {
@@ -9743,28 +9351,26 @@ function createScannedItemDetailsModal(item) {
 
     modal.addEventListener('hidden.bs.modal', () => modal.remove());
 }
-// Sửa đổi hàm renderBarcodeLabel trong warehouse.js
-function renderBarcodeLabel(layout = null) {
+
+function renderBarcodeLabel() { // Đã xóa tham số 'layout'
     const canvas = document.getElementById('barcode-canvas');
     canvas.innerHTML = ''; 
 
     if (!currentBarcodeItem) return;
 
-    // THAY ĐỔI LỚN: Định nghĩa lại layout mặc định của tem
+    // Bố cục bây giờ là một cấu trúc mặc định, cố định.
+    // Kéo-và-thả sẽ sửa đổi trực tiếp style của phần tử.
     const defaultElements = {
-        // Dòng 1: Mã hàng - Mô tả
         itemInfo: { 
             text: `${currentBarcodeItem.code} - ${currentBarcodeItem.name}`, 
             top: 5, 
             left: 5 
         },
-        // Dòng 2: Số lượng - Vị trí
         stockInfo: { 
             text: `SL: ${currentBarcodeItem.quantity} - Vị trí: ${currentBarcodeItem.location}`, 
             top: 30, 
             left: 5 
         },
-        // Dòng 3: Barcode
         barcode: { 
             type: 'barcode', 
             value: currentBarcodeItem.code, 
@@ -9777,8 +9383,7 @@ function renderBarcodeLabel(layout = null) {
     
     for (const key in defaultElements) {
         const defaultData = defaultElements[key];
-        const pos = layout ? layout[key] : { top: defaultData.top, left: defaultData.left };
-
+        
         const div = document.createElement('div');
         
         if (defaultData.type === 'barcode') {
@@ -9788,21 +9393,23 @@ function renderBarcodeLabel(layout = null) {
              JsBarcode(svg, defaultData.value, {
                 width: defaultData.width,
                 height: defaultData.height,
-                displayValue: true // Tắt hiển thị text dưới barcode vì đã có ở dòng 1
+                displayValue: true // Đổi thành false để tránh lặp lại văn bản
             });
         } else {
              div.textContent = defaultData.text;
         }
        
         div.className = 'barcode-element';
-        div.style.top = `${pos.top}px`;
-        div.style.left = `${pos.left}px`;
-        div.dataset.key = key; // Dùng key để lưu layout
+        // Đặt vị trí ban đầu từ cấu trúc mặc định của chúng ta
+        div.style.top = `${defaultData.top}px`;
+        div.style.left = `${defaultData.left}px`;
+        div.dataset.key = key;
 
         makeElementDraggable(div);
         canvas.appendChild(div);
     }
 }
+
 
 function makeElementDraggable(element) {
     let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
@@ -10014,7 +9621,7 @@ function renderScanExportForm() {
                     <span class="badge bg-warning text-dark ms-auto" id="scan-item-count-badge">0 mặt hàng</span>
                 </div>
                 <div class="table-responsive" style="max-height: 300px;">
-                    <table class="table table-sm table-bordered table-hover">
+                    <table class="table table-sm table-bordered table-hover table-compact">
                         <thead class="table-light">
                             <tr>
                                 <th>Sản phẩm</th>
@@ -10278,46 +9885,6 @@ window.finalizeExport = async function() {
         }
     }
 };
-
-window.loadApproveExportsSection = async function() {
-    const content = document.getElementById('pendingExportsContent');
-    content.innerHTML = '<p>Đang tải dữ liệu...</p>';
-
-    try {
-        const q = query(collection(db, 'export_requests'), where('status', '==', 'pending'), orderBy('timestamp', 'desc'));
-        const snapshot = await getDocs(q);
-
-        if (snapshot.empty) {
-            content.innerHTML = '<p class="text-muted">Không có yêu cầu xuất kho nào đang chờ duyệt.</p>';
-            return;
-        }
-
-        let html = '<div class="list-group">';
-        snapshot.forEach(doc => {
-            const req = doc.data();
-            const date = req.timestamp.toDate().toLocaleString('vi-VN');
-            html += `
-                <div class="list-group-item">
-                    <div class="d-flex w-100 justify-content-between">
-                        <h6 class="mb-1">Yêu cầu từ: ${req.requestedByName}</h6>
-                        <small>${date}</small>
-                    </div>
-                    <p class="mb-1">Số lượng mặt hàng: ${req.items.length}</p>
-                    <div>
-                        <button class="btn btn-sm btn-primary" onclick="viewExportRequestDetails('${doc.id}')">Xem</button>
-                        <button class="btn btn-sm btn-success" onclick="approveExportRequest('${doc.id}')">Duyệt</button>
-                        <button class="btn btn-sm btn-danger" onclick="rejectExportRequest('${doc.id}')">Từ chối</button>
-                    </div>
-                </div>
-            `;
-        });
-        html += '</div>';
-        content.innerHTML = html;
-    } catch (error) {
-        console.error("Lỗi tải yêu cầu xuất kho:", error);
-        content.innerHTML = '<p class="text-danger">Lỗi tải dữ liệu.</p>';
-    }
-}
 
 window.viewItemHistoryFromScan = async function(itemCode) {
     try {
@@ -10639,4 +10206,109 @@ window.viewInventoryArchiveDetails = async function(transactionId) {
     document.body.appendChild(modal);
     new bootstrap.Modal(modal).show();
     modal.addEventListener('hidden.bs.modal', () => modal.remove());
+}
+
+/**
+ * Hiển thị modal xác nhận việc xóa toàn bộ dữ liệu.
+ */
+window.showWipeDataModal = function() {
+    // Chỉ Super Admin mới có thể gọi hàm này
+    if (userRole !== 'super_admin') return;
+
+    const modal = createWipeDataModal();
+    document.body.appendChild(modal);
+    const bsModal = new bootstrap.Modal(modal);
+
+    // Thêm logic để kích hoạt nút bấm khi người dùng gõ đúng cụm từ
+    const confirmInput = modal.querySelector('#wipeDataConfirmInput');
+    const wipeBtn = modal.querySelector('#executeWipeBtn');
+    const requiredText = 'XÓA TẤT CẢ DỮ LIỆU';
+
+    confirmInput.addEventListener('input', () => {
+        if (confirmInput.value === requiredText) {
+            wipeBtn.disabled = false;
+        } else {
+            wipeBtn.disabled = true;
+        }
+    });
+
+    bsModal.show();
+    modal.addEventListener('hidden.bs.modal', () => modal.remove());
+}
+
+/**
+ * Tạo HTML cho modal xóa dữ liệu.
+ * @returns {HTMLElement} - Phần tử DOM của modal.
+ */
+function createWipeDataModal() {
+    const modal = document.createElement('div');
+    modal.className = 'modal fade';
+    modal.innerHTML = `
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header bg-danger text-white">
+                    <h5 class="modal-title"><i class="fas fa-skull-crossbones"></i> Xác nhận hành động không thể hoàn tác</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p>Đây là hành động cực kỳ nguy hiểm. Bạn có chắc chắn muốn tiếp tục?</p>
+                    <div class="alert alert-danger">
+                        <strong>CẢNH BÁO:</strong> Bạn sắp xóa:
+                        <ul>
+                            <li>Toàn bộ <strong>sản phẩm</strong> trong kho.</li>
+                            <li>Toàn bộ <strong>lịch sử</strong> giao dịch (nhập, xuất, chuyển, chỉnh số).</li>
+                            <li>Toàn bộ <strong>yêu cầu</strong> đang chờ xử lý.</li>
+                            <li>Toàn bộ <strong>người dùng</strong> (ngoại trừ 3 tài khoản mẫu).</li>
+                            <ul>
+                                <li>superadmin@gmail.com/admin123</li>
+                                <li>admin@gmail.com/admin123</li>
+                                <li>staff@gmail.com/admin123</li>
+                            </ul>
+                        </ul>
+                    </div>
+                    <p>Để xác nhận, vui lòng gõ chính xác cụm từ sau vào ô bên dưới: <br>
+                       <strong class="text-danger">XÓA TẤT CẢ DỮ LIỆU</strong>
+                    </p>
+                    <input type="text" class="form-control" id="wipeDataConfirmInput" autocomplete="off">
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy bỏ</button>
+                    <button type="button" class="btn btn-danger" id="executeWipeBtn" onclick="executeWipeData()" disabled>
+                        Tôi hiểu hậu quả, Xóa toàn bộ dữ liệu
+                    </button>
+                </div>
+            </div>
+        </div>
+    `;
+    return modal;
+}
+
+/**
+ * Gọi đến Firebase Function để thực hiện việc xóa.
+ */
+async function executeWipeData() {
+    // Hiển thị thông báo đang xử lý
+    showToast('Đang bắt đầu quá trình xóa dữ liệu... Vui lòng không đóng trang.', 'info');
+    bootstrap.Modal.getInstance(document.querySelector('.modal')).hide();
+    
+    try {
+        // Cần import các hàm này ở đầu tệp warehouse.js
+        const { getFunctions, httpsCallable } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-functions.js');
+        const functions = getFunctions();
+        const wipeAllData = httpsCallable(functions, 'wipeAllData');
+
+        const result = await wipeAllData();
+
+        if (result.data.success) {
+            await showConfirmation('Thành công', 'Toàn bộ dữ liệu đã được xóa bỏ. Hệ thống sẽ tự động đăng xuất.', 'OK', '', 'success');
+            // Đăng xuất sau khi xóa xong
+            signOut(auth);
+        } else {
+            throw new Error(result.data.error || 'Có lỗi không xác định ở phía máy chủ.');
+        }
+
+    } catch (error) {
+        console.error("Lỗi khi thực hiện xóa dữ liệu:", error);
+        showToast(`Lỗi nghiêm trọng: ${error.message}`, 'danger');
+    }
 }

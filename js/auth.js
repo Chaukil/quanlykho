@@ -1,3 +1,31 @@
+(function applyThemeOnLoad() {
+    // Lấy cài đặt từ localStorage (nơi dashboard.js lưu trữ)
+    // Chúng ta không biết user là ai, nên chỉ cần tìm key có chứa 'userSettings'
+    let savedSettings = null;
+    for (let i = 0; i < localStorage.length; i++) {
+        if (localStorage.key(i).startsWith('userSettings_')) {
+            try {
+                savedSettings = JSON.parse(localStorage.getItem(localStorage.key(i)));
+                break; // Tìm thấy là dùng luôn
+            } catch (e) {
+                console.error("Error parsing settings from localStorage", e);
+            }
+        }
+    }
+
+    // Giá trị mặc định nếu không tìm thấy cài đặt
+    const theme = savedSettings?.theme || 'light';
+    const primaryColor = savedSettings?.primaryColor || '#007bff';
+    const primaryRgb = '0, 123, 255'; // Mặc định cho màu xanh
+
+    // Áp dụng lên trang
+    document.documentElement.setAttribute('data-theme', theme);
+    document.documentElement.style.setProperty('--primary-color', primaryColor);
+    // Bạn có thể cần thêm logic để chuyển đổi màu hex sang RGB nếu muốn màu chủ đạo thay đổi
+    // Tạm thời để mặc định
+    document.documentElement.style.setProperty('--primary-rgb', primaryRgb);
+})();
+
 // auth.js - EXTREME VERSION
 import { auth, db } from './connect.js';
 import { 
@@ -11,6 +39,7 @@ import {
     getDoc, 
     serverTimestamp 
 } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
+
 
 // Show toast notification
 function showToast(message, type = 'info') {

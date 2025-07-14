@@ -70,6 +70,11 @@
     border-color: var(--border-color);      /* Màu viền */
 }
 
+[data-theme="dark"] .form-control-compact::placeholder {
+    color: var(--text-muted-color);
+    opacity: 0.7;
+}
+
 /* Sửa cả trạng thái khi được chọn (focus) */
 [data-theme="dark"] .form-control:focus,
 [data-theme="dark"] .form-select:focus {
@@ -90,6 +95,10 @@
 [data-theme="dark"] .table-warning > td {
     color: #000 !important; /* Dùng !important để đảm bảo quy tắc này luôn được ưu tiên */
     background-color: #fff3cd; 
+}
+
+[data-theme="dark"] .accordion-button::after {
+   filter: brightness(0) invert(1); /* Đảo ngược màu của icon cho chế độ tối */
 }
 
 * {
@@ -667,6 +676,7 @@ main.col-md-9 {
 
 .unit-option {
     padding: 0.4rem 0.8rem;
+    color: var(--text-color);
     border: 1px solid var(--border-color);
     border-radius: 6px;
     background: var(--card-bg-color);
@@ -830,25 +840,25 @@ main.col-md-9 {
     gap: 0.25rem;
 }
 
-.form-control-compact {
-    border-radius: 4px;
-    border: 1px solid var(--border-color);
-    padding: 0.4rem 0.5rem;
-    font-size: 0.8rem;
-    height: 32px;
-    width: 100%; /* Giúp ô nhập liệu co giãn theo khung */
-    box-sizing: border-box;
-}
-
+.form-control-compact,
 .form-select-compact {
     border-radius: 4px;
     border: 1px solid var(--border-color);
     padding: 0.4rem 0.5rem;
     font-size: 0.8rem;
     height: 32px;
-    background-color: var(--card-bg-color);
-    width: 100%; /* Giúp ô lựa chọn co giãn theo khung */
+    width: 100%;
     box-sizing: border-box;
+    /* THÊM CÁC THUỘC TÍNH NÀY ĐỂ TƯƠNG THÍCH GIAO DIỆN */
+    background-color: var(--card-bg-color);
+    color: var(--text-color);
+    transition: border-color .15s ease-in-out, box-shadow .15s ease-in-out;
+}
+
+.form-control-compact:focus,
+.form-select-compact:focus {
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 0.2rem rgba(var(--primary-rgb), .15);
 }
 
 /* Compact unit selector */
@@ -1211,7 +1221,7 @@ main.col-md-9 {
 .barcode-canvas-container {
     border: 1px dashed #ccc;
     padding: 1rem;
-    background-color: #f8f9fa;
+    background-color: var(--bg-color);
 }
 
 .barcode-canvas {
@@ -1313,4 +1323,247 @@ main.col-md-9 {
     main.col-md-9 {
         margin-left: 0 !important;
     }
+}
+
+/* --- LỚP MỚI CHO HỘP THÔNG TIN TƯƠNG THÍCH VỚI GIAO DIỆN --- */
+.theme-aware-info-box {
+    background-color: var(--sidebar-bg-color); /* Dùng màu nền của sidebar cho đồng bộ */
+    border: 1px solid var(--border-color);
+    padding: 1rem;
+    margin-bottom: 1rem;
+    border-radius: 0.25rem;
+}
+
+/* Đảm bảo chữ bên trong cũng đổi màu theo giao diện */
+.theme-aware-info-box,
+.theme-aware-info-box strong {
+    color: var(--text-color);
+}
+
+.theme-aware-inset-box {
+    background-color: var(--sidebar-bg-color); /* Lại dùng màu của sidebar để tạo sự tương phản nhẹ */
+    color: var(--text-color);
+}
+
+.table-compact {
+    font-size: 0.8rem; /* Chữ nhỏ hơn cho bảng compact */
+}
+
+/* Kiểu cho các ô trong bảng compact */
+.table-compact th,
+.table-compact td {
+    padding: 0.5rem; /* Giảm padding để bảng trông gọn hơn */
+    vertical-align: middle;
+    /* THUỘC TÍNH QUAN TRỌNG ĐỂ TƯƠNG THÍCH GIAO DIỆN */
+    background-color: transparent; /* Nền trong suốt để hiển thị màu của hàng (tr) */
+    color: var(--text-color);
+    border-color: var(--border-color);
+}
+
+/* Kiểu cho tiêu đề bảng compact */
+.table-compact thead th {
+    background-color: var(--sidebar-bg-color); /* Dùng màu nền của sidebar */
+    font-weight: 600;
+}
+
+/* =================================== */
+/* === LOGIN PAGE STYLES - NEW     === */
+/* =================================== */
+
+.login-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    background-color: var(--bg-color); /* Nền toàn trang, tương thích giao diện */
+    padding: 1rem;
+}
+
+.login-card {
+    background-color: var(--card-bg-color); /* Nền card, tương thích giao diện */
+    color: var(--text-color);
+    padding: 2rem;
+    border-radius: 15px;
+    border: 1px solid var(--border-color);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+    width: 100%;
+    max-width: 400px;
+    transition: all 0.3s ease;
+}
+
+.login-header {
+    text-align: center;
+    margin-bottom: 1.5rem;
+}
+
+.login-icon {
+    font-size: 2.5rem;
+    color: var(--primary-color);
+    margin-bottom: 1rem;
+}
+
+/* Định dạng cho input có icon bên trong */
+.input-group-icon {
+    position: relative;
+}
+
+.input-icon {
+    position: absolute;
+    top: 50%;
+    left: 15px;
+    transform: translateY(-50%);
+    color: var(--text-muted-color);
+    pointer-events: none; /* Cho phép click xuyên qua icon */
+}
+
+/* Ghi đè style của Bootstrap để tương thích giao diện */
+.input-group-icon .form-control {
+    padding-left: 40px; /* Tạo không gian cho icon */
+    background-color: var(--bg-color); /* Dùng nền của trang, không phải nền card */
+    color: var(--text-color);
+    border: 1px solid var(--border-color);
+}
+
+.input-group-icon .form-control:focus {
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 0.2rem rgba(var(--primary-rgb), .25);
+}
+
+.btn-login {
+    padding: 10px;
+    font-weight: 600;
+}
+
+.form-toggle-link {
+    color: var(--primary-color);
+    text-decoration: none;
+    font-weight: 500;
+}
+
+.form-toggle-link:hover {
+    text-decoration: underline;
+}
+
+.stats-card {
+    background-color: var(--card-bg-color);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 1.25rem;
+    position: relative;
+    overflow: hidden; /* Giúp dải màu không bị tràn ra ngoài */
+    transition: all 0.3s ease;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+}
+
+/* Tạo dải màu trang trí bên trái */
+.stats-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 5px;
+    background-color: var(--border-color); /* Màu mặc định */
+}
+
+.stats-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 8px 15px rgba(0,0,0,0.1);
+}
+
+.stats-card .card-body {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0; /* Xóa padding mặc định của card-body */
+}
+
+.stats-card-icon {
+    width: 50px;
+    height: 50px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+    color: #fff;
+}
+
+.stats-card-content {
+    flex-grow: 1;
+}
+
+.stats-card-title {
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: var(--text-muted-color);
+    margin-bottom: 0.25rem;
+}
+
+.stats-card-value {
+    font-size: 2rem;
+    font-weight: 700;
+    color: var(--text-color);
+}
+
+/* --- Các biến thể màu sắc --- */
+.stats-card.primary::before,
+.stats-card.primary .stats-card-icon {
+    background-color: var(--primary-color);
+}
+
+.stats-card.success::before,
+.stats-card.success .stats-card-icon {
+    background-color: #1b9939; /* Màu success của Bootstrap */
+}
+
+.stats-card.warning::before,
+.stats-card.warning .stats-card-icon {
+    background-color: #ffc107; /* Màu warning của Bootstrap */
+}
+
+.stats-card.info::before,
+.stats-card.info .stats-card-icon {
+    background-color: #f00d33; /* Màu info của Bootstrap */
+}
+
+/* =================================== */
+/* === ĐỊNH DẠNG ACCORDION TƯƠNG THÍCH GIAO DIỆN === */
+/* =================================== */
+
+.accordion-item {
+    background-color: var(--card-bg-color);
+    border: 1px solid var(--border-color);
+}
+
+.accordion-button {
+    background-color: var(--card-bg-color);
+    color: var(--text-color);
+    font-weight: 600;
+}
+
+/* Định dạng cho nút khi mục đang mở */
+.accordion-button:not(.collapsed) {
+    background-color: var(--sidebar-bg-color); /* Dùng màu hơi khác cho mục đang hoạt động */
+    color: var(--primary-color);
+    box-shadow: inset 0 -1px 0 var(--border-color);
+}
+
+/* Thay đổi màu sắc của icon mũi tên mặc định */
+.accordion-button::after {
+    filter: var(--bs-accordion-btn-icon-filter); /* Dùng biến filter của Bootstrap nếu có */
+}
+
+
+
+.accordion-button:focus {
+    box-shadow: 0 0 0 0.2rem rgba(var(--primary-rgb), .25);
+    border-color: var(--primary-color);
+}
+
+.accordion-body {
+    background-color: var(--card-bg-color);
+    color: var(--text-color);
 }

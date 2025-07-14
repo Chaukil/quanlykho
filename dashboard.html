@@ -112,41 +112,69 @@
                 <div id="content">
                     <!-- Dashboard Section -->
                     <div id="dashboard-section" class="content-section">
-                        <div class="row">
-                            <!-- Statistics cards remain the same -->
-                            <div class="col-md-3">
-                                <div class="card text-white bg-primary">
-                                    <div class="card-header">Tổng sản phẩm</div>
-                                    <div class="card-body">
-                                        <h3 class="card-title" id="totalProducts">0</h3>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="col-md-3">
-                                <div class="card text-white bg-success">
-                                    <div class="card-header">Nhập kho hôm nay</div>
-                                    <div class="card-body">
-                                        <h3 class="card-title" id="todayImports">0</h3>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="col-md-3">
-                                <div class="card text-white bg-warning">
-                                    <div class="card-header">Xuất kho hôm nay</div>
-                                    <div class="card-body">
-                                        <h3 class="card-title" id="todayExports">0</h3>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="col-md-3">
-                                <div class="card text-white bg-info">
-                                    <div class="card-header">Tồn kho thấp</div>
-                                    <div class="card-body">
-                                        <h3 class="card-title" id="lowStock">0</h3>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
+                        <!-- NEW STATS CARDS ROW -->
+<div class="row g-3">
+    <!-- Card 1: Tổng sản phẩm -->
+    <div class="col-lg-3 col-md-6">
+        <div class="stats-card primary">
+            <div class="card-body">
+                <div class="stats-card-icon">
+                    <i class="fas fa-boxes-stacked"></i>
+                </div>
+                <div class="stats-card-content">
+                    <div class="stats-card-title">Tổng sản phẩm</div>
+                    <div class="stats-card-value" id="totalProducts">0</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Card 2: Nhập kho hôm nay -->
+    <div class="col-lg-3 col-md-6">
+        <div class="stats-card success">
+            <div class="card-body">
+                <div class="stats-card-icon">
+                    <i class="fas fa-arrow-down"></i>
+                </div>
+                <div class="stats-card-content">
+                    <div class="stats-card-title">Nhập kho hôm nay</div>
+                    <div class="stats-card-value" id="todayImports">0</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Card 3: Xuất kho hôm nay -->
+    <div class="col-lg-3 col-md-6">
+        <div class="stats-card warning">
+            <div class="card-body">
+                <div class="stats-card-icon">
+                    <i class="fas fa-arrow-up"></i>
+                </div>
+                <div class="stats-card-content">
+                    <div class="stats-card-title">Xuất kho hôm nay</div>
+                    <div class="stats-card-value" id="todayExports">0</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Card 4: Tồn kho thấp -->
+    <div class="col-lg-3 col-md-6">
+        <div class="stats-card info">
+            <div class="card-body">
+                <div class="stats-card-icon">
+                    <i class="fas fa-triangle-exclamation"></i>
+                </div>
+                <div class="stats-card-content">
+                    <div class="stats-card-title">Tồn kho thấp</div>
+                    <div class="stats-card-value" id="lowStock">0</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 
                         <!-- Filter cho Dashboard Inventory -->
                         <div class="card mb-3 mt-4">
@@ -496,89 +524,100 @@
                 </div>
 
                 <!-- Thêm vào trong <div id="content">, cùng cấp với các section khác -->
-                <div id="settings-section" class="content-section" style="display: none;">
-                    <!-- Card 1: Tùy chỉnh giao diện -->
-                    <div class="card text-start mt-4">
-                        <div class="card-header">
-                            Tùy chỉnh Giao diện
-                        </div>
-                        <div class="card-body">
-                            <!-- Chức năng Dark mode / Light mode -->
-                            <div class="d-flex justify-content-between align-items-center mb-3">
-                                <label for="darkModeSwitch" class="form-check-label">Chế độ tối (Dark Mode)</label>
-                                <div class="form-check form-switch">
-                                    <input class="form-check-input" type="checkbox" role="switch" id="darkModeSwitch">
-                                </div>
-                            </div>
-                            <hr>
+                <!-- MỤC CÀI ĐẶT VỚI GIAO DIỆN ACCORDION -->
+<div id="settings-section" class="content-section" style="display: none;">
+    
+    <!-- Chúng ta sẽ bọc mọi thứ trong một container accordion -->
+    <div class="accordion" id="settingsAccordion">
 
-                            <!-- Chức năng Custom color themes -->
-                            <div class="mb-3">
-                                <label class="form-label">Màu chủ đạo</label>
-                                <div id="themeColorSelector" class="d-flex gap-2">
-                                    <button class="color-box" data-color="#007bff"
-                                        style="background-color: #007bff;"></button>
-                                    <button class="color-box" data-color="#6f42c1"
-                                        style="background-color: #6f42c1;"></button>
-                                    <button class="color-box" data-color="#d63384"
-                                        style="background-color: #d63384;"></button>
-                                    <button class="color-box" data-color="#fd7e14"
-                                        style="background-color: #fd7e14;"></button>
-                                    <button class="color-box" data-color="#198754"
-                                        style="background-color: #198754;"></button>
-                                    <button class="color-box" data-color="#dc3545"
-                                        style="background-color: #dc3545;"></button>
-                                </div>
-                            </div>
+        <!-- Mục Accordion 1: Tùy chỉnh Giao diện -->
+        <div class="accordion-item">
+            <h2 class="accordion-header" id="headingOne">
+                <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#collapseOne" aria-expanded="true" aria-controls="collapseOne">
+                    <i class="fas fa-palette me-2"></i> Tùy chỉnh Giao diện
+                </button>
+            </h2>
+            <div id="collapseOne" class="accordion-collapse collapse show" aria-labelledby="headingOne" data-bs-parent="#settingsAccordion">
+                <div class="accordion-body">
+                    <!-- Chức năng chế độ tối / sáng -->
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <label for="darkModeSwitch" class="form-check-label">Chế độ tối (Dark Mode)</label>
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" role="switch" id="darkModeSwitch">
                         </div>
                     </div>
+                    <hr>
 
-                    <!-- Card 2: Bố cục -->
-                    <div class="card text-start mt-4">
-                        <div class="card-header">
-                            Tùy chỉnh Bố cục
-                        </div>
-                        <div class="card-body">
-                            <!-- Chức năng Dashboard widgets tuỳ chỉnh (phiên bản đơn giản) -->
-                            <div class="d-flex justify-content-between align-items-center">
-                                <label for="toggleStatsWidgetsSwitch" class="form-check-label">Hiện các thẻ thống kê
-                                    nhanh</label>
-                                <div class="form-check form-switch">
-                                    <input class="form-check-input" type="checkbox" role="switch"
-                                        id="toggleStatsWidgetsSwitch" checked>
-                                </div>
-                            </div>
-                            <small class="form-text text-muted">Bật/tắt các thẻ "Tổng sản phẩm", "Nhập kho hôm nay",
-                                v.v. trên Dashboard.</small>
-                        </div>
-                    </div>
-
-                    <!-- Card 3: Bảo mật -->
-                    <div class="card text-start mt-4">
-                        <div class="card-header">
-                            Bảo mật tài khoản
-                        </div>
-                        <div class="card-body">
-                            <h6 class="card-title">Đổi mật khẩu</h6>
-                            <form id="changePasswordForm">
-                                <div class="mb-3">
-                                    <label for="oldPassword" class="form-label">Mật khẩu cũ</label>
-                                    <input type="password" class="form-control" id="oldPassword" required>
-                                </div>
-                                <div class="mb-3">
-                                    <label for="newPassword" class="form-label">Mật khẩu mới</label>
-                                    <input type="password" class="form-control" id="newPassword" required>
-                                </div>
-                                <div class="mb-3">
-                                    <label for="confirmPassword" class="form-label">Xác nhận mật khẩu mới</label>
-                                    <input type="password" class="form-control" id="confirmPassword" required>
-                                </div>
-                                <button type="submit" class="btn btn-primary" id="changePasswordBtn">Đổi mật
-                                    khẩu</button>
-                            </form>
+                    <!-- Chức năng chọn màu chủ đạo -->
+                    <div class="mb-3">
+                        <label class="form-label">Màu chủ đạo</label>
+                        <div id="themeColorSelector" class="d-flex gap-2">
+                            <button class="color-box" data-color="#007bff" style="background-color: #007bff;"></button>
+                            <button class="color-box" data-color="#6f42c1" style="background-color: #6f42c1;"></button>
+                            <button class="color-box" data-color="#d63384" style="background-color: #d63384;"></button>
+                            <button class="color-box" data-color="#fd7e14" style="background-color: #fd7e14;"></button>
+                            <button class="color-box" data-color="#198754" style="background-color: #198754;"></button>
+                            <button class="color-box" data-color="#dc3545" style="background-color: #dc3545;"></button>
                         </div>
                     </div>
                 </div>
+            </div>
+        </div>
+
+        <!-- Mục Accordion 2: Tùy chỉnh Bố cục -->
+        <div class="accordion-item">
+            <h2 class="accordion-header" id="headingTwo">
+                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseTwo" aria-expanded="false" aria-controls="collapseTwo">
+                    <i class="fas fa-grip-horizontal me-2"></i> Tùy chỉnh Bố cục
+                </button>
+            </h2>
+            <div id="collapseTwo" class="accordion-collapse collapse" aria-labelledby="headingTwo" data-bs-parent="#settingsAccordion">
+                <div class="accordion-body">
+                    <!-- Tùy chỉnh các widget trên Dashboard -->
+                    <div class="d-flex justify-content-between align-items-center">
+                        <label for="toggleStatsWidgetsSwitch" class="form-check-label">Hiện các thẻ thống kê nhanh</label>
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" role="switch" id="toggleStatsWidgetsSwitch" checked>
+                        </div>
+                    </div>
+                    <small class="form-text text-muted">Bật/tắt các thẻ "Tổng sản phẩm", "Nhập kho hôm nay", v.v. trên Dashboard.</small>
+                </div>
+            </div>
+        </div>
+
+        <!-- Mục Accordion 3: Bảo mật tài khoản -->
+        <div class="accordion-item">
+            <h2 class="accordion-header" id="headingThree">
+                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseThree" aria-expanded="false" aria-controls="collapseThree">
+                    <i class="fas fa-shield-alt me-2"></i> Bảo mật tài khoản
+                </button>
+            </h2>
+            <div id="collapseThree" class="accordion-collapse collapse" aria-labelledby="headingThree" data-bs-parent="#settingsAccordion">
+                <div class="accordion-body">
+                    <h6 class="card-title">Đổi mật khẩu</h6>
+                    <form id="changePasswordForm">
+                        <div class="mb-3">
+                            <label for="oldPassword" class="form-label">Mật khẩu cũ</label>
+                            <input type="password" class="form-control" id="oldPassword" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="newPassword" class="form-label">Mật khẩu mới</label>
+                            <input type="password" class="form-control" id="newPassword" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="confirmPassword" class="form-label">Xác nhận mật khẩu mới</label>
+                            <input type="password" class="form-control" id="confirmPassword" required>
+                        </div>
+                        <button type="submit" class="btn btn-primary" id="changePasswordBtn">Đổi mật khẩu</button>
+                    </form>
+                </div>
+            </div>            
+        </div>
+        </div>
+
+    </div> <!-- Kết thúc container accordion -->
+</div>
+
 
                 <div id="print-barcode-section" class="content-section" style="display: none;">
                     <h4>In Barcode sản phẩm</h4>

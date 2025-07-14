@@ -16,7 +16,9 @@ import {
 
 
 import { auth, db } from './connect.js';
-import { onAuthStateChanged, signOut } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
+import { onAuthStateChanged, signOut,EmailAuthProvider,          // <-- THÊM VÀO
+    reauthenticateWithCredential, // <-- THÊM VÀO
+    updatePassword } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
 import {
     doc,
     getDoc,
@@ -40,7 +42,6 @@ let dashboardItemsPerPage = 15;
 let filteredDashboardData = [];
 let allDashboardData = [];
 let userSettings = {};
-let warehouseFunctionsInitialized = false;
 
 window.loadInventoryTable = loadInventoryTable;
 window.goToDashboardPage = goToDashboardPage;
@@ -1079,11 +1080,11 @@ async function loadInventoryTable(useFilter = false, page = 1) {
                 const docDataString = JSON.stringify(doc).replace(/'/g, "\\'");
                 rowHTML += `
                     <td>
-                        <button class="btn btn-warning btn-sm me-1" onclick='editInventoryItem(${docDataString})' title="Sửa thông tin">
-                            <i class="fas fa-edit"></i>
+                        <button class="btn btn-warning btn-sm me-1" onclick='editInventoryItem(${docDataString})'>
+                            <i class="fas fa-edit"></i> Sửa
                         </button>
-                        <button class="btn btn-danger btn-sm" onclick="deleteInventoryItem('${doc.id}', '${doc.code}', ${doc.quantity})" title="Xóa sản phẩm">
-                            <i class="fas fa-trash"></i>
+                        <button class="btn btn-danger btn-sm" onclick="deleteInventoryItem('${doc.id}', '${doc.code}', ${doc.quantity})">
+                            <i class="fas fa-trash"></i> Xóa
                         </button>
                     </td>
                 `;
@@ -1246,37 +1247,6 @@ async function checkPendingAdjustments() {
     } catch (error) {
         console.error('Error checking pending adjustments:', error);
     }
-}
-
-
-// Load import data
-function loadImportData() {
-    // This will be implemented in warehouse.js
-    window.loadImportSection();
-}
-
-// Load export data
-function loadExportData() {
-    // This will be implemented in warehouse.js
-    window.loadExportSection();
-}
-
-// Load transfer data
-function loadTransferData() {
-    // This will be implemented in warehouse.js
-    window.loadTransferSection();
-}
-
-// Load adjust data
-function loadAdjustData() {
-    // This will be implemented in warehouse.js
-    window.loadAdjustSection();
-}
-
-// Load history data
-function loadHistoryData() {
-    // This will be implemented in warehouse.js
-    window.loadHistorySection();
 }
 
 function saveSettings() {
