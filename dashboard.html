@@ -54,7 +54,7 @@
                         </li>
                         <li class="nav-item super-admin-only">
                             <a class="nav-link" href="#" data-section="adjust">
-                                <i class="fas fa-cogs"></i> Chỉnh số trực tiếp
+                                <i class="fas fa-cogs"></i> Chỉnh số
                             </a>
                         </li>
                         <!-- Chức năng duyệt chỉnh số cho Super Admin -->
@@ -189,15 +189,8 @@
                             <h4>Danh sách tồn kho</h4>
                             <div class="table-responsive">
                                 <table class="table table-striped">
-                                    <thead>
-                                        <tr>
-                                            <th>Mã hàng</th>
-                                            <th>Tên mô tả</th>
-                                            <th>Đơn vị tính</th>
-                                            <th>Số lượng</th>
-                                            <th>Danh mục</th>
-                                            <th>Vị trí</th>
-                                        </tr>
+                                    <thead id="inventoryTableHead"> <!-- THÊM ID VÀO ĐÂY -->
+        <!-- Để trống, JavaScript sẽ tự điền vào đây -->
                                     </thead>
                                     <tbody id="inventoryTable"></tbody>
                                 </table>
@@ -404,7 +397,7 @@
                                             <option value="export">Xuất kho</option>
                                             <option value="transfer">Chuyển kho</option>
                                             <option value="adjust">Chỉnh số</option>
-                                            <option value="user_approval">Chấp nhận user</option>
+                                            <option value="user_management">Quản lý user</option>
                                         </select>
                                     </div>
 

@@ -3643,60 +3643,87 @@ function createTransferPagination(allData, container) {
     renderPage(1);
 }
 
-// Load export history
+// THAY THẾ TOÀN BỘ HÀM NÀY BẰNG PHIÊN BẢN MỚI
+
 async function loadExportHistory(useFilter = false) {
     try {
-        let constraints = [where('type', '==', 'export')];
-
-        if (useFilter) {
-            const fromDate = document.getElementById('exportFromDate')?.value;
-            const toDate = document.getElementById('exportToDate')?.value;
-
-            if (fromDate) {
-                const startDate = new Date(fromDate);
-                constraints.push(where('timestamp', '>=', startDate));
-            }
-
-            if (toDate) {
-                const endDate = new Date(toDate);
-                endDate.setHours(23, 59, 59, 999);
-                constraints.push(where('timestamp', '<=', endDate));
-            }
+        const fromDate = document.getElementById('exportFromDate')?.value;
+        const toDate = document.getElementById('exportToDate')?.value;
+        let endDate = null;
+        if (toDate) {
+            endDate = new Date(toDate);
+            endDate.setHours(23, 59, 59, 999);
         }
 
-        constraints.push(orderBy('timestamp', 'desc'));
+        // --- LẤY DỮ LIỆU TỪ 2 NƠI ---
+        
+        // 1. Lấy các phiếu đã hoàn thành
+        let completedExports = [];
+        const completedQuery = query(
+            collection(db, 'transactions'),
+            where('type', '==', 'export'),
+            orderBy('timestamp', 'desc')
+        );
+        const completedSnapshot = await getDocs(completedQuery);
+        completedSnapshot.forEach(doc => {
+            const data = doc.data();
+            data.docId = doc.id;
+            data.dataType = 'completed'; // Đánh dấu để phân biệt
+            completedExports.push(data);
+        });
 
-        const exportsQuery = query(collection(db, 'transactions'), ...constraints);
-        let snapshot = await getDocs(exportsQuery);
+        // 2. Lấy các yêu cầu đang chờ duyệt (chỉ admin và super_admin thấy)
+        let pendingRequests = [];
+        if (userRole !== 'staff') {
+            const pendingQuery = query(
+                collection(db, 'export_requests'),
+                where('status', '==', 'pending'),
+                orderBy('timestamp', 'desc')
+            );
+            const pendingSnapshot = await getDocs(pendingQuery);
+            pendingSnapshot.forEach(doc => {
+                const data = doc.data();
+                data.docId = doc.id;
+                data.dataType = 'pending'; // Đánh dấu để phân biệt
+                pendingRequests.push(data);
+            });
+        }
+        
+        // 3. Gộp và sắp xếp lại tất cả
+        let allData = [...pendingRequests, ...completedExports];
+        allData.sort((a, b) => b.timestamp.toMillis() - a.timestamp.toMillis());
 
-        // Client-side filtering for item code
-        let docs = snapshot.docs;
+        // --- ÁP DỤNG BỘ LỌC PHÍA CLIENT ---
         if (useFilter) {
-            const itemCodeFilter = document.getElementById('exportItemCodeFilter')?.value;
-            if (itemCodeFilter) {
-                docs = docs.filter(doc => {
-                    const data = doc.data();
-                    return data.items?.some(item =>
-                        item.code?.toLowerCase().includes(itemCodeFilter.toLowerCase())
-                    );
-                });
-            }
+            const itemCodeFilter = document.getElementById('exportItemCodeFilter')?.value.toLowerCase();
+            
+            allData = allData.filter(doc => {
+                const docDate = doc.timestamp.toDate();
+                if (fromDate && docDate < new Date(fromDate)) return false;
+                if (endDate && docDate > endDate) return false;
+
+                if (itemCodeFilter) {
+                    return doc.items?.some(item => item.code?.toLowerCase().includes(itemCodeFilter));
+                }
+                return true;
+            });
         }
 
         const content = document.getElementById('exportContent');
-
-        if (docs.length === 0) {
-            content.innerHTML = '<p class="text-muted">Không tìm thấy phiếu xuất nào.</p>';
+        if (allData.length === 0) {
+            content.innerHTML = '<p class="text-muted">Không tìm thấy phiếu xuất hoặc yêu cầu nào.</p>';
             return;
         }
 
-        createExportPagination(docs, content);
+        // Tạo bảng và phân trang
+        createExportPagination(allData, content);
 
     } catch (error) {
-        console.error('Error loading export history:', error);
+        console.error('Lỗi tải lịch sử xuất kho:', error);
         showToast('Lỗi tải lịch sử xuất kho', 'danger');
     }
 }
+
 
 window.viewExportDetails = async function (transactionId) {
     try {
@@ -5371,6 +5398,9 @@ function createHistoryPagination(allData, container) {
 
             'user_approval': { label: 'Duyệt User', badgeClass: 'bg-primary', icon: 'fas fa-user-check' },
             'user_management': { label: 'Quản lý User', badgeClass: 'bg-primary', icon: 'fas fa-users-cog' },
+
+            'inventory_edited': { label: 'Sửa Mã hàng', badgeClass: 'bg-warning text-dark', icon: 'fas fa-pencil-alt' },
+            'inventory_archived': { label: 'Xóa Mã hàng', badgeClass: 'bg-danger', icon: 'fas fa-archive' },
         };
             const config = typeConfig[data.type] || { label: data.type, badgeClass: 'bg-dark', icon: 'fas fa-question' };
 
@@ -5484,6 +5514,16 @@ function createHistoryPagination(allData, container) {
                     details = `Sửa phiếu chuyển kho ${data.itemCode}`;
                     viewButton = `<button class="btn btn-info btn-sm" onclick="viewEditDetails('${docId}')"><i class="fas fa-eye"></i> Xem</button>`;
                     break;
+                case 'inventory_edited':
+                    details = `Sửa mã hàng ${data.itemCode}`;
+                    // Chúng ta sẽ cần tạo hàm xem chi tiết này
+                    viewButton = `<button class="btn btn-info btn-sm" onclick="viewEditDetails('${docId}')"><i class="fas fa-eye"></i>Xem</button>`;
+                    break;
+                case 'inventory_archived':
+                    details = `Xóa mã hàng: ${data.itemCode}`;
+                     // Chúng ta sẽ cần tạo hàm xem chi tiết này
+                    viewButton = `<button class="btn btn-info btn-sm" onclick="viewDeletionDetails('${docId}')"><i class="fas fa-eye"></i>Xem</button>`;
+                    break;
 
                 default:
                     details = `${data.type || 'N/A'}`;
@@ -5523,94 +5563,260 @@ function createHistoryPagination(allData, container) {
     renderPage(1);
 }
 
+window.viewDeletionDetails = async function(transactionId) {
+    try {
+        const transSnap = await getDoc(doc(db, 'transactions', transactionId));
+        if (!transSnap.exists()) {
+            return showToast('Không tìm thấy lịch sử hành động xóa.', 'danger');
+        }
+
+        const data = transSnap.data();
+        const modal = createDeletionDetailsModal(data); // Gọi hàm tạo modal chung
+        
+        document.body.appendChild(modal);
+        const bsModal = new bootstrap.Modal(modal);
+        bsModal.show();
+        modal.addEventListener('hidden.bs.modal', () => modal.remove());
+
+    } catch (error) {
+        console.error("Lỗi khi xem chi tiết xóa:", error);
+        showToast("Đã xảy ra lỗi khi xem chi tiết.", 'danger');
+    }
+}
 // THÊM VÀO CUỐI FILE WAREHOUSE.JS
 
 window.viewEditDetails = async function(transactionId) {
     try {
         const transSnap = await getDoc(doc(db, 'transactions', transactionId));
         if (!transSnap.exists()) {
-            showToast('Không tìm thấy giao dịch', 'danger');
-            return;
+            return showToast('Không tìm thấy lịch sử hành động sửa đổi.', 'danger');
         }
+
+        const data = transSnap.data();
+        const modal = createEditDetailsModal(data); // Gọi hàm tạo modal chung
         
-        const transData = transSnap.data();
-        const modal = createEditDetailsModal(transData);
         document.body.appendChild(modal);
         const bsModal = new bootstrap.Modal(modal);
         bsModal.show();
-
         modal.addEventListener('hidden.bs.modal', () => modal.remove());
 
     } catch (error) {
-        console.error("Error viewing edit details", error);
-        showToast('Lỗi xem chi tiết', 'danger');
+        console.error("Lỗi khi xem chi tiết sửa đổi:", error);
+        showToast("Đã xảy ra lỗi khi xem chi tiết.", 'danger');
     }
+}
+
+// THAY THẾ TOÀN BỘ HÀM NÀY BẰNG PHIÊN BẢN MỚI
+
+/**
+ * Tạo HTML cho modal hiển thị chi tiết một hành động XÓA, theo một mẫu giao diện chung.
+ * @param {object} data - Dữ liệu từ log transaction.
+ * @returns {HTMLElement} - Phần tử DOM của modal.
+ */
+function createDeletionDetailsModal(data) {
+    const modal = document.createElement('div');
+    modal.className = 'modal fade';
+
+    const date = data.timestamp ? data.timestamp.toDate().toLocaleString('vi-VN') : 'N/A';
+    
+    // --- Logic thông minh để chuẩn bị nội dung động ---
+    let modalTitle = 'Chi tiết Hành động Xóa';
+    let alertMainText = 'Một mục đã được xóa';
+    let alertSubText = 'Các thay đổi liên quan đã được hoàn tác khỏi hệ thống.';
+    let generalInfoHtml = '';
+    let detailsTitle = 'Thông tin chi tiết';
+    let detailsContentHtml = '';
+    let reasonHtml = '';
+    let impactHtml = '';
+
+    switch(data.type) {
+        case 'adjust_deleted':
+            modalTitle = 'Chi tiết Xóa Phiếu Chỉnh Số';
+            alertMainText = 'Phiếu chỉnh số đã bị xóa';
+            alertSubText = 'Tồn kho đã được khôi phục về số lượng ban đầu.';
+            generalInfoHtml = `
+                <div class="col-md-6"><strong>Mã hàng:</strong> ${data.deletedItemCode}</div>
+                <div class="col-md-6"><strong>Người xóa:</strong> ${data.performedByName}</div>
+                <div class="col-md-6"><strong>Thời gian xóa:</strong> ${date}</div>
+            `;
+            detailsTitle = 'Thông tin phiếu chỉnh số đã hủy';
+            detailsContentHtml = `
+                <div class="row text-center">
+                    <div class="col-4"><div class="card h-100"><div class="card-body"><h6 class="card-title text-muted">Số lượng ban đầu</h6><p class="card-text fs-4">${data.deletedPreviousQuantity}</p><small class="text-success">✓ Đã khôi phục</small></div></div></div>
+                    <div class="col-4"><div class="card h-100"><div class="card-body"><h6 class="card-title text-muted">Số lượng đã chỉnh</h6><p class="card-text fs-4 text-muted"><s>${data.deletedNewQuantity}</s></p><small class="text-danger">✗ Đã hủy</small></div></div></div>
+                    <div class="col-4"><div class="card h-100"><div class="card-body"><h6 class="card-title text-muted">Chênh lệch</h6><p class="card-text fs-4 text-muted"><s>${data.deletedAdjustment >= 0 ? '+' : ''}${data.deletedAdjustment}</s></p><small class="text-danger">✗ Đã hủy</small></div></div></div>
+                </div>`;
+            reasonHtml = `<p class="ms-2 mt-1 mb-0 fst-italic bg-light p-2 rounded">${data.deletedReason}</p>`;
+            impactHtml = `<strong>Tác động:</strong> Tồn kho đã được khôi phục về ${data.revertedTo}.`;
+            break;
+        
+        case 'import_deleted':
+        case 'export_deleted':
+            const isImport = data.type === 'import_deleted';
+            const deletedItems = data.deletedItems || [];
+            modalTitle = isImport ? 'Chi tiết Xóa Phiếu Nhập' : 'Chi tiết Xóa Phiếu Xuất';
+            alertMainText = isImport ? 'Phiếu nhập đã bị xóa' : 'Phiếu xuất đã bị xóa';
+            alertSubText = 'Số lượng hàng hóa trong phiếu đã được hoàn lại vào tồn kho.';
+            generalInfoHtml = `
+                <div class="col-md-6"><strong>Số phiếu đã xóa:</strong> ${data.deletedImportNumber || data.deletedExportNumber}</div>
+                <div class="col-md-6"><strong>Người xóa:</strong> ${data.performedByName}</div>
+                <div class="col-md-6"><strong>Thời gian xóa:</strong> ${date}</div>
+            `;
+            detailsTitle = 'Các mặt hàng đã được hoàn lại vào tồn kho';
+            detailsContentHtml = `
+                <div class="table-responsive" style="max-height: 200px;">
+                    <table class="table table-sm table-bordered">
+                        <thead class="table-light"><tr><th>Mã hàng</th><th>Tên</th><th>Số lượng hoàn lại</th></tr></thead>
+                        <tbody>
+                            ${deletedItems.map(item => `<tr><td>${item.code}</td><td>${item.name}</td><td class="text-success fw-bold">+${item.quantity}</td></tr>`).join('')}
+                        </tbody>
+                    </table>
+                </div>`;
+            impactHtml = `<strong>Tác động:</strong> Toàn bộ số lượng từ phiếu này đã được hoàn lại vào tồn kho hệ thống.`;
+            break;
+            
+        case 'inventory_archived':
+            modalTitle = 'Chi tiết Xóa (Lưu trữ) Sản phẩm';
+            alertMainText = 'Sản phẩm đã được lưu trữ';
+            alertSubText = 'Sản phẩm này đã bị ẩn khỏi các danh sách và tìm kiếm thông thường.';
+            generalInfoHtml = `
+                <div class="col-md-6"><strong>Mã sản phẩm:</strong> ${data.itemCode}</div>
+                <div class="col-md-6"><strong>Người xóa:</strong> ${data.performedByName}</div>
+                <div class="col-md-6"><strong>Thời gian xóa:</strong> ${date}</div>
+            `;
+            detailsTitle = 'Thông tin chi tiết';
+            detailsContentHtml = `<p class="p-3 bg-light rounded border">${data.details}</p>`;
+            impactHtml = '<strong>Tác động:</strong> Sản phẩm này không còn hiển thị trong danh sách tồn kho chính.';
+            break;
+    }
+
+    // --- Xây dựng HTML cuối cùng từ các mảnh đã chuẩn bị ---
+    modal.innerHTML = `
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header bg-danger text-white">
+                    <h5 class="modal-title"><i class="fas fa-trash-alt"></i> ${modalTitle}</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <!-- CẢNH BÁO -->
+                    <div class="alert alert-danger d-flex align-items-center mb-4">
+                        <i class="fas fa-trash-alt fa-2x me-3"></i>
+                        <div><strong>${alertMainText}</strong><br><small>${alertSubText}</small></div>
+                    </div>
+
+                    <!-- THÔNG TIN CHUNG -->
+                    <div class="row mb-3 p-3 bg-light rounded border">
+                        ${generalInfoHtml}
+                        <div class="col-md-6"><strong>Trạng thái:</strong> 
+                            <span class="badge bg-danger"><i class="fas fa-trash-alt"></i> Đã xóa</span>
+                        </div>
+                    </div>
+
+                    <!-- THÔNG TIN CHI TIẾT ĐỘNG -->
+                    <h6 class="text-muted mb-3"><i class="fas fa-history me-2"></i>${detailsTitle}</h6>
+                    <div class="mb-4">${detailsContentHtml}</div>
+
+                    <!-- LÝ DO (NẾU CÓ) -->
+                    ${reasonHtml ? `
+                        <div class="mb-3">
+                            <strong>Lý do ban đầu:</strong>
+                            ${reasonHtml}
+                        </div>` : ''
+                    }
+
+                    <!-- THÔNG TIN TÁC ĐỘNG -->
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle me-2"></i>
+                        ${impactHtml}
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Đóng</button>
+                </div>
+            </div>
+        </div>
+    `;
+
+    return modal;
 }
 
 function createEditDetailsModal(data) {
     const modal = document.createElement('div');
     modal.className = 'modal fade';
-    modal.id = 'editDetailsModal';
 
     const date = data.timestamp ? data.timestamp.toDate().toLocaleString('vi-VN') : 'N/A';
-
-    const getFieldName = (field) => {
-        const names = {
-            importNumber: 'Số phiếu nhập', supplier: 'Nhà cung cấp',
-            exportNumber: 'Số phiếu xuất', recipient: 'Người nhận',
-            newQuantity: 'Số lượng mới', reason: 'Lý do',
-            fromLocation: 'Từ vị trí', toLocation: 'Đến vị trí', quantity: 'Số lượng chuyển', note: 'Ghi chú',
-            items_changed: 'Danh sách mặt hàng'
-        };
-        return names[field] || field;
+    
+    // --- BỘ DỊCH TÊN TRƯỜNG THÔNG TIN (Rất quan trọng) ---
+    const fieldNames = {
+        importNumber: 'Số phiếu nhập',
+        supplier: 'Nhà cung cấp',
+        exportNumber: 'Số phiếu xuất',
+        recipient: 'Người nhận',
+        items_changed: 'Số lượng mặt hàng',
+        name: 'Tên mô tả',
+        unit: 'Đơn vị tính',
+        category: 'Danh mục',
+        location: 'Vị trí',
+        quantity: 'Số lượng',
+        note: 'Ghi chú'
     };
     
-    // Tạo bảng chi tiết thay đổi
+    // --- Logic thông minh để xây dựng nội dung ---
+    let modalTitle = 'Chi tiết Sửa đổi Giao dịch';
+    const transactionType = data.type.replace('_edited', '').toUpperCase();
+    let mainInfoHtml = '';
     let changesHtml = '';
-    const changes = data.changes || {};
-    for (const [field, change] of Object.entries(changes)) {
-        let fromValue = change.from;
-        let toValue = change.to;
 
-        // Xử lý riêng cho items_changed
-        if (field === 'items_changed') {
-            fromValue = `${change.from} mặt hàng`;
-            toValue = `${change.to} mặt hàng`;
+    // Xây dựng bảng chi tiết các thay đổi
+    if (data.changes && Object.keys(data.changes).length > 0) {
+        for (const [key, value] of Object.entries(data.changes)) {
+            const fieldName = fieldNames[key] || key; // Lấy tên Tiếng Việt hoặc giữ nguyên tên kỹ thuật
+            changesHtml += `
+                <tr>
+                    <td>${fieldName}</td>
+                    <td><span class="text-muted">${value.from}</span></td>
+                    <td><i class="fas fa-arrow-right text-primary mx-2"></i></td>
+                    <td><strong class="text-success">${value.to}</strong></td>
+                </tr>`;
         }
-
-        changesHtml += `
-            <tr>
-                <td><strong>${getFieldName(field)}</strong></td>
-                <td><span class="text-muted">${fromValue}</span></td>
-                <td><i class="fas fa-arrow-right text-primary"></i></td>
-                <td><span class="text-success fw-bold">${toValue}</span></td>
-            </tr>
-        `;
+    } else {
+        changesHtml = '<tr><td colspan="4" class="text-center text-muted">Không có thông tin thay đổi chi tiết.</td></tr>';
     }
 
-    if (!changesHtml) {
-        changesHtml = '<tr><td colspan="4" class="text-center text-muted">Không có thay đổi nào được ghi lại.</td></tr>';
-    }
+    // Xây dựng thông tin chính
+    mainInfoHtml = `
+        <div class="col-md-6"><strong>Loại giao dịch:</strong> ${transactionType}</div>
+        <div class="col-md-6"><strong>Người thực hiện:</strong> ${data.performedByName}</div>
+        <div class="col-md-6"><strong>Đối tượng:</strong> ${data.itemCode || data.originalTransactionNumber || 'N/A'}</div>
+        <div class="col-md-6"><strong>Thời gian:</strong> ${date}</div>
+    `;
 
+    // --- Xây dựng HTML cuối cùng ---
     modal.innerHTML = `
         <div class="modal-dialog modal-lg">
             <div class="modal-content">
                 <div class="modal-header bg-warning text-dark">
-                    <h5 class="modal-title">
-                        <i class="fas fa-pencil-alt"></i> Chi tiết sửa đổi giao dịch
-                    </h5>
+                    <h5 class="modal-title"><i class="fas fa-pencil-alt"></i> ${modalTitle}</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
-                    <div class="row mb-3 p-3 bg-light rounded border">
-                        <div class="col-md-6"><strong>Loại giao dịch:</strong> ${data.type.replace('_edited', '').toUpperCase()}</div>
-                        <div class="col-md-6"><strong>Người sửa:</strong> ${data.performedByName}</div>
-                        <div class="col-md-6"><strong>Thời gian sửa:</strong> ${date}</div>
+                    <!-- CẢNH BÁO -->
+                    <div class="alert alert-warning d-flex align-items-center mb-4">
+                        <i class="fas fa-pencil-alt fa-2x me-3"></i>
+                        <div>
+                            <strong>Một giao dịch đã được sửa đổi</strong><br>
+                            <small>Các thay đổi đã được áp dụng và ghi lại vào hệ thống.</small>
+                        </div>
                     </div>
 
-                    <h6 class="text-muted mb-3">
-                        <i class="fas fa-exchange-alt me-2"></i>Các thay đổi đã được thực hiện
-                    </h6>
+                    <!-- THÔNG TIN CHUNG -->
+                    <div class="row mb-3 p-3 bg-light rounded border">
+                        ${mainInfoHtml}
+                    </div>
+
+                    <!-- THÔNG TIN THAY ĐỔI -->
+                    <h6 class="text-muted mb-3"><i class="fas fa-exchange-alt me-2"></i>Chi tiết các thay đổi</h6>
                     <div class="table-responsive">
                         <table class="table table-bordered">
                             <thead class="table-light">
@@ -5621,23 +5827,13 @@ function createEditDetailsModal(data) {
                                     <th>Giá trị mới</th>
                                 </tr>
                             </thead>
-                            <tbody>
-                                ${changesHtml}
-                            </tbody>
+                            <tbody>${changesHtml}</tbody>
                         </table>
                     </div>
-                    ${data.changes && data.changes.items_changed ? `
-                        <p class="mt-3">
-                            <i class="fas fa-info-circle text-info"></i>
-                            Để xem chi tiết thay đổi từng mặt hàng, vui lòng xem phiếu gốc.
-                        </p>
-                    ` : ''}
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Đóng</button>
-                    <button type="button" class="btn btn-primary" onclick="viewOriginalTransaction('${data.originalTransactionId}', '${data.type}')">
-                        <i class="fas fa-file-alt"></i> Xem phiếu gốc
-                    </button>
+                    ${data.originalTransactionId ? `<button type="button" class="btn btn-primary" onclick="viewOriginalTransaction('${data.originalTransactionId}', '${data.type}')">Xem phiếu gốc</button>` : ''}
                 </div>
             </div>
         </div>
@@ -5645,7 +5841,6 @@ function createEditDetailsModal(data) {
 
     return modal;
 }
-
 
 window.viewOriginalTransaction = function(transactionId, type) {
     // Đóng modal hiện tại trước khi mở modal mới
@@ -6080,7 +6275,7 @@ async function loadAllHistory(filters = {}) {
             'export': ['export', 'export_edited', 'export_deleted'],
             'transfer': ['transfer', 'transfer_edited', 'transfer_deleted'],
             'adjust': ['adjust', 'adjust_edited', 'adjust_deleted', 'adjust_rejected'],
-            'user_management': ['user_approval', 'user_management']
+            'user_management': ['user_approval', 'user_management'] 
         };
 
         let historyQuery = collection(db, 'transactions');
@@ -6649,61 +6844,71 @@ function createExportPagination(allData, container) {
         const endIndex = Math.min(startIndex + itemsPerPage, allData.length);
         const pageData = allData.slice(startIndex, endIndex);
 
-        // Create table
         const table = document.createElement('table');
         table.className = 'table table-striped table-compact';
         table.innerHTML = `
             <thead>
                 <tr>
-                    <th>Số phiếu</th>
-                    <th>Người nhận</th>
+                    <th>Số phiếu / Người yêu cầu</th>
+                    <th>Người nhận / Trạng thái</th>
                     <th>Số mặt hàng</th>
                     <th>Người thực hiện</th>
-                    <th>Ngày xuất</th>
-                    <th>Thao tác</th>
+                    <th>Ngày tạo</th>
+                    <th class="text-center">Thao tác</th>
                 </tr>
             </thead>
             <tbody></tbody>
         `;
-
         const tbody = table.querySelector('tbody');
 
-        pageData.forEach(doc => {
-            const data = doc.data();
+        pageData.forEach(data => {
             const row = document.createElement('tr');
+            const date = data.timestamp ? data.timestamp.toDate().toLocaleDateString('vi-VN') : 'N/A';
+            let actionButtons = '';
 
-            const date = data.timestamp ?
-                data.timestamp.toDate().toLocaleDateString('vi-VN') :
-                'N/A';
+            if (data.dataType === 'pending') {
+                // --- HIỂN THỊ CHO YÊU CẦU CHỜ DUYỆT ---
+                row.classList.add('table-warning'); // Tô màu vàng cho yêu cầu
 
-            // Tạo nút thao tác dựa trên quyền
-            let actionButtons = `
-                <button class="btn btn-info btn-sm me-1" onclick="viewExportDetails('${doc.id}')">
-                    <i class="fas fa-eye"></i> Xem
-                </button>
-            `;
+                // Chỉ admin và super_admin mới thấy các nút này
+                if (userRole !== 'staff') {
+                    actionButtons = `
+                        <button class="btn btn-info btn-sm me-1" onclick="viewExportRequestDetails('${data.docId}')"><i class="fas fa-eye"></i>Xem</button>
+                        <button class="btn btn-success btn-sm me-1" onclick="approveExportRequest('${data.docId}')"><i class="fas fa-check"></i>Duyệt</button>
+                        <button class="btn btn-danger btn-sm" onclick="rejectExportRequest('${data.docId}')"><i class="fas fa-times"></i>Tử chối</button>
+                    `;
+                }
+                
+                row.innerHTML = `
+                    <td>Yêu cầu từ: <strong>${data.requestedByName}</strong></td>
+                    <td><span class="badge bg-warning text-dark">Chờ duyệt</span></td>
+                    <td>${data.items?.length || 0}</td>
+                    <td>Chưa có</td>
+                    <td>${date}</td>
+                    <td class="text-center">${actionButtons}</td>
+                `;
 
-            // Chỉ Super Admin mới thấy nút sửa/xóa
-            if (userRole === 'super_admin') {
-                actionButtons += `
-                    <button class="btn btn-warning btn-sm me-1" onclick="editExportTransaction('${doc.id}')">
-                        <i class="fas fa-edit"></i> Sửa
-                    </button>
-                    <button class="btn btn-danger btn-sm" onclick="deleteExportTransaction('${doc.id}')">
-                        <i class="fas fa-trash"></i> Xóa
-                    </button>
+            } else {
+                // --- HIỂN THỊ CHO PHIẾU ĐÃ HOÀN THÀNH ---
+                actionButtons = `<button class="btn btn-info btn-sm me-1" onclick="viewExportDetails('${data.docId}')"><i class="fas fa-eye"></i>Xem</button>`;
+                
+                // Chỉ Super Admin mới có quyền Sửa/Xóa
+                if (userRole === 'super_admin') {
+                    actionButtons += `
+                        <button class="btn btn-warning btn-sm me-1" onclick="editExportTransaction('${data.docId}')"><i class="fas fa-edit"></i>Sửa</button>
+                        <button class="btn btn-danger btn-sm" onclick="deleteExportTransaction('${data.docId}')"><i class="fas fa-trash"></i>Xóa</button>
+                    `;
+                }
+                
+                row.innerHTML = `
+                    <td>${data.exportNumber}</td>
+                    <td>${data.recipient}</td>
+                    <td>${data.items?.length || 0}</td>
+                    <td>${data.performedByName}</td>
+                    <td>${date}</td>
+                    <td class="text-center">${actionButtons}</td>
                 `;
             }
-
-            row.innerHTML = `
-                <td>${data.exportNumber}</td>
-                <td>${data.recipient}</td>
-                <td>${data.items?.length || 0}</td>
-                <td>${data.performedByName}</td>
-                <td>${date}</td>
-                <td>${actionButtons}</td>
-            `;
-
             tbody.appendChild(row);
         });
 
@@ -6726,6 +6931,163 @@ function createExportPagination(allData, container) {
     }
 
     renderPage(1);
+}
+
+window.viewExportRequestDetails = async function(requestId) {
+    try {
+        const requestDoc = await getDoc(doc(db, 'export_requests', requestId));
+        if (!requestDoc.exists()) {
+            return showToast('Không tìm thấy yêu cầu xuất kho.', 'danger');
+        }
+        
+        const req = requestDoc.data();
+        const date = req.timestamp.toDate().toLocaleString('vi-VN');
+        
+        // Tạo bảng HTML cho các mặt hàng
+        let itemsHtml = req.items.map(item => `
+            <tr>
+                <td>${item.code}</td>
+                <td>${item.name}</td>
+                <td>${item.requestedQuantity} / ${item.availableQuantity}</td>
+                <td>${item.unit}</td>
+            </tr>
+        `).join('');
+
+        const modal = document.createElement('div');
+        modal.className = 'modal fade';
+        modal.innerHTML = `
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header bg-primary text-white">
+                        <h5 class="modal-title"><i class="fas fa-file-invoice"></i> Chi tiết Yêu cầu Xuất kho</h5>
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="row mb-3 p-3 bg-light rounded border">
+                            <div class="col-md-6"><strong>Người yêu cầu:</strong> ${req.requestedByName}</div>
+                            <div class="col-md-6"><strong>Thời gian:</strong> ${date}</div>
+                            <div class="col-md-6"><strong>Trạng thái:</strong> <span class="badge bg-warning text-dark">Chờ duyệt</span></div>
+                        </div>
+
+                        <h6>Danh sách hàng hóa yêu cầu:</h6>
+                        <div class="table-responsive">
+                            <table class="table table-sm table-bordered">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Mã hàng</th>
+                                        <th>Tên</th>
+                                        <th>SL Yêu cầu / Tồn kho</th>
+                                        <th>Đơn vị</th>
+                                    </tr>
+                                </thead>
+                                <tbody>${itemsHtml}</tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Đóng</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+        new bootstrap.Modal(modal).show();
+        modal.addEventListener('hidden.bs.modal', () => modal.remove());
+
+    } catch (e) {
+        console.error("Lỗi khi xem chi tiết yêu cầu xuất kho:", e);
+        showToast('Lỗi xem chi tiết yêu cầu.', 'danger');
+    }
+}
+
+window.approveExportRequest = async function(requestId) {
+    const confirmed = await showConfirmation(
+        'Duyệt Yêu cầu Xuất kho', 
+        'Bạn có chắc muốn duyệt yêu cầu này? Tồn kho sẽ bị trừ ngay lập tức và không thể hoàn tác.', 
+        'Duyệt và Xuất kho', 'Hủy', 'success'
+    );
+    if (!confirmed) return;
+
+    try {
+        const requestRef = doc(db, 'export_requests', requestId);
+        const requestSnap = await getDoc(requestRef);
+        if (!requestSnap.exists() || requestSnap.data().status !== 'pending') {
+            return showToast('Yêu cầu không còn tồn tại hoặc đã được xử lý.', 'warning');
+        }
+        
+        const reqData = requestSnap.data();
+        const batch = writeBatch(db);
+
+        // 1. Tạo một phiếu xuất kho (transaction) mới từ yêu cầu
+        const transRef = doc(collection(db, 'transactions'));
+        batch.set(transRef, {
+            type: 'export',
+            exportNumber: `REQ-${requestId.substring(0, 8).toUpperCase()}`,
+            recipient: `Theo yêu cầu của ${reqData.requestedByName}`,
+            items: reqData.items.map(item => ({ ...item, availableQuantityBefore: item.availableQuantity })),
+            performedBy: currentUser.uid, // Người duyệt là người thực hiện
+            performedByName: currentUser.name,
+            requestInfo: { // Lưu lại thông tin của yêu cầu gốc
+                id: requestId,
+                requestedBy: reqData.requestedBy,
+                requestedByName: reqData.requestedByName,
+            },
+            timestamp: serverTimestamp(),
+            source: 'request'
+        });
+
+        // 2. Trừ tồn kho cho từng mặt hàng
+        for (const item of reqData.items) {
+            const invRef = doc(db, 'inventory', item.inventoryId);
+            // Kiểm tra lại tồn kho trước khi trừ để đảm bảo an toàn
+            const invSnap = await getDoc(invRef);
+            if (!invSnap.exists() || invSnap.data().quantity < item.requestedQuantity) {
+                throw new Error(`Không đủ tồn kho cho sản phẩm ${item.code}.`);
+            }
+            batch.update(invRef, { quantity: increment(-item.requestedQuantity) });
+        }
+
+        // 3. Cập nhật trạng thái của yêu cầu thành 'approved'
+        batch.update(requestRef, {
+            status: 'approved',
+            approvedBy: currentUser.uid,
+            approvedByName: currentUser.name,
+            approvedAt: serverTimestamp()
+        });
+        
+        await batch.commit();
+        showToast('Duyệt yêu cầu xuất kho thành công!', 'success');
+        loadExportHistory(); // Tải lại danh sách để cập nhật giao diện
+
+    } catch (e) {
+        console.error("Lỗi khi duyệt yêu cầu xuất kho:", e);
+        showToast(e.message || 'Lỗi khi duyệt yêu cầu.', 'danger');
+    }
+}
+
+window.rejectExportRequest = async function(requestId) {
+    const reason = await showInputModal('Lý do từ chối', 'Vui lòng nhập lý do từ chối yêu cầu xuất kho này:', 'VD: Hàng đã được đặt cho đơn khác...');
+    if (reason === null) return; // Người dùng đã nhấn hủy
+    if (!reason) {
+        showToast('Lý do từ chối không được để trống.', 'warning');
+        return;
+    }
+
+    try {
+        const requestRef = doc(db, 'export_requests', requestId);
+        await updateDoc(requestRef, {
+            status: 'rejected',
+            rejectedBy: currentUser.uid,
+            rejectedByName: currentUser.name,
+            rejectedAt: serverTimestamp(),
+            rejectionReason: reason
+        });
+        showToast('Đã từ chối yêu cầu xuất kho.', 'success');
+        loadExportHistory(); // Tải lại danh sách để cập nhật giao diện
+    } catch (e) {
+        console.error("Lỗi khi từ chối yêu cầu xuất kho:", e);
+        showToast('Lỗi khi từ chối yêu cầu.', 'danger');
+    }
 }
 
 function updatePaginationControls(currentPage, totalPages, paginationId, renderFunction) {
@@ -9579,22 +9941,19 @@ export function loadScanBarcodeSection() {
     document.getElementById('stopScanBtn').onclick = stopScanner;
 }
 
-// THAY THẾ HÀM NÀY BẰNG PHIÊN BẢN MỚI
-
 function startScanner() {
-    // --- THÊM LOGIC "MỞ KHÓA" QUYỀN PHÁT ÂM THANH ---
-    // Chỉ tạo AudioContext khi người dùng nhấn nút "Bắt đầu"
-    if (!audioContext) {
-        try {
-            audioContext = new (window.AudioContext || window.webkitAudioContext)();
-            console.log("AudioContext đã được tạo và mở khóa.");
-        } catch (e) {
-            console.error("Không thể tạo AudioContext.");
-            showToast("Thiết bị không hỗ trợ âm thanh.", "warning");
-        }
+    // --- LOGIC "MỞ KHÓA" QUYỀN PHÁT ÂM THANH ---
+    // Thử phát âm thanh và dừng ngay lập tức.
+    // Hành động này đăng ký ý định của người dùng với trình duyệt.
+    const playPromise = scannerBeep.play();
+    if (playPromise !== undefined) {
+        playPromise.then(_ => {
+            scannerBeep.pause();
+        }).catch(error => {
+            // Đây là điều bình thường, trình duyệt đã chặn.
+            console.log("Việc mở khóa âm thanh đã được trình duyệt xử lý.");
+        });
     }
-    // Phát một tiếng bíp cực nhỏ để đảm bảo quyền được kích hoạt
-    playLoudBeep(1, 440, 0.01); // duration: 1ms, volume: 1% (gần như im lặng)
     // --- KẾT THÚC LOGIC MỞ KHÓA ---
 
 
@@ -9621,7 +9980,6 @@ function startScanner() {
     });
 }
 
-
 function stopScanner() {
     if (html5QrcodeScanner) {
         html5QrcodeScanner.stop().then(() => {
@@ -9634,99 +9992,272 @@ function stopScanner() {
     }
 }
 
-// --- BỘ NÃO ÂM THANH MỚI - MẠNH MẼ VÀ TO HƠN ---
+const scannerBeep = new Audio('data:audio/mpeg;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU3LjgyLjEwMAAAAAAAAAAAAAAA//tAwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlwAAAAA3ADh4aVo5QAFwAAAAA3ADh4aVo5QVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVahhhh//tAwAAAAADQBFwAAAAAADQBFwAAAAA');
 
-// Tạo một AudioContext duy nhất để sử dụng lại, tăng hiệu suất.
-let audioContext;
-try {
-    // Phải tạo AudioContext trong một hành động của người dùng (như click)
-    // nên chúng ta sẽ khởi tạo nó sau.
-} catch (e) {
-    console.error("Trình duyệt không hỗ trợ Web Audio API.");
+function playScannerSound() {
+    try {
+        // Đảm bảo âm thanh có thể phát lại nhanh chóng nếu người dùng quét liên tục
+        scannerBeep.currentTime = 0;
+        scannerBeep.play();
+    } catch (e) {
+        console.error("Không thể phát âm thanh máy quét:", e);
+    }
+}
+
+let scannedExportItems = [];
+
+// THAY THẾ TOÀN BỘ HÀM NÀY
+async function onScanSuccess(decodedText, decodedResult) {
+    playScannerSound();
+    showToast(`Đã quét: ${decodedText}`, 'success');
+
+    try {
+        const q = query(collection(db, 'inventory'), where('code', '==', decodedText), limit(1));
+        const snapshot = await getDocs(q);
+
+        if (snapshot.empty) {
+            showToast(`Mã hàng "${decodedText}" không tồn tại!`, 'danger');
+            return;
+        }
+
+        const itemDoc = snapshot.docs[0];
+        const itemData = itemDoc.data();
+
+        if (itemData.quantity <= 0) {
+            showToast(`Sản phẩm "${decodedText}" đã hết hàng!`, 'warning');
+            return;
+        }
+
+        // Kiểm tra xem sản phẩm đã có trong danh sách chưa
+        const existingItemIndex = scannedExportItems.findIndex(item => item.inventoryId === itemDoc.id);
+
+        if (existingItemIndex > -1) {
+            // Nếu đã có, tăng số lượng yêu cầu lên 1
+            const currentRequested = scannedExportItems[existingItemIndex].requestedQuantity;
+            if (currentRequested < itemData.quantity) {
+                scannedExportItems[existingItemIndex].requestedQuantity++;
+            } else {
+                showToast('Đã đạt số lượng tồn kho tối đa.', 'info');
+            }
+        } else {
+            // Nếu chưa có, thêm mới vào danh sách
+            scannedExportItems.push({
+                inventoryId: itemDoc.id,
+                code: itemData.code,
+                name: itemData.name,
+                unit: itemData.unit,
+                availableQuantity: itemData.quantity,
+                requestedQuantity: 1 // Mặc định là 1
+            });
+        }
+        
+        // Cập nhật lại giao diện danh sách
+        renderScannedExportList();
+
+    } catch (error) {
+        console.error("Lỗi xử lý mã quét:", error);
+        showToast('Lỗi truy vấn dữ liệu sản phẩm.', 'danger');
+    }
+}
+
+function renderScannedExportList() {
+    const container = document.getElementById('scanResultContainer');
+    const footer = document.getElementById('scanActionFooter');
+    const countBadge = document.getElementById('scannedItemCount');
+
+    container.innerHTML = ''; // Xóa nội dung cũ
+    countBadge.textContent = `${scannedExportItems.length} mặt hàng`;
+
+    if (scannedExportItems.length === 0) {
+        container.innerHTML = '<p class="text-muted text-center mt-5">Chưa có sản phẩm nào được quét.</p>';
+        footer.style.display = 'none';
+        return;
+    }
+
+    const table = document.createElement('table');
+    table.className = 'table table-sm';
+    table.innerHTML = `
+        <thead>
+            <tr>
+                <th>Sản phẩm</th>
+                <th style="width: 100px;">SL Xuất</th>
+                <th style="width: 50px;"></th>
+            </tr>
+        </thead>
+        <tbody></tbody>
+    `;
+    const tbody = table.querySelector('tbody');
+
+    scannedExportItems.forEach((item, index) => {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+            <td>
+                <strong>${item.code}</strong><br>
+                <small class="text-muted">${item.name}</small>
+            </td>
+            <td>
+                <input type="number" class="form-control form-control-sm" 
+                       value="${item.requestedQuantity}" 
+                       min="1" max="${item.availableQuantity}" 
+                       onchange="updateScannedItemQuantity(${index}, this.value)">
+                <small>Tồn: ${item.availableQuantity}</small>
+            </td>
+            <td>
+                <button class="btn btn-outline-danger btn-sm" onclick="removeScannedItem(${index})">
+                    <i class="fas fa-times"></i>
+                </button>
+            </td>
+        `;
+        tbody.appendChild(row);
+    });
+
+    container.appendChild(table);
+    
+    // Hiển thị nút hành động dựa trên vai trò
+    footer.style.display = 'block';
+    if (userRole === 'staff') {
+        footer.innerHTML = `<button class="btn btn-primary" onclick="submitScannedExport()">Gửi yêu cầu xuất kho</button>`;
+    } else {
+        footer.innerHTML = `<button class="btn btn-warning" onclick="submitScannedExport()">Xác nhận xuất kho trực tiếp</button>`;
+    }
+}
+
+async function submitScannedExport() {
+    if (scannedExportItems.length === 0) {
+        showToast('Vui lòng quét ít nhất một sản phẩm.', 'warning');
+        return;
+    }
+
+    if (userRole === 'staff') {
+        // Tạo yêu cầu xuất kho
+        const confirmed = await showConfirmation(
+            'Xác nhận gửi yêu cầu',
+            `Bạn có chắc muốn gửi yêu cầu xuất kho cho ${scannedExportItems.length} mặt hàng?`,
+            'Gửi yêu cầu', 'Hủy', 'info'
+        );
+        if (!confirmed) return;
+
+        try {
+            await addDoc(collection(db, 'export_requests'), {
+                requestedBy: currentUser.uid,
+                requestedByName: currentUser.name,
+                timestamp: serverTimestamp(),
+                status: 'pending',
+                items: scannedExportItems
+            });
+            showToast('Đã gửi yêu cầu xuất kho thành công!', 'success');
+            scannedExportItems = []; // Xóa danh sách
+            renderScannedExportList();
+        } catch (error) {
+            console.error("Lỗi tạo yêu cầu xuất kho:", error);
+            showToast('Lỗi khi gửi yêu cầu.', 'danger');
+        }
+
+    } else {
+        // Xuất kho trực tiếp
+        const confirmed = await showConfirmation(
+            'Xác nhận xuất kho',
+            `Bạn sẽ xuất kho trực tiếp cho ${scannedExportItems.length} mặt hàng. Bạn có chắc chắn?`,
+            'Xác nhận', 'Hủy', 'warning'
+        );
+        if (!confirmed) return;
+
+        const batch = writeBatch(db);
+
+        // 1. Tạo transaction log
+        const transRef = doc(collection(db, 'transactions'));
+        batch.set(transRef, {
+            type: 'export',
+            exportNumber: `SCAN-${Date.now()}`,
+            recipient: 'Quét tại quầy',
+            items: scannedExportItems.map(item => ({...item, availableQuantityBefore: item.availableQuantity})),
+            performedBy: currentUser.uid,
+            performedByName: currentUser.name,
+            timestamp: serverTimestamp(),
+            source: 'scan'
+        });
+
+        // 2. Trừ tồn kho
+        scannedExportItems.forEach(item => {
+            const invRef = doc(db, 'inventory', item.inventoryId);
+            batch.update(invRef, { quantity: increment(-item.requestedQuantity) });
+        });
+
+        try {
+            await batch.commit();
+            showToast('Xuất kho trực tiếp thành công!', 'success');
+            scannedExportItems = []; // Xóa danh sách
+            renderScannedExportList();
+        } catch (error) {
+            console.error("Lỗi xuất kho trực tiếp:", error);
+            showToast('Lỗi khi cập nhật kho.', 'danger');
+        }
+    }
+}
+
+window.loadApproveExportsSection = async function() {
+    const content = document.getElementById('pendingExportsContent');
+    content.innerHTML = '<p>Đang tải dữ liệu...</p>';
+
+    try {
+        const q = query(collection(db, 'export_requests'), where('status', '==', 'pending'), orderBy('timestamp', 'desc'));
+        const snapshot = await getDocs(q);
+
+        if (snapshot.empty) {
+            content.innerHTML = '<p class="text-muted">Không có yêu cầu xuất kho nào đang chờ duyệt.</p>';
+            return;
+        }
+
+        let html = '<div class="list-group">';
+        snapshot.forEach(doc => {
+            const req = doc.data();
+            const date = req.timestamp.toDate().toLocaleString('vi-VN');
+            html += `
+                <div class="list-group-item">
+                    <div class="d-flex w-100 justify-content-between">
+                        <h6 class="mb-1">Yêu cầu từ: ${req.requestedByName}</h6>
+                        <small>${date}</small>
+                    </div>
+                    <p class="mb-1">Số lượng mặt hàng: ${req.items.length}</p>
+                    <div>
+                        <button class="btn btn-sm btn-primary" onclick="viewExportRequestDetails('${doc.id}')">Xem</button>
+                        <button class="btn btn-sm btn-success" onclick="approveExportRequest('${doc.id}')">Duyệt</button>
+                        <button class="btn btn-sm btn-danger" onclick="rejectExportRequest('${doc.id}')">Từ chối</button>
+                    </div>
+                </div>
+            `;
+        });
+        html += '</div>';
+        content.innerHTML = html;
+    } catch (error) {
+        console.error("Lỗi tải yêu cầu xuất kho:", error);
+        content.innerHTML = '<p class="text-danger">Lỗi tải dữ liệu.</p>';
+    }
+}
+
+window.updateScannedItemQuantity = function(index, newQuantity) {
+    const quantity = parseInt(newQuantity);
+    const item = scannedExportItems[index];
+
+    if (isNaN(quantity) || quantity < 1) {
+        scannedExportItems[index].requestedQuantity = 1;
+        showToast('Số lượng phải lớn hơn 0.', 'warning');
+    } else if (quantity > item.availableQuantity) {
+        scannedExportItems[index].requestedQuantity = item.availableQuantity;
+        showToast('Số lượng vượt quá tồn kho.', 'warning');
+    } else {
+        scannedExportItems[index].requestedQuantity = quantity;
+    }
+    renderScannedExportList();
 }
 
 /**
- * Hàm này phát ra một âm thanh "bíp" to và rõ ràng bằng Web Audio API.
- * @param {number} duration - Thời gian phát, tính bằng mili-giây (ms).
- * @param {number} frequency - Tần số âm thanh (cao độ), tính bằng Hertz (Hz).
- * @param {number} volume - Âm lượng, từ 0.0 đến 1.0.
+ * Xóa một mặt hàng khỏi danh sách đã quét.
  */
-function playLoudBeep(duration = 200, frequency = 880, volume = 1.0) {
-    // Chỉ hoạt động nếu trình duyệt hỗ trợ
-    if (!audioContext) return;
-
-    // "Mở khóa" context nếu nó đang ở trạng thái treo
-    if (audioContext.state === 'suspended') {
-        audioContext.resume();
-    }
-
-    const oscillator = audioContext.createOscillator();
-    const gainNode = audioContext.createGain();
-
-    oscillator.connect(gainNode);
-    gainNode.connect(audioContext.destination);
-
-    gainNode.gain.value = volume;
-    oscillator.frequency.value = frequency;
-    oscillator.type = 'sine';
-
-    oscillator.start(audioContext.currentTime);
-    oscillator.stop(audioContext.currentTime + duration / 1000);
+window.removeScannedItem = function(index) {
+    scannedExportItems.splice(index, 1);
+    renderScannedExportList();
 }
-
-// THAY THẾ HÀM NÀY BẰNG PHIÊN BẢN MỚI
-
-async function onScanSuccess(decodedText, decodedResult) {
-    stopScanner();
-    
-    // PHÁT ÂM THANH THẬT (to và rõ) KHI QUÉT THÀNH CÔNG
-    playLoudBeep(200, 880, 1.0);
-    
-    showToast(`Quét thành công: ${decodedText}`, 'success');
-    
-    try {
-        const inventoryQuery = query(collection(db, 'inventory'), where('code', '==', decodedText), limit(1));
-        const snapshot = await getDocs(inventoryQuery);
-
-        const resultContainer = document.getElementById('scanResultContainer');
-        if (snapshot.empty) {
-            resultContainer.innerHTML = `
-                <div class="alert alert-danger">Không tìm thấy sản phẩm với mã: <strong>${decodedText}</strong></div>
-            `;
-        } else {
-            const itemDoc = snapshot.docs[0];
-            const item = itemDoc.data();
-            
-            const actionButtons = userRole !== 'staff' 
-                ? `
-                    <button class="btn btn-success" onclick="showImportFromScan('${JSON.stringify(item).replace(/"/g, '&quot;')}')"><i class="fas fa-download"></i> Nhập kho</button>
-                    <button class="btn btn-warning" onclick="showExportFromScan('${itemDoc.id}', ${item.quantity})"><i class="fas fa-upload"></i> Xuất kho</button>
-                ` 
-                : `
-                    <p class="text-center text-muted"><small>Bạn cần quyền Admin trở lên để thực hiện Nhập/Xuất kho.</small></p>
-                `;
-
-            resultContainer.innerHTML = `
-                <h5 class="card-title">${item.name}</h5>
-                <p class="card-text">
-                    <strong>Mã hàng:</strong> ${item.code}<br>
-                    <strong>Tồn kho:</strong> ${item.quantity} ${item.unit}<br>
-                    <strong>Vị trí:</strong> ${item.location}
-                </p>
-                <hr>
-                <div class="d-grid gap-2">
-                    <button class="btn btn-info" onclick="viewInventoryDetailsFromScan('${itemDoc.id}')"><i class="fas fa-eye"></i> Xem chi tiết tồn kho</button>
-                    <button class="btn btn-secondary" onclick="viewItemHistoryFromScan('${item.code}')"><i class="fas fa-history"></i> Xem lịch sử mã hàng</button>
-                    ${actionButtons}
-                </div>
-            `;
-        }
-    } catch (error) {
-        showToast('Lỗi khi truy vấn dữ liệu sản phẩm', 'danger');
-    }
-}
-
-
 // THAY THẾ TOÀN BỘ HÀM NÀY TRONG WAREHOUSE.JS
 
 window.viewItemHistoryFromScan = async function(itemCode) {
@@ -9813,3 +10344,240 @@ window.showExportFromScan = function(inventoryId, currentStock) {
     }, 500);
 }
 
+// --- THÊM CÁC HÀM MỚI NÀY VÀO CUỐI TỆP WAREHOUSE.JS ---
+
+/**
+ * Mở modal để sửa thông tin cơ bản của một sản phẩm trong kho.
+ * @param {object} item - Đối tượng sản phẩm đầy đủ, bao gồm cả id.
+ */
+window.editInventoryItem = function(item) {
+    // Không cho phép sửa nếu không phải Super Admin
+    if (userRole !== 'super_admin') {
+        showToast('Bạn không có quyền thực hiện thao tác này.', 'danger');
+        return;
+    }
+
+    const modal = createEditInventoryModal(item);
+    document.body.appendChild(modal);
+    const bsModal = new bootstrap.Modal(modal);
+    bsModal.show();
+
+    modal.addEventListener('hidden.bs.modal', () => {
+        modal.remove();
+    });
+};
+
+/**
+ * Tạo HTML cho modal sửa thông tin sản phẩm.
+ * @param {object} item - Đối tượng sản phẩm.
+ * @returns {HTMLElement} - Phần tử DOM của modal.
+ */
+function createEditInventoryModal(item) {
+    const modal = document.createElement('div');
+    modal.className = 'modal fade';
+    modal.id = 'editInventoryModal';
+    modal.setAttribute('tabindex', '-1');
+
+    modal.innerHTML = `
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header bg-warning text-dark">
+                    <h5 class="modal-title"><i class="fas fa-edit"></i> Sửa thông tin sản phẩm</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="alert alert-info">
+                        <strong>Lưu ý:</strong> Bạn chỉ có thể sửa thông tin mô tả. Mã hàng và Số lượng không thể thay đổi tại đây. 
+                        Để thay đổi số lượng, vui lòng sử dụng chức năng "Chỉnh số".
+                    </div>
+                    <form id="editInventoryForm">
+                        <div class="mb-3">
+                            <label class="form-label">Mã hàng (Không thể thay đổi)</label>
+                            <input type="text" class="form-control" value="${item.code}" readonly>
+                        </div>
+                        <div class="mb-3">
+                            <label for="editItemName" class="form-label">Tên mô tả</label>
+                            <input type="text" class="form-control" id="editItemName" value="${item.name}">
+                        </div>
+                        <div class="row">
+                            <div class="col-md-4">
+                                <label for="editItemUnit" class="form-label">Đơn vị tính</label>
+                                <input type="text" class="form-control" id="editItemUnit" value="${item.unit}">
+                            </div>
+                            <div class="col-md-4">
+                                <label for="editItemCategory" class="form-label">Danh mục</label>
+                                <input type="text" class="form-control" id="editItemCategory" value="${item.category}">
+                            </div>
+                            <div class="col-md-4">
+                                <label for="editItemLocation" class="form-label">Vị trí</label>
+                                <input type="text" class="form-control" id="editItemLocation" value="${item.location}">
+                            </div>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy</button>
+                    <button type="button" class="btn btn-warning" onclick="saveInventoryChanges('${item.id}')">Lưu thay đổi</button>
+                </div>
+            </div>
+        </div>
+    `;
+    return modal;
+}
+
+// THAY THẾ HÀM NÀY BẰNG PHIÊN BẢN MỚI
+
+window.saveInventoryChanges = async function(itemId) {
+    const newUpdateData = {
+        name: document.getElementById('editItemName').value.trim(),
+        unit: document.getElementById('editItemUnit').value.trim(),
+        category: document.getElementById('editItemCategory').value.trim(),
+        location: document.getElementById('editItemLocation').value.trim(),
+    };
+
+    if (!newUpdateData.name) {
+        showToast('Tên mô tả không được để trống.', 'warning');
+        return;
+    }
+
+    try {
+        const itemRef = doc(db, 'inventory', itemId);
+        
+        // Lấy dữ liệu gốc TRƯỚC KHI cập nhật để so sánh
+        const originalDoc = await getDoc(itemRef);
+        const originalData = originalDoc.data();
+
+        // Xây dựng đối tượng chỉ chứa những thay đổi thực sự
+        const changes = {};
+        if (originalData.name !== newUpdateData.name) changes.name = { from: originalData.name, to: newUpdateData.name };
+        if (originalData.unit !== newUpdateData.unit) changes.unit = { from: originalData.unit, to: newUpdateData.unit };
+        if (originalData.category !== newUpdateData.category) changes.category = { from: originalData.category, to: newUpdateData.category };
+        if (originalData.location !== newUpdateData.location) changes.location = { from: originalData.location, to: newUpdateData.location };
+
+        // Nếu không có gì thay đổi thì không làm gì cả
+        if (Object.keys(changes).length === 0) {
+            showToast('Không có thay đổi nào để lưu.', 'info');
+            return;
+        }
+
+        // Sử dụng batch để đảm bảo cả hai hành động cùng thành công
+        const batch = writeBatch(db);
+
+        // 1. Cập nhật thông tin sản phẩm
+        batch.update(itemRef, newUpdateData);
+
+        // 2. Ghi lại lịch sử hành động
+        const logRef = doc(collection(db, 'transactions'));
+        batch.set(logRef, {
+            type: 'inventory_edited', // Loại giao dịch mới
+            inventoryId: itemId,
+            itemCode: originalData.code,
+            changes: changes, // Chỉ lưu những gì đã thay đổi
+            performedBy: currentUser.uid,
+            performedByName: currentUser.name,
+            timestamp: serverTimestamp()
+        });
+
+        await batch.commit();
+        
+        showToast('Cập nhật thông tin sản phẩm thành công!', 'success');
+        bootstrap.Modal.getInstance(document.getElementById('editInventoryModal')).hide();
+        
+        if (window.loadInventoryTable) {
+            window.loadInventoryTable(true, 1);
+        }
+
+    } catch (error) {
+        console.error("Lỗi cập nhật sản phẩm:", error);
+        showToast('Đã xảy ra lỗi khi cập nhật.', 'danger');
+    }
+};
+
+
+// THAY THẾ HÀM NÀY BẰNG PHIÊN BẢN MỚI
+
+window.deleteInventoryItem = async function(itemId, itemCode, quantity) {
+    if (userRole !== 'super_admin') {
+        showToast('Bạn không có quyền thực hiện thao tác này.', 'danger');
+        return;
+    }
+
+    if (quantity > 0) {
+        showToast(`Không thể xóa sản phẩm "${itemCode}" vì vẫn còn ${quantity} tồn kho.`, 'danger');
+        return;
+    }
+
+    const confirmed = await showConfirmation(
+        'Xác nhận xóa sản phẩm',
+        `Bạn có chắc muốn XÓA (lưu trữ) sản phẩm <strong>${itemCode}</strong>? Sản phẩm sẽ bị ẩn khỏi danh sách tồn kho.`,
+        'Xóa (lưu trữ)', 'Hủy', 'danger'
+    );
+
+    if (!confirmed) return;
+
+    try {
+        const itemRef = doc(db, 'inventory', itemId);
+        const batch = writeBatch(db);
+
+        // 1. Đánh dấu sản phẩm là đã lưu trữ
+        batch.update(itemRef, {
+            status: 'archived',
+            deletedAt: serverTimestamp(),
+            deletedBy: currentUser.uid,
+            deletedByName: currentUser.name // Thêm thông tin người xóa
+        });
+        
+        // 2. Ghi lại lịch sử hành động
+        const logRef = doc(collection(db, 'transactions'));
+        batch.set(logRef, {
+            type: 'inventory_archived', // Loại giao dịch mới
+            inventoryId: itemId,
+            itemCode: itemCode,
+            details: `Sản phẩm ${itemCode} đã được xóa (lưu trữ).`,
+            performedBy: currentUser.uid,
+            performedByName: currentUser.name,
+            timestamp: serverTimestamp()
+        });
+
+        await batch.commit();
+
+        showToast(`Đã xóa (lưu trữ) sản phẩm "${itemCode}" thành công.`, 'success');
+        
+        if (window.loadInventoryTable) {
+            window.loadInventoryTable(true, 1);
+        }
+
+    } catch (error) {
+        console.error("Lỗi xóa sản phẩm:", error);
+        showToast('Đã xảy ra lỗi khi xóa sản phẩm.', 'danger');
+    }
+};
+
+window.viewInventoryArchiveDetails = async function(transactionId) {
+    const transSnap = await getDoc(doc(db, 'transactions', transactionId));
+    if (!transSnap.exists()) return showToast('Không tìm thấy lịch sử.', 'danger');
+
+    const data = transSnap.data();
+    const modal = document.createElement('div');
+    modal.className = 'modal fade';
+    modal.innerHTML = `
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header bg-danger text-white">
+                    <h5 class="modal-title"><i class="fas fa-archive"></i> Chi tiết Xóa Tồn Kho</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p><strong>Mã hàng đã xóa (lưu trữ):</strong> ${data.itemCode}</p>
+                    <p><strong>Người thực hiện:</strong> ${data.performedByName}</p>
+                    <p><strong>Thời gian:</strong> ${data.timestamp.toDate().toLocaleString('vi-VN')}</p>
+                    <div class="alert alert-danger mt-3">${data.details}</div>
+                </div>
+                <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Đóng</button></div>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    new bootstrap.Modal(modal).show();
+    modal.addEventListener('hidden.bs.modal', () => modal.remove());
+}

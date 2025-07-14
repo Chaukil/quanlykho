@@ -993,93 +993,114 @@ window.saveUserChanges = async function(userId) {
         showToast('Lỗi khi lưu thay đổi', 'danger');
     }
 }
-// Load inventory table
+
+// THAY THẾ TOÀN BỘ HÀM NÀY BẰNG PHIÊN BẢN MỚI
+
 async function loadInventoryTable(useFilter = false, page = 1) {
     try {
         const inventoryQuery = query(collection(db, 'inventory'), orderBy('name'));
         const snapshot = await getDocs(inventoryQuery);
         
-        allDashboardData = snapshot.docs.map(doc => ({
-            id: doc.id,
-            ...doc.data()
-        }));
+        allDashboardData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         
-        let docs = [...allDashboardData];
+        let activeData = allDashboardData.filter(item => item.status !== 'archived');
         
-        // Apply filters if needed
         if (useFilter) {
-            const codeFilter = document.getElementById('dashboardCodeFilter')?.value;
+            const codeFilter = document.getElementById('dashboardCodeFilter')?.value.toLowerCase();
             const categoryFilter = document.getElementById('dashboardCategoryFilter')?.value;
             const stockFilter = document.getElementById('dashboardStockFilter')?.value;
             
-            docs = docs.filter(data => {
+            activeData = activeData.filter(data => {
                 let match = true;
-                
-                if (codeFilter && !data.code?.toLowerCase().includes(codeFilter.toLowerCase())) {
-                    match = false;
-                }
-                if (categoryFilter && data.category !== categoryFilter) {
-                    match = false;
-                }
+                if (codeFilter && !data.code?.toLowerCase().includes(codeFilter)) match = false;
+                if (categoryFilter && data.category !== categoryFilter) match = false;
                 if (stockFilter) {
-                    switch(stockFilter) {
-                        case 'low':
-                            if (data.quantity >= 10) match = false;
-                            break;
-                        case 'normal':
-                            if (data.quantity < 10) match = false;
-                            break;
-                        case 'zero':
-                            if (data.quantity !== 0) match = false;
-                            break;
-                    }
+                    const quantity = parseInt(data.quantity);
+                    if (stockFilter === 'low' && quantity >= 10) match = false;
+                    if (stockFilter === 'normal' && quantity < 10) match = false;
+                    if (stockFilter === 'zero' && quantity !== 0) match = false;
                 }
-                
                 return match;
             });
         }
         
-        filteredDashboardData = docs;
+        filteredDashboardData = activeData;
         currentDashboardPage = page;
         
-        // Calculate pagination
         const totalItems = filteredDashboardData.length;
         const totalPages = Math.ceil(totalItems / dashboardItemsPerPage);
         const startIndex = (page - 1) * dashboardItemsPerPage;
-        const endIndex = Math.min(startIndex + dashboardItemsPerPage, totalItems);
+        const endIndex = Math.min(startIndex + totalItems, startIndex + dashboardItemsPerPage);
         const pageData = filteredDashboardData.slice(startIndex, endIndex);
         
-        // Update table
+        const tableHead = document.getElementById('inventoryTableHead');
         const tableBody = document.getElementById('inventoryTable');
-        tableBody.innerHTML = '';
         
-        pageData.forEach(data => {
+        // Dọn dẹp bảng trước khi vẽ lại
+        tableHead.innerHTML = '';
+        tableBody.innerHTML = '';
+
+        // --- BẮT ĐẦU TẠO TIÊU ĐỀ ĐỘNG ---
+        let headerHTML = `
+            <tr>
+                <th>Mã hàng</th>
+                <th>Tên mô tả</th>
+                <th>Đơn vị tính</th>
+                <th>Số lượng</th>
+                <th>Danh mục</th>
+                <th>Vị trí</th>
+        `;
+        // Chỉ thêm cột Thao tác nếu là super_admin
+        if (userRole === 'super_admin') {
+            headerHTML += '<th>Thao tác</th>';
+        }
+        headerHTML += '</tr>';
+        tableHead.innerHTML = headerHTML;
+        // --- KẾT THÚC TẠO TIÊU ĐỀ ĐỘNG ---
+
+        pageData.forEach(doc => {
             const row = document.createElement('tr');
             
-            // Add low stock warning
-            if (parseInt(data.quantity) < 10) { 
+            if (parseInt(doc.quantity) < 10) {
                 row.classList.add('table-warning');
             }
             
-            row.innerHTML = `
-                <td>${data.code}</td>
-                <td>${data.name}</td>
-                <td>${data.unit}</td>
-                <td>${data.quantity}</td>
-                <td>${data.category}</td>
-                <td>${data.location}</td>
+            let rowHTML = `
+                <td>${doc.code}</td>
+                <td>${doc.name}</td>
+                <td>${doc.unit}</td>
+                <td>${doc.quantity}</td>
+                <td>${doc.category}</td>
+                <td>${doc.location}</td>
             `;
+
+            // Chỉ thêm ô chứa nút nếu là super_admin
+            if (userRole === 'super_admin') {
+                const docDataString = JSON.stringify(doc).replace(/'/g, "\\'");
+                rowHTML += `
+                    <td>
+                        <button class="btn btn-warning btn-sm me-1" onclick='editInventoryItem(${docDataString})' title="Sửa thông tin">
+                            <i class="fas fa-edit"></i>
+                        </button>
+                        <button class="btn btn-danger btn-sm" onclick="deleteInventoryItem('${doc.id}', '${doc.code}', ${doc.quantity})" title="Xóa sản phẩm">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </td>
+                `;
+            }
             
+            row.innerHTML = rowHTML;
             tableBody.appendChild(row);
         });
         
-        // Update pagination
         updateDashboardPagination(totalPages, page, totalItems, startIndex, endIndex);
         
     } catch (error) {
-        console.error('Error loading inventory table:', error);
+        console.error('Lỗi tải bảng tồn kho:', error);
     }
 }
+
+
 
 // Thêm hàm mới này vào dashboard.js
 function initializeSidebarToggle() {
@@ -1110,9 +1131,16 @@ function initializeSidebarToggle() {
     // Sự kiện khi nhấn vào một liên kết trong sidebar: Đóng sidebar
     sidebar.addEventListener('click', (event) => {
         // Chỉ đóng nếu mục được nhấn là một liên kết điều hướng
-        if (event.target.matches('.nav-link')) {
+        const navLink = event.target.closest('.nav-link');
+
+    if (navLink) {
+        // THAY ĐỔI TẠI ĐÂY:
+        // Chỉ đóng sidebar nếu liên kết có thuộc tính [data-section].
+        // Các liên kết mở menu con như "Barcode" không có thuộc tính này.
+        if (navLink.hasAttribute('data-section')) {
             closeSidebar();
         }
+    }
     });
 }
 
