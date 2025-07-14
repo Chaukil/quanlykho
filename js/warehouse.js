@@ -82,6 +82,7 @@ export function initializeWarehouseFunctions() {
         return;
     }
 
+    loadBeepSound();
     // ---- Các nút hành động chính ----
     document.getElementById('addImportBtn')?.addEventListener('click', showImportModal);
     document.getElementById('addExportBtn')?.addEventListener('click', showExportModal);
@@ -9868,27 +9869,42 @@ function updateBarcodeCanvasSize() {
 
 // Thêm vào file warehouse.js
 let html5QrcodeScanner = null;
+let audioContext = null;
+let beepBuffer = null;
+
+// Thêm hàm MỚI này vào warehouse.js
+async function loadBeepSound() {
+    try {
+        // Tạo AudioContext nếu chưa có
+        if (!audioContext) {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        // Dữ liệu âm thanh dạng base64
+        const beepBase64 = 'SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU3LjgyLjEwMAAAAAAAAAAAAAAA//tAwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlwAAAAA3ADh4aVo5QAFwAAAAA3ADh4aVo5QVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVahhhh//tAwAAAAADQBFwAAAAA';
+        const response = await fetch(`data:audio/mpeg;base64,${beepBase64}`);
+        const arrayBuffer = await response.arrayBuffer();
+        // Giải mã dữ liệu âm thanh để sử dụng với Web Audio API
+        beepBuffer = await audioContext.decodeAudioData(arrayBuffer);
+    } catch (e) {
+        console.error('Lỗi khi tải âm thanh "bíp":', e);
+        // Nếu có lỗi, chúng ta vô hiệu hóa buffer để không gây thêm lỗi khi phát
+        beepBuffer = null; 
+    }
+}
+
 
 export function loadScanBarcodeSection() {
     document.getElementById('startScanBtn').onclick = startScanner;
     document.getElementById('stopScanBtn').onclick = stopScanner;
 }
 
+// Thay thế hàm startScanner() cũ bằng hàm này
 function startScanner() {
-    // --- LOGIC "MỞ KHÓA" QUYỀN PHÁT ÂM THANH ---
-    // Thử phát âm thanh và dừng ngay lập tức.
-    // Hành động này đăng ký ý định của người dùng với trình duyệt.
-    const playPromise = scannerBeep.play();
-    if (playPromise !== undefined) {
-        playPromise.then(_ => {
-            scannerBeep.pause();
-        }).catch(error => {
-            // Đây là điều bình thường, trình duyệt đã chặn.
-            console.log("Việc mở khóa âm thanh đã được trình duyệt xử lý.");
-        });
+    // Kích hoạt AudioContext nếu nó đang ở trạng thái bị tạm dừng
+    if (audioContext && audioContext.state === 'suspended') {
+        audioContext.resume();
     }
-    // --- KẾT THÚC LOGIC MỞ KHÓA ---
-
+    
     const scannerContainer = document.getElementById('barcode-scanner-container');
     scannerContainer.innerHTML = '';
     
@@ -9911,6 +9927,7 @@ function startScanner() {
         showToast(`Không thể khởi động camera: ${err}`, 'danger');
     });
 }
+
 
 // Thay thế hoàn toàn hàm onScanSuccess() cũ bằng hàm này
 async function onScanSuccess(decodedText, decodedResult) {
@@ -10047,12 +10064,13 @@ function updateScanItemCount() {
         badge.textContent = `${exportItemsList.length} mặt hàng`;
     }
 }
-function cancelScanExportSession() {
+window.cancelScanExportSession = function() {
     exportItemsList = [];
     const scanResultContainer = document.getElementById('scanResultContainer');
     scanResultContainer.innerHTML = '<p class="text-muted">Chưa có kết quả. Vui lòng hướng camera vào mã vạch.</p>';
     showToast('Phiên xuất kho đã được hủy.', 'info');
 }
+
 function addItemToScanExportSession(items) {
     const itemToAdd = items.sort((a, b) => b.quantity - a.quantity)[0];
     if (itemToAdd.quantity <= 0) {
@@ -10141,16 +10159,16 @@ function stopScanner() {
 const scannerBeep = new Audio('data:audio/mpeg;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU3LjgyLjEwMAAAAAAAAAAAAAAA//tAwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlwAAAAA3ADh4aVo5QAFwAAAAA3ADh4aVo5QVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVahhhh//tAwAAAAADQBFwAAAAAADQBFwAAAAA');
 
 function playScannerSound() {
-    try {
-        // Đảm bảo âm thanh có thể phát lại nhanh chóng nếu người dùng quét liên tục
-        scannerBeep.currentTime = 0;
-        scannerBeep.play();
-    } catch (e) {
-        console.error("Không thể phát âm thanh máy quét:", e);
+    // Kiểm tra xem AudioContext và buffer đã sẵn sàng chưa
+    if (audioContext && beepBuffer) {
+        const source = audioContext.createBufferSource();
+        source.buffer = beepBuffer;
+        source.connect(audioContext.destination);
+        source.start(0); // Phát ngay lập tức
+    } else {
+        console.warn('Không thể phát âm thanh: AudioContext hoặc buffer chưa sẵn sàng.');
     }
 }
-
-
 
 function showActionChoiceModal(items) {
     const item = items[0]; // Lấy thông tin chung từ sản phẩm đầu tiên
@@ -10242,15 +10260,24 @@ let exportItemsList = [];
 window.updateExportItemQuantity = (index, newQty) => {
     const qty = parseInt(newQty);
     const item = exportItemsList[index];
+
+    // Chỉ cập nhật nếu số lượng hợp lệ
     if (qty > 0 && qty <= item.availableQuantity) {
         item.requestedQuantity = qty;
+    } else {
+        // Nếu không hợp lệ, chỉ cần vẽ lại bảng, ô input sẽ tự động
+        // được reset về giá trị cũ trong mảng (item.requestedQuantity)
+        showToast('Số lượng không hợp lệ!', 'warning');
     }
-    renderExportListInModal();
+    
+    // Luôn vẽ lại bảng để cập nhật giao diện
+    renderScanExportTableBody(); 
 };
 
 window.removeExportItemFromList = (index) => {
     exportItemsList.splice(index, 1);
-    renderExportListInModal();
+    // Vẽ lại bảng và cập nhật bộ đếm
+    renderScanExportTableBody(); 
 };
 
 // THAY THẾ TOÀN BỘ HÀM NÀY BẰNG PHIÊN BẢN MỚI
