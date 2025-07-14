@@ -10005,41 +10005,55 @@ function playScannerSound() {
     }
 }
 
+// THAY THẾ TOÀN BỘ HÀM NÀY BẰNG PHIÊN BẢN MỚI
 
 async function onScanSuccess(decodedText, decodedResult) {
-    stopScanner();
+    stopScanner(); // Luôn dừng camera ngay khi có kết quả
     playScannerSound();
-    showToast(`Đã quét: ${decodedText}`, 'success');
+    
+    // Nếu đang ở chế độ quét để thêm, không cần hiển thị toast nhiều
+    if (!isScanningForExport) {
+        showToast(`Đã quét: ${decodedText}`, 'success');
+    }
 
     try {
         const q = query(collection(db, 'inventory'), where('code', '==', decodedText));
         const snapshot = await getDocs(q);
 
         if (snapshot.empty) {
-            // Nếu đang quét thêm mà không thấy, mở lại modal cũ
+            showToast(`Mã hàng "${decodedText}" không tồn tại!`, 'danger');
+            // Nếu đang quét thêm mà không thấy, mở lại modal cũ để người dùng biết
             if (isScanningForExport && currentExportModal) {
                 bootstrap.Modal.getInstance(currentExportModal).show();
             }
-            return showToast(`Mã hàng "${decodedText}" không tồn tại!`, 'danger');
+            isScanningForExport = false; // Reset cờ
+            return;
         }
 
         const itemLocations = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
-        if (isScanningForExport) {
+        // --- LOGIC QUAN TRỌNG NHẤT ---
+        // Nếu cờ isScanningForExport đang bật và modal xuất kho đang tồn tại...
+        if (isScanningForExport && currentExportModal) {
+            // ...thì gọi thẳng hàm thêm sản phẩm vào danh sách.
             addItemToExistingExportList(itemLocations);
         } else {
+            // Ngược lại, đây là lần quét đầu tiên, hiển thị modal lựa chọn hành động.
+            isScanningForExport = false; // Đảm bảo cờ luôn tắt trong trường hợp này
             showActionChoiceModal(itemLocations);
         }
 
     } catch (error) {
         console.error("Lỗi xử lý mã quét:", error);
+        showToast('Lỗi truy vấn dữ liệu sản phẩm.', 'danger');
         // Mở lại modal nếu có lỗi khi đang quét thêm
         if (isScanningForExport && currentExportModal) {
             bootstrap.Modal.getInstance(currentExportModal).show();
         }
-        showToast('Lỗi truy vấn dữ liệu sản phẩm.', 'danger');
+        isScanningForExport = false; // Luôn reset cờ khi có lỗi
     }
 }
+
 
 function addItemToExistingExportList(items) {
     // Mở lại modal ngay lập tức để người dùng thấy có phản hồi
@@ -10174,19 +10188,19 @@ let exportItemsList = [];
 // THAY THẾ TOÀN BỘ HÀM NÀY BẰNG PHIÊN BẢN MỚI
 
 function showScanExportModal(initialItems) {
+    // Logic tạo danh sách ban đầu giữ nguyên
     const firstItem = initialItems.sort((a, b) => b.quantity - a.quantity)[0];
     exportItemsList = [{
         inventoryId: firstItem.id, code: firstItem.code, name: firstItem.name, unit: firstItem.unit,
         location: firstItem.location, availableQuantity: firstItem.quantity, requestedQuantity: 1
     }];
 
+    // Tạo modal (HTML giữ nguyên)
     const modal = document.createElement('div');
     currentExportModal = modal;
     modal.className = 'modal fade';
     modal.id = 'scanExportModal';
     modal.setAttribute('tabindex', '-1');
-
-    // --- GIAO DIỆN MỚI VỚI CÁC Ô NHẬP LIỆU ---
     modal.innerHTML = `
         <div class="modal-dialog modal-xl modal-dialog-scrollable">
             <div class="modal-content">
@@ -10195,7 +10209,6 @@ function showScanExportModal(initialItems) {
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
-                    <!-- THÊM CÁC Ô NHẬP LIỆU VÀO ĐÂY -->
                     <div class="row mb-3">
                         <div class="col-md-6">
                             <label for="exportScanNumber" class="form-label">Số phiếu xuất <span class="text-danger">*</span></label>
@@ -10207,18 +10220,13 @@ function showScanExportModal(initialItems) {
                         </div>
                     </div>
                     <hr>
-                    <!-- KẾT THÚC PHẦN THÊM MỚI -->
-                    <div id="exportItemListContainer">
-                        <!-- Danh sách sản phẩm sẽ được vẽ vào đây -->
-                    </div>
+                    <div id="exportItemListContainer"></div>
                 </div>
                 <div class="modal-footer justify-content-between">
                     <button class="btn btn-success" onclick="scanMoreItemsForExport()">
                         <i class="fas fa-barcode"></i> Quét để thêm
                     </button>
-                    <div id="exportActionButtons">
-                        <!-- Nút xác nhận/gửi yêu cầu -->
-                    </div>
+                    <div id="exportActionButtons"></div>
                 </div>
             </div>
         </div>
@@ -10229,13 +10237,18 @@ function showScanExportModal(initialItems) {
     
     renderExportListInModal();
 
+    // --- LOGIC QUAN TRỌNG: ĐẢM BẢO RESET CỜ ---
+    // Sự kiện này sẽ được kích hoạt khi modal bị đóng bằng bất kỳ cách nào
+    // (nhấn nút X, nhấn nút Hủy, nhấn ra ngoài, hoặc sau khi hoàn tất)
     modal.addEventListener('hidden.bs.modal', () => {
-        isScanningForExport = false;
+        isScanningForExport = false; // Đảm bảo cờ luôn được tắt
         currentExportModal = null;
         exportItemsList = [];
         modal.remove();
+        console.log("Modal xuất kho đã đóng, cờ isScanningForExport đã được reset.");
     });
 }
+
 
 function renderExportListInModal() {
     if (!currentExportModal) return;
