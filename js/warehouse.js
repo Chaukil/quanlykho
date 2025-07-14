@@ -10017,7 +10017,7 @@ function renderScanExportForm() {
                     <table class="table table-sm table-bordered table-hover">
                         <thead class="table-light">
                             <tr>
-                                <th>Sản phẩm (Vị trí)</th>
+                                <th>Sản phẩm</th>
                                 <th style="width:120px;">SL Xuất</th>
                                 <th style="width:50px;" class="text-center"><i class="fas fa-cog"></i></th>
                             </tr>
@@ -10105,13 +10105,13 @@ function renderScanExportTableBody() {
             <tr>
                 <td>
                     <strong>${item.code}</strong><br>
-                    <small class="text-muted">${item.name} (${item.location})</small>
+                    <small class="text-muted">${item.name} </small>
                 </td>
                 <td>
                     <input type="number" class="form-control form-control-sm" 
                            value="${item.requestedQuantity}" min="1" max="${item.availableQuantity}"
                            onchange="updateExportItemQuantity(${index}, this.value)">
-                    <small class="text-muted">Tồn: ${item.availableQuantity}</small>
+                    <small class="text-muted">Tồn: ${item.availableQuantity} - Vị trí: ${item.location}</small>
                 </td>
                 <td class="text-center align-middle">
                     <button class="btn btn-sm btn-outline-danger" onclick="removeExportItemFromList(${index})" title="Xóa">
@@ -10163,99 +10163,16 @@ function playScannerSound() {
 
     // Tạo hiệu ứng "bíp" ngắn bằng cách giảm âm lượng nhanh chóng
     gainNode.gain.setValueAtTime(1, audioContext.currentTime); // Bắt đầu với 50% âm lượng
-    gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.15); // Giảm dần về 0 sau 0.1 giây
+    gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.2); // Giảm dần về 0 sau 0.1 giây
 
     // Bắt đầu và dừng Oscillator để tạo âm thanh
     oscillator.start(audioContext.currentTime);
-    oscillator.stop(audioContext.currentTime + 0.15);
-}
-
-function showActionChoiceModal(items) {
-    const item = items[0]; // Lấy thông tin chung từ sản phẩm đầu tiên
-    const modal = document.createElement('div');
-    modal.className = 'modal fade';
-    modal.innerHTML = `
-        <div class="modal-dialog modal-dialog-centered">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">${item.name}</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body text-center">
-                    <p>Mã hàng: <strong>${item.code}</strong></p>
-                    <p>Bạn muốn làm gì?</p>
-                    <div class="d-grid gap-2">
-                        <button class="btn btn-info" id="viewStockBtn">
-                            <i class="fas fa-warehouse"></i> Xem tồn kho (${items.length} vị trí)
-                        </button>
-                        <button class="btn btn-secondary" id="viewHistoryBtn">
-                            <i class="fas fa-history"></i> Xem lịch sử mã hàng
-                        </button>
-                        <button class="btn btn-warning" id="startExportBtn">
-                            <i class="fas fa-upload"></i> Xuất kho
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </div>
-    `;
-    document.body.appendChild(modal);
-    const bsModal = new bootstrap.Modal(modal);
-
-    // Gán sự kiện cho các nút
-    modal.querySelector('#viewStockBtn').onclick = () => {
-        bsModal.hide();
-        showMultiLocationStockModal(items);
-    };
-    modal.querySelector('#viewHistoryBtn').onclick = () => {
-        bsModal.hide();
-        viewItemHistoryFromScan(item.code);
-    };
-    modal.querySelector('#startExportBtn').onclick = () => {
-        bsModal.hide();
-        // Mở modal xuất kho và thêm sản phẩm đầu tiên vào
-        showScanExportModal(items);
-    };
-    
-    bsModal.show();
-    modal.addEventListener('hidden.bs.modal', () => modal.remove());
-}
-
-function showMultiLocationStockModal(items) {
-    const modal = document.createElement('div');
-    modal.className = 'modal fade';
-    let stockHtml = items.map(item => `
-        <tr>
-            <td><strong>${item.location}</strong></td>
-            <td class="text-end">${item.quantity}</td>
-        </tr>
-    `).join('');
-
-    modal.innerHTML = `
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">Tồn kho: ${items[0].name}</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body">
-                    <table class="table">
-                        <thead><tr><th>Vị trí</th><th class="text-end">Số lượng</th></tr></thead>
-                        <tbody>${stockHtml}</tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-    `;
-    document.body.appendChild(modal);
-    new bootstrap.Modal(modal).show();
-    modal.addEventListener('hidden.bs.modal', () => modal.remove());
+    oscillator.stop(audioContext.currentTime + 0.2);
 }
 
 // Biến toàn cục để quản lý modal xuất kho
 let currentExportModal = null; 
 let exportItemsList = [];
-
 
 window.updateExportItemQuantity = (index, newQty) => {
     const qty = parseInt(newQty);
