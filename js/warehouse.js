@@ -1603,9 +1603,8 @@ function createImportDetailsModal(data) {
                         <div class="col-md-6"><strong>Số phiếu:</strong> ${data.importNumber}</div>
                         <div class="col-md-6"><strong>Nhà cung cấp:</strong> ${data.supplier}</div>
                         <div class="col-md-6"><strong>Tổng số mặt hàng:</strong> ${totalItems}</div>
-                         <div class="col-md-6"><strong>Người thực hiện:</strong> ${data.performedByName}</div>
-                        <div class="col-md-6"><strong>Tổng số lượng:</strong> ${totalQuantity}</div>
-                       
+                        <div class="col-md-6"><strong>Người nhập kho:</strong> ${data.performedByName}</div>
+                        <div class="col-md-6"><strong>Tổng số lượng:</strong> ${totalQuantity}</div>                       
                         <div class="col-md-6"><strong>Ngày nhập:</strong> ${date}</div>
 
                     </div>
@@ -3750,8 +3749,7 @@ window.viewExportDetails = async function (transactionId) {
     }
 };
 
-// Thay thế hàm này trong warehouse.js
-
+// Thay thế hàm createExportDetailsModal() cũ
 function createExportDetailsModal(data) {
     const modal = document.createElement('div');
     modal.className = 'modal fade';
@@ -3759,6 +3757,19 @@ function createExportDetailsModal(data) {
     const date = data.timestamp ? data.timestamp.toDate().toLocaleString('vi-VN') : 'N/A';
     const totalItems = data.items?.length || 0;
     const totalQuantity = data.items?.reduce((sum, item) => sum + (item.quantity || 0), 0) || 0;
+
+    // Logic hiển thị thông tin người thực hiện
+    let performerInfoHtml = '';
+    if (data.requestInfo) {
+        // Nếu phiếu được tạo từ một yêu cầu
+        performerInfoHtml = `
+            <div class="col-md-6"><strong>Người yêu cầu:</strong> ${data.requestInfo.requestedByName || 'N/A'}</div>
+            <div class="col-md-6"><strong>Người duyệt & xuất:</strong> ${data.performedByName}</div>
+        `;
+    } else {
+        // Nếu là phiếu xuất trực tiếp
+        performerInfoHtml = `<div class="col-md-6"><strong>Người xuất kho:</strong> ${data.performedByName}</div>`;
+    }
 
     modal.innerHTML = `
         <div class="modal-dialog modal-xl">
@@ -3770,7 +3781,6 @@ function createExportDetailsModal(data) {
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
-                    <!-- THÔNG BÁO THÀNH CÔNG -->
                     <div class="alert alert-warning d-flex align-items-center mb-4">
                         <i class="fas fa-check-circle fa-2x me-3"></i>
                         <div>
@@ -3779,7 +3789,7 @@ function createExportDetailsModal(data) {
                         </div>
                     </div>
 
-                    <!-- THÔNG TIN CHUNG -->
+                    <!-- THÔNG TIN CHUNG - ĐÃ CẬP NHẬT -->
                     <div class="row mb-3 p-3 bg-light rounded border">
                         <div class="col-12 mb-2">
                             <span class="badge bg-warning text-dark">
@@ -3788,15 +3798,12 @@ function createExportDetailsModal(data) {
                         </div>
                         <div class="col-md-6"><strong>Số phiếu:</strong> ${data.exportNumber}</div>
                         <div class="col-md-6"><strong>Người nhận:</strong> ${data.recipient}</div>
-                        <div class="col-md-6"><strong>Tổng số mặt hàng:</strong> ${totalItems}</div>
-                        <div class="col-md-6"><strong>Người thực hiện:</strong> ${data.performedByName}</div>
-                        <div class="col-md-6"><strong>Tổng số lượng:</strong> ${totalQuantity}</div>
-                        
-                        
+                        ${performerInfoHtml}
                         <div class="col-md-6"><strong>Ngày xuất:</strong> ${date}</div>
+                        <div class="col-md-6"><strong>Tổng số mặt hàng:</strong> ${totalItems}</div>
+                        <div class="col-md-6"><strong>Tổng số lượng:</strong> ${totalQuantity}</div>
                     </div>                    
                     
-                    <!-- DANH SÁCH HÀNG HÓA -->
                     <h6 class="text-muted mb-3">
                         <i class="fas fa-list me-2"></i>Danh sách hàng hóa đã xuất
                     </h6>
@@ -3825,11 +3832,9 @@ function createExportDetailsModal(data) {
                         </table>
                     </div>
 
-                    <!-- THÔNG TIN TÁC ĐỘNG -->
-                    <div class="alert alert-info">
+                    <div class="alert alert-info mt-3">
                         <i class="fas fa-info-circle me-2"></i>
-                        <strong>Tác động:</strong> Số lượng hàng hóa đã được trừ khỏi tồn kho. 
-                        Hàng hóa đã được giao cho ${data.recipient}.
+                        <strong>Tác động:</strong> Số lượng hàng hóa đã được trừ khỏi tồn kho.
                     </div>
                 </div>
                 <div class="modal-footer">
@@ -3841,6 +3846,7 @@ function createExportDetailsModal(data) {
 
     return modal;
 }
+
 
 export function loadPendingAdjustmentsSection() {
     loadPendingAdjustments();
@@ -4123,14 +4129,15 @@ window.viewAdjustRequestDetails = async function (requestId) {
     }
 };
 
+// Thay thế hàm createAdjustRequestDetailsModal() cũ
 function createAdjustRequestDetailsModal(data) {
     const modal = document.createElement('div');
     modal.className = 'modal fade';
 
-    const requestDate = data.requestDate ?
-        (data.requestDate.toDate ? data.requestDate.toDate().toLocaleString('vi-VN') : data.requestDate) :
-        (data.timestamp ? data.timestamp.toDate().toLocaleString('vi-VN') : 'N/A');
-
+    const requestDate = data.requestDate ? (data.requestDate.toDate ? data.requestDate.toDate().toLocaleString('vi-VN') : data.requestDate) : 'N/A';
+    const approvedDate = data.approvedDate ? (data.approvedDate.toDate ? data.approvedDate.toDate().toLocaleString('vi-VN') : 'N/A') : (data.timestamp ? data.timestamp.toDate().toLocaleString('vi-VN') : 'N/A');
+    const rejectedDate = data.rejectedDate ? (data.rejectedDate.toDate ? data.rejectedDate.toDate().toLocaleString('vi-VN') : 'N/A') : 'N/A';
+    
     const adjustment = data.adjustment || 0;
     const adjustmentClass = adjustment > 0 ? 'text-success' : adjustment < 0 ? 'text-danger' : '';
     const adjustmentSymbol = adjustment > 0 ? '+' : '';
@@ -4140,202 +4147,81 @@ function createAdjustRequestDetailsModal(data) {
         'approved': { class: 'bg-success', text: 'Đã duyệt', icon: 'fas fa-check-circle' },
         'rejected': { class: 'bg-danger', text: 'Từ chối', icon: 'fas fa-times-circle' }
     };
-
     const status = statusConfig[data.status] || { class: 'bg-secondary', text: data.status, icon: 'fas fa-question-circle' };
-
-    // Thông tin phê duyệt/từ chối
-    let approvalInfo = '';
-    let sourceInfo = '';
-
-    // Xác định nguồn gốc
-    if (data.requestId) {
-        sourceInfo = `
-            <div class="col-12 mb-2">
-                <span class="badge bg-info">
-                    <i class="fas fa-clipboard-check"></i> Được tạo từ yêu cầu chỉnh số
-                </span>
-            </div>
-        `;
-    } else if (data.status === 'approved') {
-        sourceInfo = `
-            <div class="col-12 mb-2">
-                <span class="badge bg-secondary">
-                    <i class="fas fa-edit"></i> Chỉnh số trực tiếp
-                </span>
-            </div>
-        `;
-    }
-
-    if (data.status === 'approved' && data.approvedDate) {
-        const approvedDate = data.approvedDate.toDate ? data.approvedDate.toDate().toLocaleString('vi-VN') : data.approvedDate;
-        approvalInfo = `
-            <div class="col-md-6"><strong>Được duyệt bởi:</strong> ${data.approvedByName}</div>
-            <div class="col-md-6"><strong>Ngày duyệt:</strong> ${approvedDate}</div>
-        `;
-    } else if (data.status === 'rejected' && data.rejectedDate) {
-        const rejectedDate = data.rejectedDate.toDate ? data.rejectedDate.toDate().toLocaleString('vi-VN') : data.rejectedDate;
-        approvalInfo = `
-            <div class="col-md-6"><strong>Từ chối bởi:</strong> ${data.rejectedByName}</div>
-            <div class="col-md-6"><strong>Ngày từ chối:</strong> ${rejectedDate}</div>
-            <div class="col-12 mt-2">
-                <strong>Lý do từ chối:</strong>
-                <p class="ms-2 mt-1 mb-0 fst-italic bg-danger bg-opacity-10 p-2 rounded text-danger">
-                    ${data.rejectionReason || 'Không có lý do cụ thể'}
-                </p>
-            </div>
-        `;
-    } else if (data.status === 'pending') {
-        approvalInfo = `
-            <div class="col-12">
-                <div class="alert alert-warning d-flex align-items-center">
-                    <i class="fas fa-clock me-2"></i>
-                    <small>Yêu cầu đang chờ được xem xét bởi Super Admin</small>
-                </div>
-            </div>
-        `;
-    }
-
-    // Tiêu đề và màu sắc header
+    
+    let infoHtml = '';
     let headerClass = 'modal-header';
-    let headerTitle = 'Chi tiết yêu cầu chỉnh số';
+    let headerTitle = 'Chi tiết Yêu cầu Chỉnh số';
+    let alertHtml = '';
 
     if (data.status === 'approved') {
         headerClass = 'modal-header bg-success text-white';
-        headerTitle = data.requestId ?
-            'Chi tiết chỉnh số (từ yêu cầu đã duyệt)' :
-            'Chi tiết chỉnh số (trực tiếp)';
+        alertHtml = `<div class="alert alert-success d-flex align-items-center mb-4"><i class="fas fa-check-circle fa-2x me-3"></i><div><strong>Đã thực hiện thành công</strong><br><small>Tồn kho đã được cập nhật theo yêu cầu</small></div></div>`;
+        if (data.requestId) { // Từ yêu cầu
+            headerTitle = 'Chi tiết Chỉnh số (từ yêu cầu đã duyệt)';
+            infoHtml = `
+                <div class="col-md-6"><strong>Người yêu cầu:</strong> ${data.requestedByName}</div>
+                <div class="col-md-6"><strong>Ngày yêu cầu:</strong> ${requestDate}</div>
+                <div class="col-md-6"><strong>Người duyệt:</strong> ${data.approvedByName}</div>
+                <div class="col-md-6"><strong>Ngày duyệt:</strong> ${approvedDate}</div>
+            `;
+        } else { // Chỉnh số trực tiếp
+            headerTitle = 'Chi tiết Chỉnh số (trực tiếp)';
+             infoHtml = `
+                <div class="col-md-6"><strong>Người chỉnh số:</strong> ${data.approvedByName}</div>
+                <div class="col-md-6"><strong>Ngày chỉnh số:</strong> ${approvedDate}</div>
+            `;
+        }
     } else if (data.status === 'rejected') {
         headerClass = 'modal-header bg-danger text-white';
-        headerTitle = 'Chi tiết yêu cầu chỉnh số (đã từ chối)';
+        headerTitle = 'Chi tiết Yêu cầu (đã từ chối)';
+        alertHtml = `<div class="alert alert-danger d-flex align-items-center mb-4"><i class="fas fa-exclamation-triangle fa-2x me-3"></i><div><strong>Yêu cầu đã bị từ chối</strong><br><small>Không có thay đổi nào được thực hiện trên tồn kho</small></div></div>`;
+        infoHtml = `
+            <div class="col-md-6"><strong>Người yêu cầu:</strong> ${data.requestedByName}</div>
+            <div class="col-md-6"><strong>Ngày yêu cầu:</strong> ${requestDate}</div>
+            <div class="col-md-6"><strong>Người từ chối:</strong> ${data.rejectedByName}</div>
+            <div class="col-md-6"><strong>Ngày từ chối:</strong> ${rejectedDate}</div>
+            <div class="col-12 mt-2"><strong>Lý do từ chối:</strong><p class="ms-2 mt-1 mb-0 fst-italic bg-danger bg-opacity-10 p-2 rounded text-danger">${data.rejectionReason || 'Không có lý do cụ thể'}</p></div>
+        `;
+    } else { // pending
+         alertHtml = `<div class="alert alert-warning d-flex align-items-center mb-4"><i class="fas fa-clock me-2"></i><small>Yêu cầu đang chờ được xem xét bởi Super Admin</small></div>`;
+         infoHtml = `
+            <div class="col-md-6"><strong>Người yêu cầu:</strong> ${data.requestedByName}</div>
+            <div class="col-md-6"><strong>Ngày yêu cầu:</strong> ${requestDate}</div>
+        `;
     }
 
     modal.innerHTML = `
         <div class="modal-dialog modal-lg">
             <div class="modal-content">
                 <div class="${headerClass}">
-                    <h5 class="modal-title">
-                        <i class="${status.icon}"></i> ${headerTitle}
-                    </h5>
-                    <button type="button" class="btn-close ${data.status === 'approved' || data.status === 'rejected' ? 'btn-close-white' : ''}" data-bs-dismiss="modal"></button>
+                    <h5 class="modal-title"><i class="${status.icon}"></i> ${headerTitle}</h5>
+                    <button type="button" class="btn-close ${headerClass.includes('text-white') ? 'btn-close-white' : ''}" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
-                    ${data.status === 'rejected' ? `
-                        <!-- CẢNH BÁO CHO TỪ CHỐI -->
-                        <div class="alert alert-danger d-flex align-items-center mb-4">
-                            <i class="fas fa-exclamation-triangle fa-2x me-3"></i>
-                            <div>
-                                <strong>Yêu cầu đã bị từ chối</strong><br>
-                                <small>Không có thay đổi nào được thực hiện trên tồn kho</small>
-                            </div>
-                        </div>
-                    ` : ''}
-
-                    ${data.status === 'approved' ? `
-                        <!-- THÔNG BÁO THÀNH CÔNG -->
-                        <div class="alert alert-success d-flex align-items-center mb-4">
-                            <i class="fas fa-check-circle fa-2x me-3"></i>
-                            <div>
-                                <strong>Đã thực hiện thành công</strong><br>
-                                <small>Tồn kho đã được cập nhật theo yêu cầu</small>
-                            </div>
-                        </div>
-                    ` : ''}
-
-                    <!-- THÔNG TIN CHUNG -->
+                    ${alertHtml}
                     <div class="row mb-3 p-3 bg-light rounded border">
-                        ${sourceInfo}
                         <div class="col-md-6"><strong>Mã hàng:</strong> ${data.itemCode}</div>
                         <div class="col-md-6"><strong>Tên mô tả:</strong> ${data.itemName}</div>
                         <div class="col-md-6"><strong>Vị trí:</strong> ${data.location}</div>
-                        <div class="col-md-6"><strong>Trạng thái:</strong> 
-                            <span class="badge ${status.class}">
-                                <i class="${status.icon}"></i> ${status.text}
-                            </span>
-                        </div>
-                        <div class="col-md-6"><strong>Người yêu cầu:</strong> ${data.requestedByName}</div>
-                        <div class="col-md-6"><strong>Ngày yêu cầu:</strong> ${requestDate}</div>
-                        ${approvalInfo}
+                        <div class="col-md-6"><strong>Trạng thái:</strong> <span class="badge ${status.class}">${status.text}</span></div>
+                        ${infoHtml}
                     </div>
-
-                    <!-- THÔNG TIN THAY ĐỔI -->
-                    <h6 class="text-muted mb-3">
-                        <i class="fas fa-exchange-alt me-2"></i>
-                        ${data.status === 'approved' ? 'Thay đổi đã thực hiện' :
-            data.status === 'rejected' ? 'Thay đổi đề xuất (không được thực hiện)' :
-                'Thay đổi đề xuất'}
-                    </h6>
+                    <h6 class="text-muted mb-3"><i class="fas fa-exchange-alt me-2"></i>Chi tiết thay đổi đề xuất</h6>
                     <div class="row text-center mb-4">
-                        <div class="col-4">
-                            <div class="card h-100 ${data.status === 'rejected' ? 'border-secondary' : ''}">
-                                <div class="card-body">
-                                    <h6 class="card-title text-muted">
-                                        ${data.status === 'approved' ? 'Số lượng trước' : 'Số lượng hiện tại'}
-                                    </h6>
-                                    <p class="card-text fs-4">${data.currentQuantity}</p>
-                                    ${data.status === 'rejected' ? '<small class="text-success">✓ Giữ nguyên</small>' : ''}
-                                </div>
-                            </div>
-                        </div>
-                        <div class="col-4">
-                            <div class="card h-100 ${data.status === 'rejected' ? 'border-secondary' : 'border-primary'}">
-                                <div class="card-body">
-                                    <h6 class="card-title text-muted">
-                                        ${data.status === 'approved' ? 'Số lượng sau' : 'Số lượng đề xuất'}
-                                    </h6>
-                                    <p class="card-text fs-4 fw-bold ${data.status === 'rejected' ? 'text-muted' : 'text-primary'}">
-                                        ${data.status === 'rejected' ? `<s>${data.requestedQuantity}</s>` : data.requestedQuantity}
-                                    </p>
-                                    ${data.status === 'rejected' ? '<small class="text-danger">✗ Không thực hiện</small>' : ''}
-                                </div>
-                            </div>
-                        </div>
-                        <div class="col-4">
-                            <div class="card h-100 ${data.status === 'rejected' ? 'border-secondary' : ''}">
-                                <div class="card-body">
-                                    <h6 class="card-title text-muted">Chênh lệch${data.status === 'rejected' ? ' đề xuất' : ''}</h6>
-                                    <p class="card-text fs-4 fw-bold ${data.status === 'rejected' ? 'text-muted' : adjustmentClass}">
-                                        ${data.status === 'rejected' ?
-            `<s class="${adjustmentClass}">${adjustmentSymbol}${adjustment}</s>` :
-            `${adjustmentSymbol}${adjustment}`
-        }
-                                    </p>
-                                    ${data.status === 'rejected' ? '<small class="text-danger">✗ Không áp dụng</small>' : ''}
-                                </div>
-                            </div>
-                        </div>
+                        <div class="col-4"><div class="card h-100"><div class="card-body"><h6 class="card-title text-muted">Số lượng hiện tại</h6><p class="card-text fs-4">${data.currentQuantity}</p></div></div></div>
+                        <div class="col-4"><div class="card h-100"><div class="card-body"><h6 class="card-title text-muted">Số lượng đề xuất</h6><p class="card-text fs-4 fw-bold ${data.status === 'rejected' ? 'text-muted' : 'text-primary'}">${data.status === 'rejected' ? `<s>${data.requestedQuantity}</s>` : data.requestedQuantity}</p></div></div></div>
+                        <div class="col-4"><div class="card h-100"><div class="card-body"><h6 class="card-title text-muted">Chênh lệch</h6><p class="card-text fs-4 fw-bold ${data.status === 'rejected' ? 'text-muted' : adjustmentClass}">${data.status === 'rejected' ? `<s>${adjustmentSymbol}${adjustment}</s>` : `${adjustmentSymbol}${adjustment}`}</p></div></div></div>
                     </div>
-
-                    <!-- LÝ DO YÊU CẦU -->
-                    <div class="mb-3">
-                        <strong>Lý do ${data.status === 'rejected' ? 'yêu cầu chỉnh số ban đầu' : 'chỉnh số'}:</strong>
-                        <p class="ms-2 mt-1 mb-0 fst-italic bg-light p-2 rounded">${data.reason}</p>
-                    </div>
-
-                    <!-- THÔNG TIN BỔ SUNG -->
-                    ${data.status === 'approved' ? `
-                        <div class="alert alert-info">
-                            <i class="fas fa-info-circle me-2"></i>
-                            <strong>Tác động:</strong> Tồn kho tại vị trí "${data.location}" đã được cập nhật từ ${data.currentQuantity} thành ${data.requestedQuantity}.
-                        </div>
-                    ` : ''}
-
-                    ${data.status === 'rejected' ? `
-                        <div class="alert alert-info">
-                            <i class="fas fa-info-circle me-2"></i>
-                            <strong>Tác động:</strong> Không có thay đổi nào được thực hiện trên hệ thống tồn kho. 
-                            Số lượng tại vị trí "${data.location}" vẫn giữ nguyên là ${data.currentQuantity}.
-                        </div>
-                    ` : ''}
+                    <div class="mb-3"><strong>Lý do yêu cầu:</strong><p class="ms-2 mt-1 mb-0 fst-italic bg-light p-2 rounded">${data.reason}</p></div>
                 </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Đóng</button>
-                </div>
+                <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Đóng</button></div>
             </div>
         </div>
     `;
-
     return modal;
 }
+
 
 export function loadTransferSection() {
     loadTransferHistory();
@@ -6964,11 +6850,22 @@ window.viewExportRequestDetails = async function(requestId) {
                         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
                     </div>
                     <div class="modal-body">
-                        <div class="row mb-3 p-3 bg-light rounded border">
-                            <div class="col-md-6"><strong>Người yêu cầu:</strong> ${req.requestedByName}</div>
-                            <div class="col-md-6"><strong>Thời gian:</strong> ${date}</div>
-                            <div class="col-md-6"><strong>Trạng thái:</strong> <span class="badge bg-warning text-dark">Chờ duyệt</span></div>
+                        <div class="alert alert-info d-flex align-items-center mb-4">
+                        <i class="fas fa-clock fa-2x me-3"></i>
+                        <div>
+                            <strong>Yêu cầu đang chờ phê duyệt</strong><br>
+                            <small>Thông tin này chưa được áp dụng vào tồn kho chính thức.</small>
                         </div>
+                    </div>
+
+                    <!-- THÔNG TIN CHUNG - ĐÃ CẬP NHẬT -->
+                    <div class="row mb-3 p-3 bg-light rounded border">
+                        <div class="col-md-6"><strong>Số phiếu yêu cầu:</strong> ${req.exportNumber || 'N/A'}</div>
+                        <div class="col-md-6"><strong>Người nhận (đề xuất):</strong> ${req.recipient || 'N/A'}</div>
+                        <div class="col-md-6"><strong>Người yêu cầu:</strong> ${req.requestedByName}</div>
+                        <div class="col-md-6"><strong>Thời gian yêu cầu:</strong> ${date}</div>
+                        <div class="col-md-6"><strong>Trạng thái:</strong> <span class="badge bg-warning text-dark">Chờ duyệt</span></div>
+                    </div>
 
                         <h6>Danh sách hàng hóa yêu cầu:</h6>
                         <div class="table-responsive">
@@ -7047,7 +6944,7 @@ window.approveExportRequest = async function(requestId) {
             if (!invSnap.exists() || invSnap.data().quantity < item.requestedQuantity) {
                 throw new Error(`Không đủ tồn kho cho sản phẩm ${item.code}.`);
             }
-            batch.update(invRef, { quantity: increment(-item.requestedQuantity) });
+             batch.update(invRef, { quantity: increment(-item.quantity) }); 
         }
 
         // 3. Cập nhật trạng thái của yêu cầu thành 'approved'
@@ -9692,53 +9589,86 @@ function populateTemplateSelector() {
         loader.appendChild(option);
     });
 }
+// Thay thế hoàn toàn hàm searchItemsForBarcode() cũ bằng hàm này
 async function searchItemsForBarcode(event) {
-    const searchTerm = event.target.value.trim().toLowerCase();
+    const searchTerm = event.target.value.trim();
     const resultsContainer = document.getElementById('barcodeSearchResults');
-
-    // 1. Luôn dọn dẹp khu vực kết quả ngay từ đầu
     resultsContainer.innerHTML = '';
 
-    // 2. Nếu không đủ ký tự để tìm, chỉ cần thoát sau khi đã dọn dẹp
     if (searchTerm.length < 2) {
         return;
     }
 
     try {
-        const inventoryQuery = query(
+        const upperCaseTerm = searchTerm.toUpperCase();
+        
+        // --- TẠO HAI TRUY VẤN SONG SONG ---
+
+        // 1. Truy vấn theo MÃ HÀNG (rất hiệu quả và chính xác)
+        const codeQuery = query(
             collection(db, 'inventory'),
-            where('quantity', '>', 0),
-            orderBy('quantity'),
-            orderBy('code'),
-            where('code', '>=', searchTerm.toUpperCase()),
+            orderBy('code'), // Bắt buộc phải orderBy theo trường đang lọc phạm vi
+            where('code', '>=', upperCaseTerm),
+            where('code', '<=', upperCaseTerm + '\uf8ff'), // \uf8ff là ký tự Unicode cao để tạo giới hạn trên
             limit(5)
         );
-        const snapshot = await getDocs(inventoryQuery);
 
-        if (snapshot.empty) {
+        // 2. Truy vấn theo TÊN SẢN PHẨM (hiệu quả tương đối)
+        // Lưu ý: Firestore không hỗ trợ tìm kiếm "contains" hoặc không phân biệt chữ hoa/thường một cách tự nhiên.
+        // Cách này sẽ tìm các tên bắt đầu bằng chuỗi tìm kiếm.
+        const nameQuery = query(
+            collection(db, 'inventory'),
+            orderBy('name'),
+            where('name', '>=', searchTerm),
+            where('name', '<=', searchTerm + '\uf8ff'),
+            limit(5)
+        );
+
+        // --- THỰC THI CẢ HAI TRUY VẤN CÙNG LÚC ---
+        const [codeSnapshot, nameSnapshot] = await Promise.all([
+            getDocs(codeQuery),
+            getDocs(nameQuery)
+        ]);
+
+        // --- GỘP KẾT QUẢ VÀ LOẠI BỎ TRÙNG LẶP ---
+        const resultsMap = new Map();
+        
+        const processSnapshot = (snapshot) => {
+            snapshot.forEach(doc => {
+                // Dùng doc.id làm key để đảm bảo mỗi sản phẩm chỉ xuất hiện một lần
+                if (!resultsMap.has(doc.id)) {
+                    resultsMap.set(doc.id, { id: doc.id, ...doc.data() });
+                }
+            });
+        };
+
+        processSnapshot(codeSnapshot);
+        processSnapshot(nameSnapshot);
+
+        const finalResults = Array.from(resultsMap.values());
+
+        // --- HIỂN THỊ KẾT QUẢ ---
+        if (finalResults.length === 0) {
             resultsContainer.innerHTML = '<div class="list-group-item text-muted">Không tìm thấy sản phẩm phù hợp.</div>';
             return;
         }
-        
-        // 3. Sử dụng map để tạo một chuỗi HTML hoàn chỉnh
-        const resultsHtml = snapshot.docs.map(doc => {
-            const item = doc.data();
-            // Truyền toàn bộ đối tượng item dưới dạng chuỗi JSON để an toàn hơn
-            const itemJsonString = JSON.stringify({ id: doc.id, ...item }).replace(/'/g, "\\'");
+
+        const resultsHtml = finalResults.map(item => {
+            const itemJsonString = JSON.stringify(item).replace(/'/g, "\\'");
             return `<button type="button" class="list-group-item list-group-item-action" 
                     onclick='selectItemForBarcode(${itemJsonString})'>
-                    ${item.code} - (Vị trí: ${item.location})
+                    <strong>${item.code}</strong> - ${item.name} (Tồn: ${item.quantity} | Vị trí: ${item.location})
                 </button>`;
         }).join('');
 
-        // 4. Gán toàn bộ kết quả vào container chỉ MỘT LẦN DUY NHẤT
         resultsContainer.innerHTML = `<div class="list-group mt-2">${resultsHtml}</div>`;
 
     } catch (error) {
         console.error("Lỗi tìm kiếm sản phẩm cho barcode:", error);
-        resultsContainer.innerHTML = '<div class="list-group-item text-danger">Lỗi khi tìm kiếm.</div>';
+        resultsContainer.innerHTML = '<div class="list-group-item text-danger">Lỗi khi tìm kiếm. Vui lòng kiểm tra lại cấu hình Firestore.</div>';
     }
 }
+
 
 window.selectItemForBarcode = function(item) {
     currentBarcodeItem = item;
@@ -10043,61 +9973,80 @@ function startNewScanExportSession(items) {
     showToast(`Đã bắt đầu phiên xuất kho cho: ${itemToAdd.code}`, 'success');
 }
 
+// Thay thế hoàn toàn hàm renderScanExportForm() cũ bằng hàm này
 function renderScanExportForm() {
     const scanResultContainer = document.getElementById('scanResultContainer');
     
     // Nút hành động dựa trên vai trò người dùng
     const actionButtonHtml = userRole === 'staff'
-        ? `<button class="btn btn-primary w-100" onclick="finalizeExport()"><i class="fas fa-paper-plane"></i> Gửi yêu cầu</button>`
-        : `<button class="btn btn-warning w-100" onclick="finalizeExport()"><i class="fas fa-check"></i> Xác nhận xuất kho</button>`;
+        ? `<button class="btn btn-primary w-100" onclick="finalizeExport()"><i class="fas fa-paper-plane"></i> Gửi yêu cầu xuất kho</button>`
+        : `<button class="btn btn-warning w-100 text-dark" onclick="finalizeExport()"><i class="fas fa-check-circle"></i> Xác nhận & Xuất kho</button>`;
 
     scanResultContainer.innerHTML = `
-        <div id="scan-export-form">
-            <h5><i class="fas fa-file-invoice text-warning"></i> Phiếu Xuất Kho</h5>
-            <div class="row g-2 mb-3">
-                <div class="col-md-6">
-                    <label class="form-label form-label-compact">Số phiếu xuất *</label>
-                    <input type="text" id="scanExportNumber" class="form-control form-control-sm" placeholder="VD: PX-001">
-                </div>
-                <div class="col-md-6">
-                    <label class="form-label form-label-compact">Người nhận *</label>
-                    <input type="text" id="scanExportRecipient" class="form-control form-control-sm" placeholder="Tên hoặc bộ phận nhận">
+        <div id="scan-export-form" class="scan-export-session-container">
+            <!-- HEADER CHÍNH -->
+            <div class="form-section-header-compact border-bottom pb-2 mb-3">
+                <i class="fas fa-barcode text-warning"></i>
+                <h5 class="mb-0">Phiếu Xuất Kho (từ mã quét)</h5>
+            </div>
+
+            <!-- FORM THÔNG TIN PHIẾU -->
+            <div class="form-section-compact p-3">
+                <div class="row g-2">
+                    <div class="col-md-6">
+                        <label class="form-label-compact">Số phiếu xuất *</label>
+                        <input type="text" id="scanExportNumber" class="form-control-compact" placeholder="VD: PX-2024-01">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label-compact">Người nhận *</label>
+                        <input type="text" id="scanExportRecipient" class="form-control-compact" placeholder="Tên hoặc bộ phận nhận">
+                    </div>
                 </div>
             </div>
 
-            <h6>Danh sách sản phẩm</h6>
-            <div class="table-responsive" style="max-height: 300px;">
-                <table class="table table-sm table-bordered">
-                    <thead>
-                        <tr>
-                            <th>Sản phẩm (Vị trí)</th>
-                            <th style="width:120px;">SL Xuất</th>
-                            <th style="width:50px;"></th>
-                        </tr>
-                    </thead>
-                    <tbody id="scan-export-table-body">
-                        <!-- Các dòng sản phẩm sẽ được thêm vào đây -->
-                    </tbody>
-                </table>
+            <!-- DANH SÁCH SẢN PHẨM -->
+            <div class="form-section-compact mt-3 p-3">
+                <div class="form-section-header-compact mb-2">
+                    <i class="fas fa-list-ul"></i>
+                    Danh sách sản phẩm
+                    <span class="badge bg-warning text-dark ms-auto" id="scan-item-count-badge">0 mặt hàng</span>
+                </div>
+                <div class="table-responsive" style="max-height: 300px;">
+                    <table class="table table-sm table-bordered table-hover">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Sản phẩm (Vị trí)</th>
+                                <th style="width:120px;">SL Xuất</th>
+                                <th style="width:50px;" class="text-center"><i class="fas fa-cog"></i></th>
+                            </tr>
+                        </thead>
+                        <tbody id="scan-export-table-body">
+                            <!-- Các dòng sản phẩm sẽ được thêm vào đây -->
+                        </tbody>
+                    </table>
+                </div>
             </div>
             
-            <div class="row g-2 mt-3">
-                <div class="col-6">
-                    ${actionButtonHtml}
-                </div>
-                <div class="col-6">
-                    <button class="btn btn-secondary w-100" onclick="cancelScanExportSession()">
-                        <i class="fas fa-times"></i> Hủy bỏ
-                    </button>
-                </div>
+            <!-- KHU VỰC HÀNH ĐỘNG -->
+            <div class="mt-3 d-grid gap-2">
+                ${actionButtonHtml}
+                <button class="btn btn-outline-secondary" onclick="cancelScanExportSession()">
+                    <i class="fas fa-times"></i> Hủy bỏ
+                </button>
             </div>
         </div>
     `;
 
-    // Vẽ danh sách sản phẩm ban đầu
+    // Vẽ danh sách sản phẩm và cập nhật bộ đếm
     renderScanExportTableBody();
 }
 
+function updateScanItemCount() {
+    const badge = document.getElementById('scan-item-count-badge');
+    if (badge) {
+        badge.textContent = `${exportItemsList.length} mặt hàng`;
+    }
+}
 function cancelScanExportSession() {
     exportItemsList = [];
     const scanResultContainer = document.getElementById('scanResultContainer');
@@ -10140,33 +10089,42 @@ function addItemToScanExportSession(items) {
     // Cập nhật lại bảng danh sách sản phẩm
     renderScanExportTableBody();
 }
+
+// Thay thế hàm renderScanExportTableBody() cũ
 function renderScanExportTableBody() {
     const tbody = document.getElementById('scan-export-table-body');
     if (!tbody) return;
 
     if (exportItemsList.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="3" class="text-center text-muted">Chưa có sản phẩm nào.</td></tr>';
-        return;
-    }
-    
-    const tableHtml = exportItemsList.map((item, index) => `
-        <tr>
-            <td>
-                <strong>${item.code}</strong><br>
-                <small class="text-muted">${item.name} (${item.location})</small>
-            </td>
-            <td>
-                <input type="number" class="form-control form-control-sm" 
-                       value="${item.requestedQuantity}" min="1" max="${item.availableQuantity}"
-                       onchange="updateExportItemQuantity(${index}, this.value)">
-                <small>Tồn: ${item.availableQuantity}</small>
-            </td>
-            <td><button class="btn btn-sm btn-outline-danger" onclick="removeExportItemFromList(${index})"><i class="fas fa-times"></i></button></td>
-        </tr>
-    `).join('');
+        tbody.innerHTML = '<tr><td colspan="3" class="text-center text-muted p-3">Chưa có sản phẩm nào.</td></tr>';
+    } else {
+        const tableHtml = exportItemsList.map((item, index) => `
+            <tr>
+                <td>
+                    <strong>${item.code}</strong><br>
+                    <small class="text-muted">${item.name} (${item.location})</small>
+                </td>
+                <td>
+                    <input type="number" class="form-control form-control-sm" 
+                           value="${item.requestedQuantity}" min="1" max="${item.availableQuantity}"
+                           onchange="updateExportItemQuantity(${index}, this.value)">
+                    <small class="text-muted">Tồn: ${item.availableQuantity}</small>
+                </td>
+                <td class="text-center align-middle">
+                    <button class="btn btn-sm btn-outline-danger" onclick="removeExportItemFromList(${index})" title="Xóa">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </td>
+            </tr>
+        `).join('');
 
-    tbody.innerHTML = tableHtml;
+        tbody.innerHTML = tableHtml;
+    }
+
+    // Cập nhật lại bộ đếm số lượng
+    updateScanItemCount();
 }
+
 
 function stopScanner() {
     if (html5QrcodeScanner) {
@@ -10311,7 +10269,7 @@ window.finalizeExport = async function() {
     }
 
     const actionText = userRole === 'staff' ? 'Gửi yêu cầu' : 'Xác nhận xuất kho';
-    const confirmTitle = userRole === 'staff' ? 'Xác nhận Gửi Yêu cầu' : 'Xác nhận Xuất kho Trực tiếp';
+    const confirmTitle = userRole === 'staff' ? 'Xác nhận Gửi Yêu cầu' : 'Xác nhận Xuất kho';
     const confirmType = userRole === 'staff' ? 'info' : 'warning';
 
     const confirmed = await showConfirmation(
