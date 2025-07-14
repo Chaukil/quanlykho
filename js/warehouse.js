@@ -6876,7 +6876,7 @@ function createExportPagination(allData, container) {
                     actionButtons = `
                         <button class="btn btn-info btn-sm me-1" onclick="viewExportRequestDetails('${data.docId}')"><i class="fas fa-eye"></i>Xem</button>
                         <button class="btn btn-success btn-sm me-1" onclick="approveExportRequest('${data.docId}')"><i class="fas fa-check"></i>Duyệt</button>
-                        <button class="btn btn-danger btn-sm" onclick="rejectExportRequest('${data.docId}')"><i class="fas fa-times"></i>Tử chối</button>
+                        <button class="btn btn-danger btn-sm" onclick="rejectExportRequest('${data.docId}')"><i class="fas fa-times"></i>Từ chối</button>
                     `;
                 }
                 
@@ -6949,7 +6949,7 @@ window.viewExportRequestDetails = async function(requestId) {
             <tr>
                 <td>${item.code}</td>
                 <td>${item.name}</td>
-                <td>${item.requestedQuantity} / ${item.availableQuantity}</td>
+                <td><strong>${item.quantity}</strong> / ${item.availableQuantityBefore}</td>
                 <td>${item.unit}</td>
             </tr>
         `).join('');
@@ -7019,16 +7019,18 @@ window.approveExportRequest = async function(requestId) {
         const reqData = requestSnap.data();
         const batch = writeBatch(db);
 
+        const itemsForTransaction = reqData.items;
+
         // 1. Tạo một phiếu xuất kho (transaction) mới từ yêu cầu
         const transRef = doc(collection(db, 'transactions'));
         batch.set(transRef, {
             type: 'export',
-            exportNumber: `REQ-${requestId.substring(0, 8).toUpperCase()}`,
-            recipient: `Theo yêu cầu của ${reqData.requestedByName}`,
-            items: reqData.items.map(item => ({ ...item, availableQuantityBefore: item.availableQuantity })),
-            performedBy: currentUser.uid, // Người duyệt là người thực hiện
+            exportNumber: reqData.exportNumber || `REQ-${requestId.substring(0, 8).toUpperCase()}`,
+            recipient: reqData.recipient || `Theo YC của ${reqData.requestedByName}`,
+            items: itemsForTransaction, // Sử dụng trực tiếp dữ liệu đã đúng
+            performedBy: currentUser.uid,
             performedByName: currentUser.name,
-            requestInfo: { // Lưu lại thông tin của yêu cầu gốc
+            requestInfo: {
                 id: requestId,
                 requestedBy: reqData.requestedBy,
                 requestedByName: reqData.requestedByName,
@@ -9957,7 +9959,6 @@ function startScanner() {
     }
     // --- KẾT THÚC LOGIC MỞ KHÓA ---
 
-
     const scannerContainer = document.getElementById('barcode-scanner-container');
     scannerContainer.innerHTML = '';
     
@@ -9981,32 +9982,7 @@ function startScanner() {
     });
 }
 
-function stopScanner() {
-    if (html5QrcodeScanner) {
-        html5QrcodeScanner.stop().then(() => {
-            document.getElementById('barcode-scanner-container').innerHTML = '';
-            document.getElementById('startScanBtn').style.display = 'inline-block';
-            document.getElementById('stopScanBtn').style.display = 'none';
-        }).catch(err => {
-            console.error("Lỗi khi dừng quét:", err);
-        });
-    }
-}
-
-const scannerBeep = new Audio('data:audio/mpeg;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU3LjgyLjEwMAAAAAAAAAAAAAAA//tAwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlwAAAAA3ADh4aVo5QAFwAAAAA3ADh4aVo5QVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVahhhh//tAwAAAAADQBFwAAAAAADQBFwAAAAA');
-
-function playScannerSound() {
-    try {
-        // Đảm bảo âm thanh có thể phát lại nhanh chóng nếu người dùng quét liên tục
-        scannerBeep.currentTime = 0;
-        scannerBeep.play();
-    } catch (e) {
-        console.error("Không thể phát âm thanh máy quét:", e);
-    }
-}
-
-// THAY THẾ TOÀN BỘ HÀM NÀY BẰNG PHIÊN BẢN MỚI
-
+// Thay thế hàm onScanSuccess() cũ
 async function onScanSuccess(decodedText, decodedResult) {
     stopScanner(); // Luôn dừng camera ngay khi có kết quả
     playScannerSound();
@@ -10054,13 +10030,35 @@ async function onScanSuccess(decodedText, decodedResult) {
     }
 }
 
+function stopScanner() {
+    if (html5QrcodeScanner) {
+        html5QrcodeScanner.stop().then(() => {
+            document.getElementById('barcode-scanner-container').innerHTML = '';
+            document.getElementById('startScanBtn').style.display = 'inline-block';
+            document.getElementById('stopScanBtn').style.display = 'none';
+        }).catch(err => {
+            console.error("Lỗi khi dừng quét:", err);
+        });
+    }
+}
+
+const scannerBeep = new Audio('data:audio/mpeg;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU3LjgyLjEwMAAAAAAAAAAAAAAA//tAwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlwAAAAA3ADh4aVo5QAFwAAAAA3ADh4aVo5QVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVahhhh//tAwAAAAADQBFwAAAAAADQBFwAAAAA');
+
+function playScannerSound() {
+    try {
+        // Đảm bảo âm thanh có thể phát lại nhanh chóng nếu người dùng quét liên tục
+        scannerBeep.currentTime = 0;
+        scannerBeep.play();
+    } catch (e) {
+        console.error("Không thể phát âm thanh máy quét:", e);
+    }
+}
+
 
 function addItemToExistingExportList(items) {
-    // Mở lại modal ngay lập tức để người dùng thấy có phản hồi
     if (currentExportModal) {
         bootstrap.Modal.getInstance(currentExportModal).show();
     } else {
-        // Trường hợp hiếm gặp: modal đã bị đóng -> bắt đầu lại
         isScanningForExport = false;
         showScanExportModal(items);
         return;
@@ -10068,10 +10066,9 @@ function addItemToExistingExportList(items) {
 
     const itemToAdd = items.sort((a, b) => b.quantity - a.quantity)[0];
     
-    // Kiểm tra hàng tồn kho
     if (itemToAdd.quantity <= 0) {
         showToast(`Sản phẩm "${itemToAdd.code}" đã hết hàng tại vị trí này.`, 'warning');
-        isScanningForExport = false; // Reset cờ
+        isScanningForExport = false;
         return;
     }
 
@@ -10093,7 +10090,6 @@ function addItemToExistingExportList(items) {
         showToast(`Đã thêm: ${itemToAdd.code}`, 'success');
     }
     
-    // Đặt lại cờ và vẽ lại danh sách
     isScanningForExport = false;
     renderExportListInModal();
 }
@@ -10133,7 +10129,6 @@ function showActionChoiceModal(items) {
     // Gán sự kiện cho các nút
     modal.querySelector('#viewStockBtn').onclick = () => {
         bsModal.hide();
-        // Hàm này cần được tạo để hiển thị chi tiết tồn kho ở nhiều vị trí
         showMultiLocationStockModal(items);
     };
     modal.querySelector('#viewHistoryBtn').onclick = () => {
@@ -10188,14 +10183,12 @@ let exportItemsList = [];
 // THAY THẾ TOÀN BỘ HÀM NÀY BẰNG PHIÊN BẢN MỚI
 
 function showScanExportModal(initialItems) {
-    // Logic tạo danh sách ban đầu giữ nguyên
     const firstItem = initialItems.sort((a, b) => b.quantity - a.quantity)[0];
     exportItemsList = [{
         inventoryId: firstItem.id, code: firstItem.code, name: firstItem.name, unit: firstItem.unit,
         location: firstItem.location, availableQuantity: firstItem.quantity, requestedQuantity: 1
     }];
 
-    // Tạo modal (HTML giữ nguyên)
     const modal = document.createElement('div');
     currentExportModal = modal;
     modal.className = 'modal fade';
@@ -10237,9 +10230,6 @@ function showScanExportModal(initialItems) {
     
     renderExportListInModal();
 
-    // --- LOGIC QUAN TRỌNG: ĐẢM BẢO RESET CỜ ---
-    // Sự kiện này sẽ được kích hoạt khi modal bị đóng bằng bất kỳ cách nào
-    // (nhấn nút X, nhấn nút Hủy, nhấn ra ngoài, hoặc sau khi hoàn tất)
     modal.addEventListener('hidden.bs.modal', () => {
         isScanningForExport = false; // Đảm bảo cờ luôn được tắt
         currentExportModal = null;
@@ -10248,7 +10238,6 @@ function showScanExportModal(initialItems) {
         console.log("Modal xuất kho đã đóng, cờ isScanningForExport đã được reset.");
     });
 }
-
 
 function renderExportListInModal() {
     if (!currentExportModal) return;
@@ -10284,7 +10273,6 @@ function renderExportListInModal() {
         </table>
     `;
     
-    // Cập nhật nút hành động
     if (userRole === 'staff') {
         actionContainer.innerHTML = `<button class="btn btn-primary" onclick="finalizeExport()">Gửi yêu cầu xuất kho</button>`;
     } else {
@@ -10292,17 +10280,15 @@ function renderExportListInModal() {
     }
 }
 
-/**
- * Các hàm tiện ích để quản lý danh sách trong modal
- */
 window.updateExportItemQuantity = (index, newQty) => {
     const qty = parseInt(newQty);
     const item = exportItemsList[index];
     if (qty > 0 && qty <= item.availableQuantity) {
         item.requestedQuantity = qty;
     }
-    renderExportListInModal(); // Vẽ lại để cập nhật
+    renderExportListInModal();
 };
+
 window.removeExportItemFromList = (index) => {
     exportItemsList.splice(index, 1);
     renderExportListInModal();
@@ -10310,7 +10296,7 @@ window.removeExportItemFromList = (index) => {
 
 window.scanMoreItemsForExport = function() {
     if (currentExportModal) {
-        isScanningForExport = true; // BẬT CỜ
+        isScanningForExport = true;
         bootstrap.Modal.getInstance(currentExportModal).hide();
     }
     startScanner();
@@ -10324,16 +10310,13 @@ window.finalizeExport = async function() {
         return;
     }
     
-    // --- LẤY DỮ LIỆU TỪ CÁC Ô NHẬP LIỆU MỚI ---
     const exportNumber = document.getElementById('exportScanNumber')?.value.trim();
     const recipient = document.getElementById('exportScanRecipient')?.value.trim();
 
-    // Kiểm tra các trường bắt buộc
     if (!exportNumber || !recipient) {
         showToast('Vui lòng nhập Số phiếu xuất và Người nhận.', 'warning');
         return;
     }
-    // --- KẾT THÚC LẤY DỮ LIỆU ---
 
     const actionText = userRole === 'staff' ? 'Gửi yêu cầu' : 'Xác nhận xuất kho';
     const confirmTitle = userRole === 'staff' ? 'Xác nhận Gửi Yêu cầu' : 'Xác nhận Xuất kho Trực tiếp';
@@ -10356,7 +10339,6 @@ window.finalizeExport = async function() {
             await addDoc(collection(db, 'export_requests'), {
                 requestedBy: currentUser.uid, requestedByName: currentUser.name,
                 timestamp: serverTimestamp(), status: 'pending',
-                // LƯU THÔNG TIN PHIẾU VÀ NGƯỜI NHẬN VÀO YÊU CẦU
                 exportNumber: exportNumber,
                 recipient: recipient,
                 items: itemsToSave
@@ -10372,8 +10354,8 @@ window.finalizeExport = async function() {
         const transactionRef = doc(collection(db, 'transactions'));
         batch.set(transactionRef, {
             type: 'export',
-            exportNumber: exportNumber, // SỬ DỤNG GIÁ TRỊ TỪ Ô NHẬP LIỆU
-            recipient: recipient,       // SỬ DỤNG GIÁ TRỊ TỪ Ô NHẬP LIỆU
+            exportNumber: exportNumber,
+            recipient: recipient,
             items: itemsToSave,
             performedBy: currentUser.uid, performedByName: currentUser.name,
             timestamp: serverTimestamp(), source: 'scan'
