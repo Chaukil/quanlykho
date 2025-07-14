@@ -10162,12 +10162,12 @@ function playScannerSound() {
     oscillator.frequency.setValueAtTime(880, audioContext.currentTime); // Tần số nốt A5
 
     // Tạo hiệu ứng "bíp" ngắn bằng cách giảm âm lượng nhanh chóng
-    gainNode.gain.setValueAtTime(0.5, audioContext.currentTime); // Bắt đầu với 50% âm lượng
-    gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.1); // Giảm dần về 0 sau 0.1 giây
+    gainNode.gain.setValueAtTime(1, audioContext.currentTime); // Bắt đầu với 50% âm lượng
+    gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.15); // Giảm dần về 0 sau 0.1 giây
 
     // Bắt đầu và dừng Oscillator để tạo âm thanh
     oscillator.start(audioContext.currentTime);
-    oscillator.stop(audioContext.currentTime + 0.1);
+    oscillator.stop(audioContext.currentTime + 0.15);
 }
 
 function showActionChoiceModal(items) {
