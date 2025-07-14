@@ -10004,10 +10004,10 @@ function playScannerSound() {
     }
 }
 
-
+let isScanningForExport = false;
 // THAY THẾ TOÀN BỘ HÀM NÀY
 async function onScanSuccess(decodedText, decodedResult) {
-    stopScanner(); // Dừng camera ngay khi quét thành công
+    stopScanner();
     playScannerSound();
     showToast(`Đã quét: ${decodedText}`, 'success');
 
@@ -10016,23 +10016,59 @@ async function onScanSuccess(decodedText, decodedResult) {
         const snapshot = await getDocs(q);
 
         if (snapshot.empty) {
-            showToast(`Mã hàng "${decodedText}" không tồn tại!`, 'danger');
-            return;
+            return showToast(`Mã hàng "${decodedText}" không tồn tại!`, 'danger');
         }
 
-        // Lấy tất cả các vị trí của mã hàng này
-        const itemLocations = snapshot.docs.map(doc => ({
-            id: doc.id,
-            ...doc.data()
-        }));
+        const itemLocations = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
-        // Hiển thị modal lựa chọn hành động
-        showActionChoiceModal(itemLocations);
+        // --- LOGIC QUAN TRỌNG NHẤT ---
+        // Nếu đang ở chế độ quét để thêm vào phiếu...
+        if (isScanningForExport) {
+            addItemToExistingExportList(itemLocations);
+        } else {
+            // Nếu là lần quét đầu tiên...
+            showActionChoiceModal(itemLocations);
+        }
 
     } catch (error) {
         console.error("Lỗi xử lý mã quét:", error);
         showToast('Lỗi truy vấn dữ liệu sản phẩm.', 'danger');
     }
+}
+
+function addItemToExistingExportList(items) {
+    const itemToAdd = items.sort((a, b) => b.quantity - a.quantity)[0]; // Ưu tiên vị trí có nhiều hàng nhất
+    
+    // Kiểm tra xem sản phẩm đã có trong danh sách chưa (kể cả vị trí)
+    const existingItemIndex = exportItemsList.findIndex(item => item.inventoryId === itemToAdd.id);
+
+    if (existingItemIndex > -1) {
+        // Nếu đã có, chỉ tăng số lượng
+        const currentRequested = exportItemsList[existingItemIndex].requestedQuantity;
+        if (currentRequested < itemToAdd.quantity) {
+            exportItemsList[existingItemIndex].requestedQuantity++;
+            showToast(`Đã tăng số lượng cho: ${itemToAdd.code}`, 'info');
+        } else {
+            showToast('Đã đạt số lượng tồn kho tối đa.', 'warning');
+        }
+    } else {
+        // Nếu chưa có, thêm mới
+        exportItemsList.push({
+            inventoryId: itemToAdd.id,
+            code: itemToAdd.code,
+            name: itemToAdd.name,
+            unit: itemToAdd.unit,
+            location: itemToAdd.location,
+            availableQuantity: itemToAdd.quantity,
+            requestedQuantity: 1
+        });
+        showToast(`Đã thêm: ${itemToAdd.code}`, 'success');
+    }
+    
+    // Đặt lại cờ và hiển thị lại modal xuất kho
+    isScanningForExport = false;
+    bootstrap.Modal.getInstance(currentExportModal).show();
+    renderExportListInModal();
 }
 
 function showActionChoiceModal(items) {
@@ -10127,21 +10163,14 @@ let exportItemsList = [];
  * @param {Array} initialItems - Mảng sản phẩm đầu tiên được quét.
  */
 function showScanExportModal(initialItems) {
-    // Chọn sản phẩm có tồn kho lớn nhất để thêm vào phiếu trước
     const firstItem = initialItems.sort((a, b) => b.quantity - a.quantity)[0];
-
     exportItemsList = [{
-        inventoryId: firstItem.id,
-        code: firstItem.code,
-        name: firstItem.name,
-        unit: firstItem.unit,
-        location: firstItem.location,
-        availableQuantity: firstItem.quantity,
-        requestedQuantity: 1
+        inventoryId: firstItem.id, code: firstItem.code, name: firstItem.name, unit: firstItem.unit,
+        location: firstItem.location, availableQuantity: firstItem.quantity, requestedQuantity: 1
     }];
 
     const modal = document.createElement('div');
-    currentExportModal = modal; // Lưu lại tham chiếu đến modal
+    currentExportModal = modal;
     modal.className = 'modal fade';
     modal.id = 'scanExportModal';
     modal.setAttribute('tabindex', '-1');
@@ -10172,12 +10201,12 @@ function showScanExportModal(initialItems) {
     document.body.appendChild(modal);
     const bsModal = new bootstrap.Modal(modal);
     bsModal.show();
-    
-    // Vẽ danh sách lần đầu
     renderExportListInModal();
 
+    // Reset cờ khi modal bị đóng (do nhấn hủy hoặc nút X)
     modal.addEventListener('hidden.bs.modal', () => {
-        currentExportModal = null; // Dọn dẹp
+        isScanningForExport = false;
+        currentExportModal = null;
         exportItemsList = [];
         modal.remove();
     });
@@ -10244,109 +10273,91 @@ window.removeExportItemFromList = (index) => {
     renderExportListInModal();
 };
 
-/**
- * Bắt đầu quét thêm sản phẩm khi đang ở trong modal xuất kho.
- */
 window.scanMoreItemsForExport = function() {
     if (currentExportModal) {
-        bootstrap.Modal.getInstance(currentExportModal).hide(); // Tạm ẩn modal xuất kho
+        isScanningForExport = true; // BẬT CỜ
+        bootstrap.Modal.getInstance(currentExportModal).hide();
     }
-    startScanner(); // Mở lại camera
-    // onScanSuccess sẽ tự thêm sản phẩm vào danh sách và mở lại modal
+    startScanner();
 };
 
-// THÊM HÀM MỚI NÀY VÀO CUỐI TỆP WAREHOUSE.JS
+// THAY THẾ TOÀN BỘ HÀM NÀY BẰNG PHIÊN BẢN MỚI
 
-/**
- * Hoàn tất quy trình xuất kho từ màn hình quét:
- * - Tạo yêu cầu nếu là Staff.
- * - Xuất kho trực tiếp nếu là Admin hoặc Super Admin.
- */
 window.finalizeExport = async function() {
     if (exportItemsList.length === 0) {
         showToast('Danh sách xuất kho đang trống.', 'warning');
         return;
     }
 
-    // Xác nhận hành động dựa trên vai trò của người dùng
     const actionText = userRole === 'staff' ? 'Gửi yêu cầu' : 'Xác nhận xuất kho';
     const confirmTitle = userRole === 'staff' ? 'Xác nhận Gửi Yêu cầu' : 'Xác nhận Xuất kho Trực tiếp';
     const confirmType = userRole === 'staff' ? 'info' : 'warning';
 
     const confirmed = await showConfirmation(
-        confirmTitle,
-        `Bạn có chắc muốn ${actionText.toLowerCase()} cho <strong>${exportItemsList.length}</strong> mặt hàng trong danh sách?`,
-        actionText,
-        'Hủy',
-        confirmType
+        confirmTitle, `Bạn có chắc muốn ${actionText.toLowerCase()} cho <strong>${exportItemsList.length}</strong> mặt hàng?`,
+        actionText, 'Hủy', confirmType
     );
-
     if (!confirmed) return;
 
-    // --- XỬ LÝ CHO STAFF: TẠO YÊU CẦU ---
+    // --- SỬA LỖI UNDEFINED VÀ THÊM THÔNG TIN TỰ ĐỘNG ---
+    // Tạo một bản sao sạch của danh sách với tên trường đúng ('quantity')
+    const itemsToSave = exportItemsList.map(item => ({
+        inventoryId: item.inventoryId,
+        code: item.code,
+        name: item.name,
+        unit: item.unit,
+        location: item.location,
+        quantity: item.requestedQuantity, // Đổi tên trường tại đây
+        availableQuantityBefore: item.availableQuantity
+    }));
+    // --- KẾT THÚC SỬA LỖI ---
+
     if (userRole === 'staff') {
         try {
-            // Tạo một document mới trong collection 'export_requests'
             await addDoc(collection(db, 'export_requests'), {
                 requestedBy: currentUser.uid,
                 requestedByName: currentUser.name,
                 timestamp: serverTimestamp(),
-                status: 'pending', // Trạng thái ban đầu là chờ duyệt
-                items: exportItemsList // Danh sách các mặt hàng yêu cầu
+                status: 'pending',
+                items: itemsToSave // Sử dụng danh sách đã được làm sạch
             });
-
             showToast('Đã gửi yêu cầu xuất kho thành công!', 'success');
-            
-            // Đóng modal và dọn dẹp
-            if (currentExportModal) {
-                bootstrap.Modal.getInstance(currentExportModal).hide();
-            }
-
+            if (currentExportModal) bootstrap.Modal.getInstance(currentExportModal).hide();
         } catch (error) {
             console.error("Lỗi khi tạo yêu cầu xuất kho:", error);
             showToast('Đã xảy ra lỗi khi gửi yêu cầu.', 'danger');
         }
-    }
-    // --- XỬ LÝ CHO ADMIN & SUPER ADMIN: XUẤT TRỰC TIẾP ---
-    else {
+    } else {
         const batch = writeBatch(db);
-
-        // 1. Tạo một phiếu xuất kho (transaction) mới
         const transactionRef = doc(collection(db, 'transactions'));
         batch.set(transactionRef, {
             type: 'export',
-            exportNumber: `SCAN-${Date.now()}`, // Tạo một mã phiếu xuất tự động
-            recipient: 'Quét tại quầy',
-            items: exportItemsList.map(item => ({ ...item, availableQuantityBefore: item.availableQuantity })),
+            exportNumber: `SCAN-${Date.now()}`,
+            // TỰ ĐỘNG ĐIỀN TÊN NGƯỜI NHẬN
+            recipient: `Xuất cho ${currentUser.name}`,
+            items: itemsToSave, // Sử dụng danh sách đã được làm sạch
             performedBy: currentUser.uid,
             performedByName: currentUser.name,
             timestamp: serverTimestamp(),
-            source: 'scan' // Đánh dấu là xuất kho từ chức năng quét
+            source: 'scan'
         });
 
-        // 2. Trừ tồn kho cho từng mặt hàng trong danh sách
-        for (const item of exportItemsList) {
+        for (const item of itemsToSave) {
             const inventoryRef = doc(db, 'inventory', item.inventoryId);
-            batch.update(inventoryRef, {
-                quantity: increment(-item.requestedQuantity)
-            });
+            batch.update(inventoryRef, { quantity: increment(-item.quantity) });
         }
 
         try {
-            await batch.commit(); // Gửi tất cả các thay đổi lên server
+            await batch.commit();
             showToast('Xuất kho trực tiếp thành công!', 'success');
-
-            // Đóng modal và dọn dẹp
-            if (currentExportModal) {
-                bootstrap.Modal.getInstance(currentExportModal).hide();
-            }
-
+            if (currentExportModal) bootstrap.Modal.getInstance(currentExportModal).hide();
         } catch (error) {
             console.error("Lỗi khi xuất kho trực tiếp:", error);
             showToast('Lỗi khi cập nhật kho. Vui lòng thử lại.', 'danger');
         }
     }
 };
+
 
 window.loadApproveExportsSection = async function() {
     const content = document.getElementById('pendingExportsContent');
