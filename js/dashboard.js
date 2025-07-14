@@ -14,7 +14,6 @@ import {
     debounce,
 } from './warehouse.js';
 
-
 import { auth, db } from './connect.js';
 import { onAuthStateChanged, signOut,EmailAuthProvider,          // <-- THÊM VÀO
     reauthenticateWithCredential, // <-- THÊM VÀO
@@ -62,7 +61,6 @@ document.addEventListener('DOMContentLoaded', function () {
     // KHỞI TẠO CÁC NÚT BẤM VÀ CHỨC NĂNG CỦA KHO HÀNG
     initializeWarehouseFunctions(); 
 });
-
 
 function goToDashboardPage(page) {
     if (page >= 1) {
@@ -156,7 +154,6 @@ function setupUserInterface() {
         }
     });
 }
-
 
 // Initialize navigation
 function initializeNavigation() {
