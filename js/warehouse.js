@@ -9481,6 +9481,84 @@ let audioContext = null;
 export function loadScanBarcodeSection() {
     document.getElementById('startScanBtn').onclick = startScanner;
     document.getElementById('stopScanBtn').onclick = stopScanner;
+    initializeUsbScannerListener();
+}
+
+function initializeUsbScannerListener() {
+    const input = document.getElementById('usbScannerInput');
+    if (!input) return;
+
+    let barcode = '';
+    let timerId = null;
+
+    input.addEventListener('keydown', function(e) {
+        // Nếu là phím Enter và có dữ liệu trong bộ đệm -> xử lý
+        if (e.key === 'Enter') {
+            e.preventDefault(); // Ngăn hành vi mặc định (ví dụ: submit form)
+            if (barcode.length > 2) { // Chỉ xử lý nếu mã có độ dài hợp lý
+                processUsbScan(barcode);
+            }
+            barcode = ''; // Xóa bộ đệm
+            clearTimeout(timerId); // Hủy timer
+            return;
+        }
+
+        // Nếu là phím khác, thêm vào bộ đệm
+        if (e.key.length === 1) { // Chỉ thêm các ký tự đơn
+             barcode += e.key;
+        }
+
+        // Đặt lại timer sau mỗi lần nhấn phím
+        clearTimeout(timerId);
+        timerId = setTimeout(() => {
+            // Nếu không có phím nào được nhấn trong 100ms, đây là người gõ tay -> xóa bộ đệm
+            barcode = '';
+        }, 100);
+    });
+
+    // Xử lý khi người dùng dán (paste) mã vạch vào
+    input.addEventListener('paste', function(e) {
+        e.preventDefault();
+        const pastedText = (e.clipboardData || window.clipboardData).getData('text');
+        if (pastedText.length > 2) {
+            processUsbScan(pastedText.trim());
+        }
+    });
+}
+
+async function processUsbScan(decodedText) {
+    playScannerSound(); // Phát âm thanh
+    showToast(`Đã quét mã: ${decodedText}`, 'info');
+    document.getElementById('usbScannerInput').value = ''; // Xóa ô input
+    document.getElementById('usbScannerInput').focus(); // Focus lại để sẵn sàng cho lần quét tiếp theo
+
+    try {
+        const q = query(collection(db, 'inventory'), where('code', '==', decodedText));
+        const snapshot = await getDocs(q);
+
+        const resultContainer = document.getElementById('scanResultContainer');
+        resultContainer.innerHTML = ''; // Xóa kết quả cũ
+
+        if (snapshot.empty) {
+            resultContainer.innerHTML = `<div class="alert alert-danger">Mã hàng <strong>"${decodedText}"</strong> không tồn tại trong kho.</div>`;
+            return;
+        }
+
+        const itemsFromScan = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+        // Kiểm tra xem một phiên xuất kho đã được bắt đầu hay chưa
+        const isSessionActive = document.getElementById('scan-export-form');
+
+        if (isSessionActive) {
+            addItemToScanExportSession(itemsFromScan);
+        } else {
+            startNewScanExportSession(itemsFromScan);
+        }
+
+    } catch (error) {
+        console.error("Lỗi xử lý mã quét:", error);
+        showToast('Lỗi truy vấn dữ liệu sản phẩm.', 'danger');
+    }
 }
 
 // Thay thế hàm startScanner() cũ bằng hàm này
@@ -9524,34 +9602,7 @@ function startScanner() {
 // Thay thế hoàn toàn hàm onScanSuccess() cũ bằng hàm này
 async function onScanSuccess(decodedText, decodedResult) {
     stopScanner(); // Luôn dừng camera ngay khi có kết quả
-    playScannerSound();
-    
-    try {
-        const q = query(collection(db, 'inventory'), where('code', '==', decodedText));
-        const snapshot = await getDocs(q);
-
-        if (snapshot.empty) {
-            showToast(`Mã hàng "${decodedText}" không tồn tại!`, 'danger');
-            return;
-        }
-
-        const itemsFromScan = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-
-        // Kiểm tra xem một phiên xuất kho đã được bắt đầu hay chưa
-        const isSessionActive = document.getElementById('scan-export-form');
-
-        if (isSessionActive) {
-            // Nếu đã có form, thêm sản phẩm vào danh sách hiện tại
-            addItemToScanExportSession(itemsFromScan);
-        } else {
-            // Nếu chưa có, bắt đầu một phiên mới và tạo form
-            startNewScanExportSession(itemsFromScan);
-        }
-
-    } catch (error) {
-        console.error("Lỗi xử lý mã quét:", error);
-        showToast('Lỗi truy vấn dữ liệu sản phẩm.', 'danger');
-    }
+    await processUsbScan(decodedText);
 }
 
 function startNewScanExportSession(items) {
