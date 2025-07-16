@@ -1,28 +1,15 @@
 (function applyThemeOnLoad() {
-    // Lấy cài đặt từ localStorage (nơi dashboard.js lưu trữ)
-    // Chúng ta không biết user là ai, nên chỉ cần tìm key có chứa 'userSettings'
-    let savedSettings = null;
-    for (let i = 0; i < localStorage.length; i++) {
-        if (localStorage.key(i).startsWith('userSettings_')) {
-            try {
-                savedSettings = JSON.parse(localStorage.getItem(localStorage.key(i)));
-                break; // Tìm thấy là dùng luôn
-            } catch (e) {
-                console.error("Error parsing settings from localStorage", e);
-            }
-        }
-    }
+    // THAY ĐỔI: Đọc một key chung thay vì lặp qua tất cả cài đặt người dùng
+    const savedTheme = localStorage.getItem('app_theme');
 
-    // Giá trị mặc định nếu không tìm thấy cài đặt
-    const theme = savedSettings?.theme || 'light';
-    const primaryColor = savedSettings?.primaryColor || '#007bff';
-    const primaryRgb = '0, 123, 255'; // Mặc định cho màu xanh
+    // Nếu có theme đã lưu, áp dụng nó. Nếu không, mặc định là 'light'.
+    const theme = savedTheme || 'light';
+    const primaryColor = '#007bff'; // Màu mặc định cho trang login
+    const primaryRgb = '0, 123, 255'; 
 
     // Áp dụng lên trang
     document.documentElement.setAttribute('data-theme', theme);
     document.documentElement.style.setProperty('--primary-color', primaryColor);
-    // Bạn có thể cần thêm logic để chuyển đổi màu hex sang RGB nếu muốn màu chủ đạo thay đổi
-    // Tạm thời để mặc định
     document.documentElement.style.setProperty('--primary-rgb', primaryRgb);
 })();
 
@@ -31,6 +18,7 @@ import { auth, db } from './connect.js';
 import { 
     createUserWithEmailAndPassword, 
     signInWithEmailAndPassword,
+      sendPasswordResetEmail,
     signOut
 } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
 import { 
@@ -61,21 +49,46 @@ function showToast(message, type = 'info') {
 document.addEventListener('DOMContentLoaded', function() {
     const loginForm = document.getElementById('loginForm');
     const registerForm = document.getElementById('registerForm');
+    const forgotPasswordForm = document.getElementById('forgotPasswordForm');
+    const formDescription = document.getElementById('form-description');
+
     const showRegister = document.getElementById('showRegister');
     const showLogin = document.getElementById('showLogin');
+    const showForgotPassword = document.getElementById('showForgotPassword');
+    const showLoginFromForgot = document.getElementById('showLoginFromForgot');
+
+    function toggleForms(showForm, descText) {
+        loginForm.style.display = 'none';
+        registerForm.style.display = 'none';
+        forgotPasswordForm.style.display = 'none';
+        showForm.style.display = 'block';
+        formDescription.textContent = descText;
+    }
 
     // Toggle forms
-    if (showRegister && showLogin) {
-        showRegister.addEventListener('click', function(e) {
+    if (showRegister) {
+        showRegister.addEventListener('click', (e) => {
             e.preventDefault();
-            loginForm.style.display = 'none';
-            registerForm.style.display = 'block';
+            toggleForms(registerForm, 'Tạo tài khoản mới để bắt đầu.');
         });
-
-        showLogin.addEventListener('click', function(e) {
+    }
+    if (showLogin) {
+        showLogin.addEventListener('click', (e) => {
             e.preventDefault();
-            registerForm.style.display = 'none';
-            loginForm.style.display = 'block';
+            toggleForms(loginForm, 'Chào mừng trở lại! Vui lòng đăng nhập.');
+        });
+    }
+
+    if (showForgotPassword) {
+        showForgotPassword.addEventListener('click', (e) => {
+            e.preventDefault();
+            toggleForms(forgotPasswordForm, 'Đặt lại mật khẩu của bạn.');
+        });
+    }
+    if (showLoginFromForgot) {
+        showLoginFromForgot.addEventListener('click', (e) => {
+            e.preventDefault();
+            toggleForms(loginForm, 'Chào mừng trở lại! Vui lòng đăng nhập.');
         });
     }
 
@@ -111,7 +124,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 // MANUAL REDIRECT
                 setTimeout(() => {
                     window.location.href = 'dashboard.html';
-                }, 1500);
+                }, 500);
                 
             } catch (error) {
                 showToast(getErrorMessage(error.code), 'danger');
@@ -148,6 +161,22 @@ document.addEventListener('DOMContentLoaded', function() {
                 registerForm.style.display = 'none';
                 loginForm.style.display = 'block';
                 
+            } catch (error) {
+                showToast(getErrorMessage(error.code), 'danger');
+            }
+        });
+    }
+
+    const forgotPasswordFormElement = document.getElementById('forgot-password-form');
+    if (forgotPasswordFormElement) {
+        forgotPasswordFormElement.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            const email = document.getElementById('forgotPasswordEmail').value;
+
+            try {
+                await sendPasswordResetEmail(auth, email);
+                showToast('Gửi email thành công! Vui lòng kiểm tra hộp thư của bạn.', 'success');
+                toggleForms(loginForm, 'Chào mừng trở lại! Vui lòng đăng nhập.');
             } catch (error) {
                 showToast(getErrorMessage(error.code), 'danger');
             }

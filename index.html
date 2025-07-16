@@ -22,7 +22,7 @@
                     <i class="fas fa-warehouse"></i>
                 </div>
                 <h3>Quản lý kho</h3>
-                <p class="text-muted">Chào mừng trở lại! Vui lòng đăng nhập.</p>
+                <p id="form-description" class="text-muted">Chào mừng trở lại! Vui lòng đăng nhập.</p>
             </div>
 
             <!-- Login Form -->
@@ -40,6 +40,7 @@
                     <button type="submit" class="btn btn-primary w-100 btn-login">Đăng nhập</button>
                 </form>
                 <p class="text-center mt-3">
+                    <a href="#" id="showForgotPassword" class="form-toggle-link">Quên mật khẩu?</a> </br>
                     Chưa có tài khoản? <a href="#" id="showRegister" class="form-toggle-link">Đăng ký ngay</a>
                 </p>
             </div>
@@ -65,11 +66,24 @@
                     Đã có tài khoản? <a href="#" id="showLogin" class="form-toggle-link">Đăng nhập</a>
                 </p>
             </div>
+
+            <div id="forgotPasswordForm" style="display: none;">
+                <form id="forgot-password-form">
+                    <div class="input-group-icon mb-3">
+                        <i class="fas fa-envelope input-icon"></i>
+                        <input type="email" class="form-control" id="forgotPasswordEmail" placeholder="Nhập email của bạn" required>
+                    </div>
+                    <button type="submit" class="btn btn-info w-100">Gửi link đặt lại mật khẩu</button>
+                </form>
+                <p class="text-center mt-3">
+                    Nhớ mật khẩu rồi? <a href="#" id="showLoginFromForgot" class="form-toggle-link">Đăng nhập</a>
+                </p>
+            </div>
         </div>
     </div>
 
     <!-- Toast notifications (giữ nguyên) -->
-    <div class="toast-container position-fixed bottom-0 end-0 p-3">
+    <div class="toast-container position-fixed top-0 end-0 p-3" style="z-index: 1100">
         <div id="toast" class="toast" role="alert">
             <div class="toast-header">
                 <strong class="me-auto">Thông báo</strong>

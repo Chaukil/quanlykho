@@ -276,9 +276,11 @@ async function loadInventorySummary() {
 
         snapshot.forEach(doc => {
             const data = doc.data();
-            totalProducts++;
-            if (data.quantity < 10) { // Assuming low stock threshold is 10
-                lowStock++;
+            if (data.status !== 'archived') {
+                totalProducts++;
+                if (data.quantity < 10) { // Low stock threshold is 10
+                    lowStock++;
+                }
             }
         });
 
@@ -424,10 +426,10 @@ async function loadUsersTable(useFilter = false, page = 1) {
 
             switch (user.status) {
                 case 'pending':
-                    actionButtonsHtml = `<button class="btn btn-success btn-sm me-1" onclick="approveUser('${user.id}', '${user.name}')" ${isCurrentUser ? 'disabled' : ''} title="Chấp nhận"><i class="fas fa-check"></i></button> <button class="btn btn-danger btn-sm" onclick="rejectUser('${user.id}', '${user.name}')" ${isCurrentUser ? 'disabled' : ''} title="Từ chối"><i class="fas fa-times"></i></button>`;
+                    actionButtonsHtml = `<button class="btn btn-success btn-sm me-1" onclick="approveUser('${user.id}', '${user.name}')" ${isCurrentUser ? 'disabled' : ''} ><i class="fas fa-check"></i> Chấp nhận</button> <button class="btn btn-danger btn-sm" onclick="rejectUser('${user.id}', '${user.name}')" ${isCurrentUser ? 'disabled' : ''}><i class="fas fa-times"></i> Từ chối</button>`;
                     break;
                 case 'rejected':
-                    actionButtonsHtml = `<button class="btn btn-info btn-sm" onclick="restoreUser('${user.id}', '${user.name}')" ${isCurrentUser ? 'disabled' : ''} title="Khôi phục yêu cầu"><i class="fas fa-undo"></i> Khôi phục</button>`;
+                    actionButtonsHtml = `<button class="btn btn-info btn-sm" onclick="restoreUser('${user.id}', '${user.name}')" ${isCurrentUser ? 'disabled' : ''}><i class="fas fa-undo"></i> Khôi phục</button>`;
                     break;
                 default:
                     actionButtonsHtml = `<button class="btn btn-warning btn-sm" onclick="showEditUserModal('${user.id}')" ${isCurrentUser ? 'disabled' : ''}><i class="fas fa-edit"></i> Sửa</button>`;
@@ -1247,7 +1249,11 @@ async function checkPendingAdjustments() {
 }
 
 function saveSettings() {
+    // Lưu cài đặt riêng cho người dùng hiện tại (giữ nguyên)
     localStorage.setItem(`userSettings_${currentUser.uid}`, JSON.stringify(userSettings));
+    
+    // THÊM DÒNG NÀY: Lưu cài đặt theme chung để trang đăng nhập có thể sử dụng
+    localStorage.setItem('app_theme', userSettings.theme);
 }
 
 // 2. ÁP DỤNG CÀI ĐẶT LÊN GIAO DIỆN

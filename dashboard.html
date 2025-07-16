@@ -480,7 +480,6 @@
                     </div>
                 </div>
                 <div id="user-management-section" class="content-section" style="display: none;">
-                    <h4>Quản lý người dùng</h4>
                     <!-- Filter cho User Management -->
                     <div class="card mb-3">
                         <div class="card-body">
@@ -625,7 +624,6 @@
                 </div>
 
                 <div id="print-barcode-section" class="content-section" style="display: none;">
-                    <h4>In Barcode sản phẩm</h4>
                     <div class="row">
                         <div class="col-md-4">
                             <div class="card">
@@ -705,9 +703,8 @@
 
                 <!-- Scan Barcode Section -->
                 <div id="scan-barcode-section" class="content-section" style="display: none;">
-                    <h4>Quét Barcode</h4>
                     <div class="row">
-                        <div class="col-md-6">
+                        <div class="col-md-4">
                             <div id="barcode-scanner-container" style="width: 100%;"></div>
                             <div class="mt-2">
                                 <button class="btn btn-success" id="startScanBtn"><i class="fas fa-play"></i> Bắt đầu
@@ -716,7 +713,7 @@
                                         class="fas fa-stop"></i> Dừng quét</button>
                             </div>
                         </div>
-                        <div class="col-md-6">
+                        <div class="col-md-8">
                             <div class="card">
                                 <div class="card-header">Kết quả quét</div>
                                 <div class="card-body" id="scanResultContainer">
@@ -741,7 +738,7 @@
     <input type="file" id="requestAdjustExcelFileInput" accept=".xlsx,.xls" style="display: none;">
 
     <!-- Toast notifications -->
-    <div class="toast-container position-fixed bottom-0 end-0 p-3">
+    <div class="toast-container position-fixed top-0 end-0 p-3" style="z-index: 1100">
         <div id="toast" class="toast" role="alert">
             <div class="toast-header">
                 <strong class="me-auto">Thông báo</strong>
