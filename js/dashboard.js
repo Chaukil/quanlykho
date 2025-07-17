@@ -24,6 +24,7 @@ import {
     collection,
     query,
     where,
+    setDoc,
     getDocs,
     orderBy,
     limit,
@@ -42,25 +43,54 @@ let filteredDashboardData = [];
 let allDashboardData = [];
 let userSettings = {};
 
+let layoutViewerModalInstance = null;
+let layoutSettingsModalInstance = null;
+let layoutPrintModalInstance = null; 
+let layoutConfig = {
+    aisles: ['A', 'B', 'C'], // Mặc định
+    maxBay: 10,
+    maxLevel: 4
+};
+let allInventoryDataForLayout = [];
+
 window.loadInventoryTable = loadInventoryTable;
 window.goToDashboardPage = goToDashboardPage;
 
 // Trong file dashboard.js
 
 document.addEventListener('DOMContentLoaded', function () {
-    // Nạp cache dữ liệu kho hàng
     loadCacheData(); 
-    
-    sessionStorage.removeItem('auth_redirect_processed');
-    
-    // Khởi tạo các thành phần chính của trang
     initializeNavigation();
     initializeAuth();
     initializeSettingsListeners();
-    
-    // KHỞI TẠO CÁC NÚT BẤM VÀ CHỨC NĂNG CỦA KHO HÀNG
     initializeWarehouseFunctions(); 
+    
+    // Khởi tạo tất cả các đối tượng Modal một lần duy nhất
+    const layoutViewerEl = document.getElementById('layoutViewerModal');
+    if(layoutViewerEl) {
+        layoutViewerModalInstance = new bootstrap.Modal(layoutViewerEl);
+    }
+    const layoutSettingsEl = document.getElementById('layoutSettingsModal');
+    if(layoutSettingsEl) {
+        layoutSettingsModalInstance = new bootstrap.Modal(layoutSettingsEl);
+    }
+    const layoutPrintEl = document.getElementById('layoutPrintModal');
+    if(layoutPrintEl) {
+        layoutPrintModalInstance = new bootstrap.Modal(layoutPrintEl);
+    }
+
+    document.getElementById('openLayoutViewerBtn')?.addEventListener('click', openLayoutViewer);
+    document.getElementById('layoutBackBtn')?.addEventListener('click', goBackToAllAislesView);
 });
+
+
+
+function goBackToAllAislesView() {
+    const activeInventory = allInventoryDataForLayout.filter(item => item.status !== 'archived');
+    const backButton = document.getElementById('layoutBackBtn');
+    drawAllAislesLayout(activeInventory);
+    if(backButton) backButton.style.display = 'none';
+}
 
 function goToDashboardPage(page) {
     if (page >= 1) {
@@ -1452,4 +1482,378 @@ function exportDashboardToExcel() {
     // Download file
     XLSX.writeFile(wb, filename);
     showToast('Đã xuất Excel thành công', 'success');
+}
+
+async function openLayoutViewer() {
+    try {
+        await fetchLayoutConfiguration(); 
+        if (allInventoryDataForLayout.length === 0) {
+            const snapshot = await getDocs(query(collection(db, 'inventory')));
+            allInventoryDataForLayout = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        }
+        goBackToAllAislesView();
+        layoutViewerModalInstance.show();
+    } catch (error) {
+        console.error("Error opening layout viewer:", error);
+        showToast("Lỗi khi tải dữ liệu layout kho.", "danger");
+    }
+}
+
+window.openPrintLayoutModal = function() {
+    const selector = document.getElementById('printAisleSelector');
+    selector.innerHTML = layoutConfig.aisles.map(a => `<option value="${a}">Dãy ${a}</option>`).join('');
+    layoutPrintModalInstance.show();
+}
+
+window.generateLayoutPdf = async function() {
+    const btn = document.getElementById('generatePdfBtn');
+    const btnText = document.getElementById('pdfBtnText');
+    const spinner = document.getElementById('pdfSpinner');
+
+    btn.disabled = true;
+    btnText.textContent = 'Đang tạo...';
+    spinner.style.display = 'inline-block';
+
+    try {
+        const arrayBufferToBase64 = (buffer) => {
+            let binary = '';
+            const bytes = new Uint8Array(buffer);
+            const len = bytes.byteLength;
+            for (let i = 0; i < len; i++) {
+                binary += String.fromCharCode(bytes[i]);
+            }
+            return btoa(binary);
+        };
+
+        // Tải tất cả các font song song để tăng tốc độ
+        const [
+            fontRegularBuffer,
+            fontItalicBuffer,
+        ] = await Promise.all([
+            fetch('/fonts/Roboto-Regular.ttf').then(res => res.arrayBuffer()),
+            fetch('/fonts/Roboto-Italic.ttf').then(res => res.arrayBuffer()),
+        ]);
+
+        // Chuyển đổi tất cả sang Base64
+        const fontRegularBase64 = arrayBufferToBase64(fontRegularBuffer);
+        const fontItalicBase64 = arrayBufferToBase64(fontItalicBuffer);
+        
+        // --- END FIX ---
+
+        const selectedAisle = document.getElementById('printAisleSelector').value;
+        const statusFilter = document.querySelector('input[name="printStatusFilter"]:checked').value;
+        const activeInventory = allInventoryDataForLayout.filter(item => item.status !== 'archived');
+        
+        const tableData = [];
+        const aisleItems = activeInventory.filter(item => item.location.startsWith(selectedAisle));
+        
+        const itemMap = new Map();
+        aisleItems.forEach(item => {
+            if (!itemMap.has(item.location)) {
+                itemMap.set(item.location, []);
+            }
+            itemMap.get(item.location).push(item);
+        });
+
+        for (let i = 1; i <= layoutConfig.maxBay; i++) {
+            for (let j = 1; j <= layoutConfig.maxLevel; j++) {
+                const locationCode = `${selectedAisle}${i}-${j.toString().padStart(2, '0')}`;
+                const itemsInLevel = itemMap.get(locationCode) || [];
+                const hasStock = itemsInLevel.some(item => item.quantity > 0);
+
+                if (statusFilter === 'all' || (statusFilter === 'occupied' && hasStock) || (statusFilter === 'empty' && !hasStock)) {
+                    if (hasStock) {
+                        itemsInLevel.forEach(item => {
+                            if (item.quantity > 0) {
+                                tableData.push([item.code, locationCode, item.quantity]);
+                            }
+                        });
+                    } else {
+                        if (statusFilter !== 'occupied') {
+                            tableData.push(['-', locationCode, '-']);
+                        }
+                    }
+                }
+            }
+        }
+        
+        if (tableData.length === 0) {
+            showToast("Không có dữ liệu phù hợp để xuất.", "warning");
+            btn.disabled = false;
+            btnText.textContent = 'Xuất PDF';
+            spinner.style.display = 'none';
+            return;
+        }
+        
+        const finalTableData = tableData.map((row, index) => [index + 1, ...row]);
+
+        const { jsPDF } = window.jspdf;
+        const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+        
+        // --- START FIX: Đăng ký tất cả các kiểu font với jsPDF ---
+        pdf.addFileToVFS('Roboto-Regular.ttf', fontRegularBase64);
+        pdf.addFont('Roboto-Regular.ttf', 'Roboto', 'normal');
+
+        pdf.addFileToVFS('Roboto-Italic.ttf', fontItalicBase64);
+        pdf.addFont('Roboto-Italic.ttf', 'Roboto', 'italic');
+        // --- END FIX ---
+        
+        pdf.setFont('Roboto', 'normal'); // Bắt đầu với font thường
+        
+        const timestamp = new Date().toLocaleString('vi-VN');
+        const title = `DANH SÁCH VỊ TRÍ KHO - DÃY ${selectedAisle}`;
+        const filterText = `Trạng thái: ${statusFilter === 'all' ? 'Tất cả' : (statusFilter === 'occupied' ? 'Có hàng' : 'Trống')}`;
+        const filterText1 = `${statusFilter === 'all' ? 'Tat ca' : (statusFilter === 'occupied' ? 'Co hang' : 'Trong')}`;
+        const note = `${selectedAisle} là dãy ${selectedAisle} - 1 là kệ thứ 1 - 01 là tầng 1`;
+
+        pdf.setFontSize(16);
+        pdf.text(title, 105, 15, { align: 'center' });
+        pdf.setFontSize(10);
+        pdf.text(filterText, 105, 20, { align: 'center' });
+        pdf.text(`Ngày xuất: ${timestamp}`, 105, 25, { align: 'center' });
+
+        // Chuyển sang kiểu chữ nghiêng
+        pdf.setFont('Roboto', 'italic');
+        pdf.text(note, 15, 30, { align: 'left' });
+        // Chuyển về kiểu chữ bình thường cho các nội dung sau
+        pdf.setFont('Roboto', 'normal');
+
+        pdf.autoTable({
+            head: [['STT', 'Mã hàng', 'Vị trí', 'Số lượng']],
+            body: finalTableData,
+            startY: 35,
+            theme: 'grid',
+            styles: { font: 'Roboto', fontSize: 9 }, 
+            headStyles: { font: 'Roboto', fontStyle: 'bold', fillColor: [41, 128, 185], textColor: 255 },
+        });
+
+        const filenameTimestamp = new Date().toISOString().slice(0, 16).replace('T', '_').replace(/:/g, '-');
+        pdf.save(`danh-sach-vi-tri_day-${selectedAisle}-${filterText1}_${filenameTimestamp}.pdf`);
+
+        layoutPrintModalInstance.hide();
+
+    } catch (error) {
+        console.error("Lỗi tạo PDF:", error);
+        showToast("Đã xảy ra lỗi khi tạo file PDF.", "danger");
+    } finally {
+        btn.disabled = false;
+        btnText.textContent = 'Xuất PDF';
+        spinner.style.display = 'none';
+    }
+}
+
+
+async function fetchLayoutConfiguration() {
+    try {
+        const configDocRef = doc(db, 'settings', 'layoutConfiguration');
+        const docSnap = await getDoc(configDocRef);
+        if (docSnap.exists()) {
+            layoutConfig = docSnap.data();
+        } else {
+            await setDoc(configDocRef, layoutConfig);
+        }
+    } catch (error) { console.error("Error fetching layout config:", error); }
+}
+
+window.openLayoutSettingsModal = function() {
+    document.getElementById('maxBayInput').value = layoutConfig.maxBay;
+    document.getElementById('maxLevelInput').value = layoutConfig.maxLevel;
+    const checklist = document.getElementById('aisleChecklist');
+    checklist.innerHTML = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split('').map(char => `
+        <div class="form-check aisle-checkbox-item">
+            <input class="form-check-input" type="checkbox" value="${char}" id="aisle_${char}" ${layoutConfig.aisles.includes(char) ? 'checked' : ''}>
+            <label class="form-check-label" for="aisle_${char}">Dãy ${char}</label>
+        </div>`).join('');
+    if (layoutSettingsModalInstance) {
+        layoutSettingsModalInstance.show();
+    }
+}
+
+window.saveLayoutConfiguration = async function() {
+    try {
+        const selectedAisles = Array.from(document.querySelectorAll('#aisleChecklist input:checked')).map(input => input.value);
+        const newConfig = {
+            aisles: selectedAisles.sort(),
+            maxBay: parseInt(document.getElementById('maxBayInput').value) || 10,
+            maxLevel: parseInt(document.getElementById('maxLevelInput').value) || 4,
+        };
+        await setDoc(doc(db, 'settings', 'layoutConfiguration'), newConfig);
+        layoutConfig = newConfig;
+        showToast("Đã lưu cài đặt layout thành công!", "success");
+        if (layoutSettingsModalInstance) {
+            layoutSettingsModalInstance.hide();
+        }
+        openLayoutViewer();
+    } catch (error) {
+        console.error("Error saving layout config:", error);
+        showToast("Lỗi khi lưu cài đặt.", "danger");
+    }
+}
+
+function drawAllAislesLayout(inventoryData) {
+    const legend = document.querySelector('.layout-legend');
+    if (legend) {
+        legend.style.display = 'none';
+    }
+    const drawingArea = document.getElementById('layoutDrawingArea');
+    drawingArea.innerHTML = '';
+    drawingArea.className = 'all-aisles-container';
+
+    layoutConfig.aisles.forEach(aisle => {
+        const aisleColumn = document.createElement('div');
+        aisleColumn.className = 'aisle-column';
+        aisleColumn.innerHTML = `<div class="aisle-column-header">${aisle}</div>`;
+        aisleColumn.title = `Nhấn để xem chi tiết dãy ${aisle}`;
+        aisleColumn.onclick = () => switchToDetailedView(aisle);
+
+        const aisleBody = document.createElement('div');
+        aisleBody.className = 'aisle-column-body';
+
+        for (let levelNum = layoutConfig.maxLevel; levelNum >= 1; levelNum--) {
+            const levelCode = levelNum.toString().padStart(2, '0');
+            const itemsInLevel = inventoryData.filter(item => 
+                item.location.startsWith(aisle) && item.location.endsWith(`-${levelCode}`)
+            );
+            const baysWithItems = new Set(
+                itemsInLevel.map(item => {
+                    const match = item.location.match(new RegExp(`^${aisle}(\\d+)-`));
+                    return match ? match[1] : null;
+                }).filter(Boolean)
+            );
+            const occupiedBayCount = baysWithItems.size;
+
+            const summaryDiv = document.createElement('div');
+            summaryDiv.className = 'aisle-level-summary';
+            if (occupiedBayCount > 0) {
+                summaryDiv.classList.add('has-items');
+            } else {
+                summaryDiv.classList.add('is-empty');
+            }
+            summaryDiv.innerHTML = `
+                <span>Tầng ${levelNum}</span>
+                <span class="level-summary-count">${occupiedBayCount} / ${layoutConfig.maxBay}</span>
+            `;
+            aisleBody.appendChild(summaryDiv);
+        }
+        aisleColumn.appendChild(aisleBody);
+        drawingArea.appendChild(aisleColumn);
+    });
+}
+
+function drawAisleLayout(selectedAisle, inventoryData) {
+    const legend = document.querySelector('.layout-legend');
+    if (legend) {
+        legend.style.display = 'flex'; // Sử dụng 'flex' để hiển thị lại đúng như CSS gốc
+    }
+    const drawingArea = document.getElementById('layoutDrawingArea');
+    drawingArea.innerHTML = '';
+    drawingArea.className = 'layout-container';
+
+    const aisleItems = inventoryData.filter(item => item.location.startsWith(selectedAisle));
+    const bays = {};
+    aisleItems.forEach(item => {
+        const match = item.location.match(/(\d+)-(\d+)/);
+        if (match) {
+            const bayNum = parseInt(match[1], 10);
+            if (!bays[bayNum]) bays[bayNum] = [];
+            bays[bayNum].push(item);
+        }
+    });
+
+    const { maxBay, maxLevel } = layoutConfig;
+
+    for (let i = 1; i <= maxBay; i++) {
+        const bayDiv = document.createElement('div');
+        bayDiv.className = 'layout-bay';
+        bayDiv.innerHTML = `<div class="bay-label">Kệ ${i}</div>`;
+
+        for (let j = maxLevel; j >= 1; j--) {
+            const levelDiv = document.createElement('div');
+            levelDiv.className = 'layout-level';
+            const levelCode = j.toString().padStart(2, '0');
+            const locationCode = `${selectedAisle}${i}-${levelCode}`;
+            const itemsInLevel = (bays[i] || []).filter(item => item.location === locationCode);
+
+            levelDiv.innerHTML = `<span class="level-label">Tầng ${j}</span>`;
+            
+            let tooltipHtml = `<div class="custom-tooltip-content"><div class="tooltip-header">${locationCode}</div>`;
+            if (itemsInLevel.length > 0) {
+                tooltipHtml += `<ul class="tooltip-list">`;
+                itemsInLevel.forEach(item => {
+                    tooltipHtml += `<li><span>- ${item.code}:</span> <span>${item.quantity}</span></li>`;
+                });
+                tooltipHtml += `</ul>`;
+            } else {
+                 tooltipHtml += `<div style="margin-top: 0.5rem; color: var(--text-muted-color);">(Trống)</div>`;
+            }
+            tooltipHtml += `</div>`;
+
+            if (itemsInLevel.length === 0) {
+                levelDiv.classList.add('level-empty');
+            } else {
+                const hasMultiCode = new Set(itemsInLevel.map(it => it.code)).size > 1;
+                if (hasMultiCode) {
+                     levelDiv.classList.add('level-multi-item');
+                     levelDiv.innerHTML += `<div class="level-content">${itemsInLevel.length} loại SP</div>`;
+                } else {
+                    const item = itemsInLevel[0];
+                    const statusClass = item.quantity < 10 ? 'level-low' : 'level-full';
+                    levelDiv.classList.add(statusClass);
+                    levelDiv.innerHTML += `<div class="level-content">${item.code}<br>SL: ${item.quantity}</div>`;
+                }
+            }
+            
+            levelDiv.setAttribute('data-bs-toggle', 'tooltip');
+            levelDiv.setAttribute('data-bs-placement', 'top');
+            levelDiv.setAttribute('data-bs-html', 'true');
+            levelDiv.setAttribute('title', tooltipHtml);
+            levelDiv.onclick = () => showLocationDetails(locationCode, itemsInLevel);
+            bayDiv.appendChild(levelDiv);
+        }
+        drawingArea.appendChild(bayDiv);
+    }
+    const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+    tooltipTriggerList.map(tooltip => new bootstrap.Tooltip(tooltip));
+}
+
+function switchToDetailedView(aisle) {
+    const activeInventory = allInventoryDataForLayout.filter(item => item.status !== 'archived');
+    const backButton = document.getElementById('layoutBackBtn');
+    drawAisleLayout(aisle, activeInventory);
+    if(backButton) backButton.style.display = 'inline-block';
+}
+
+function showLocationDetails(locationCode, items) {
+    let modalBodyHtml = '';
+    if (items.length === 0) {
+        modalBodyHtml = '<p class="text-muted">Vị trí này đang trống.</p>';
+    } else {
+        modalBodyHtml = items.map(item => `
+            <div class="card mb-2">
+                <div class="card-body py-2 px-3">
+                    <h6 class="card-title mb-1">${item.name} (${item.code})</h6>
+                    <p class="card-text mb-0"><small><strong>Số lượng:</strong> ${item.quantity} ${item.unit} | <strong>Danh mục:</strong> ${item.category}</small></p>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    const detailsModal = document.createElement('div');
+    detailsModal.className = 'modal fade';
+    detailsModal.innerHTML = `
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Chi tiết vị trí: ${locationCode}</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">${modalBodyHtml}</div>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(detailsModal);
+    const bsModal = new bootstrap.Modal(detailsModal);
+    bsModal.show();
+    detailsModal.addEventListener('hidden.bs.modal', () => detailsModal.remove());
 }

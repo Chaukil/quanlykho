@@ -35,6 +35,7 @@ let currentExportItems = [];
 let itemCodeCache = new Map();
 let unitCache = new Set(['Cái', 'Chiếc', 'Bộ', 'Hộp', 'Thùng', 'Cuộn', 'Tấm', 'Túi', 'Gói', 'Chai', 'Lọ', 'Lon', 'Bao', 'Kg', 'Gam', 'Tấn', 'Mét', 'Cây', 'Thanh', 'Đôi']);
 let categoryCache = new Set();
+const layoutSettingsModal = new bootstrap.Modal(document.getElementById('layoutSettingsModal'));
 
 // Initialize warehouse functions
 document.addEventListener('DOMContentLoaded', function () {
@@ -5975,7 +5976,6 @@ async function loadAllHistory(filters = {}) {
     }
 }
 
-
 // Initialize all functions
 document.addEventListener('DOMContentLoaded', function () {
     // Set today's date for history filters
@@ -10258,3 +10258,4 @@ window.viewInventoryArchiveDetails = async function(transactionId) {
     new bootstrap.Modal(modal).show();
     modal.addEventListener('hidden.bs.modal', () => modal.remove());
 }
+

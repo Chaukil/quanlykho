@@ -10,7 +10,10 @@
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <link href="css/styles.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
-    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>.
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.23/jspdf.plugin.autotable.min.js"></script>
 </head>
 
 <body>
@@ -179,7 +182,7 @@
                         <div class="card mb-3 mt-4">
                             <div class="card-body">
                                 <h6 class="card-title">Bộ lọc</h6>
-                                <div class="row">
+                                <div class="row align-items-end">
                                     <div class="col-md-3">
                                         <label class="form-label">Mã hàng</label>
                                         <input type="text" class="form-control" id="dashboardCodeFilter"
@@ -201,9 +204,11 @@
                                         </select>
                                     </div>
                                     <div class="col-md-3">
-                                        <label class="form-label">&nbsp;</label>
-                                        <div>
-                                            <button class="btn btn-success btn-sm w-100" id="exportDashboardExcel">
+                                        <div class="d-grid gap-2">
+                                            <button class="btn btn-info" id="openLayoutViewerBtn">
+                                                <i class="fas fa-th-large"></i> Xem Layout Kho
+                                            </button>
+                                            <button class="btn btn-success btn-sm" id="exportDashboardExcel">
                                                 <i class="fas fa-file-excel"></i> Xuất Excel
                                             </button>
                                         </div>
@@ -712,8 +717,10 @@
                                 <div class="card-body">
                                     <div id="barcode-scanner-container" style="width: 100%; min-height: 250px;"></div>
                                     <div class="mt-2 text-center">
-                                        <button class="btn btn-success" id="startScanBtn"><i class="fas fa-play"></i> Bắt đầu quét</button>
-                                        <button class="btn btn-danger" id="stopScanBtn" style="display: none;"><i class="fas fa-stop"></i> Dừng quét</button>
+                                        <button class="btn btn-success" id="startScanBtn"><i class="fas fa-play"></i>
+                                            Bắt đầu quét</button>
+                                        <button class="btn btn-danger" id="stopScanBtn" style="display: none;"><i
+                                                class="fas fa-stop"></i> Dừng quét</button>
                                     </div>
                                 </div>
                             </div>
@@ -725,8 +732,9 @@
                                 </div>
                                 <div class="card-body d-flex flex-column">
                                     <p class="text-muted">Nhấp vào ô bên dưới, sau đó sử dụng máy quét của bạn.</p>
-                                    <input type="text" id="usbScannerInput" class="form-control usb-scanner-input" placeholder="Sẵn sàng để quét...">
-                                    
+                                    <input type="text" id="usbScannerInput" class="form-control usb-scanner-input"
+                                        placeholder="Sẵn sàng để quét...">
+
                                     <hr>
 
                                     <h6 class="mt-2">Kết quả quét:</h6>
@@ -760,6 +768,125 @@
                 <button type="button" class="btn-close" data-bs-dismiss="toast"></button>
             </div>
             <div class="toast-body" id="toastMessage"></div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="layoutViewerModal" tabindex="-1" aria-labelledby="layoutViewerModalLabel"
+        aria-hidden="true">
+        <div class="modal-dialog modal-fullscreen">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="layoutViewerModalLabel"><i class="fas fa-th-large"></i> Layout Kho Hàng
+                    </h5>
+                    <div class="ms-auto d-flex align-items-center gap-2">
+                        <button class="btn btn-secondary btn-sm" id="layoutBackBtn" style="display: none;">
+                            <i class="fas fa-arrow-left"></i> Quay lại
+                        </button>
+                        <button class="btn btn-primary btn-sm" id="openPrintLayoutBtn" onclick="openPrintLayoutModal()">
+                            <i class="fas fa-print"></i> In Vị trí
+                        </button>
+                        <button class="btn btn-outline-secondary btn-sm" id="layoutSettingsBtn"
+                            onclick="openLayoutSettingsModal()">
+                            <i class="fas fa-cog"></i> Cài đặt Layout
+                        </button>
+                    </div>
+                    <button type="button" class="btn-close ms-3" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body layout-modal-body">
+                    <div class="layout-legend">
+                        <span class="legend-item"><span class="legend-color" style="background-color: #198754;"></span>
+                            Tồn kho đủ</span>
+                        <span class="legend-item"><span class="legend-color" style="background-color: #ffc107;"></span>
+                            Tồn kho thấp</span>
+                        <span class="legend-item"><span class="legend-color" style="background-color: #6c757d;"></span>
+                            Ô trống</span>
+                        <span class="legend-item"><span class="legend-color" style="background-color: #0dcaf0;"></span>
+                            Nhiều loại SP</span>
+                    </div>
+                    <div id="layoutDrawingArea" class="layout-container">
+                        <!-- Layout sẽ được vẽ ở đây bằng JavaScript -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="layoutPrintModal" tabindex="-1" aria-labelledby="layoutPrintModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="layoutPrintModalLabel"><i class="fas fa-print"></i> Tùy chọn In Danh sách</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="printAisleSelector" class="form-label">Chọn Dãy</label>
+                        <select id="printAisleSelector" class="form-select"></select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Lọc theo Trạng thái</label>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="printStatusFilter" id="printStatusAll" value="all" checked>
+                            <label class="form-check-label" for="printStatusAll">Tất cả vị trí</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="printStatusFilter" id="printStatusOccupied" value="occupied">
+                            <label class="form-check-label" for="printStatusOccupied">Chỉ vị trí có hàng (Số lượng > 0)</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="printStatusFilter" id="printStatusEmpty" value="empty">
+                            <label class="form-check-label" for="printStatusEmpty">Chỉ vị trí trống</label>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy</button>
+                    <button type="button" class="btn btn-primary" id="generatePdfBtn" onclick="generateLayoutPdf()">
+                        <span id="pdfSpinner" class="spinner-border spinner-border-sm" role="status" aria-hidden="true" style="display: none;"></span>
+                        <span id="pdfBtnText">Xuất PDF</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- START: Thêm Modal cho Cài đặt Layout -->
+    <div class="modal fade" id="layoutSettingsModal" tabindex="-1" aria-labelledby="layoutSettingsModalLabel"
+        aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="layoutSettingsModalLabel"><i class="fas fa-cog"></i> Cài đặt Layout Kho
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <h6>Các dãy đang hoạt động</h6>
+                        <p class="text-muted small">Chọn tất cả các dãy mà kho của bạn đang sử dụng.</p>
+                        <div id="aisleChecklist" class="aisle-checklist-container">
+                            <!-- Checkboxes for aisles A-Z will be generated here -->
+                        </div>
+                    </div>
+                    <hr>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <label for="maxBayInput" class="form-label">Số kệ trên mỗi dãy</label>
+                            <input type="number" id="maxBayInput" class="form-control" min="1" value="10">
+                        </div>
+                        <div class="col-md-6">
+                            <label for="maxLevelInput" class="form-label">Số tầng trên mỗi kệ</label>
+                            <input type="number" id="maxLevelInput" class="form-control" min="1" value="4">
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy</button>
+                    <button type="button" class="btn btn-primary" onclick="saveLayoutConfiguration()">
+                        <i class="fas fa-save"></i> Lưu cài đặt
+                    </button>
+                </div>
+            </div>
         </div>
     </div>
 
