@@ -9188,13 +9188,19 @@ async function processUsbScan(decodedText) {
 
         const itemsFromScan = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
-        // Kiểm tra xem một phiên xuất kho đã được bắt đầu hay chưa
-        const isSessionActive = document.getElementById('scan-export-form');
-
-        if (isSessionActive) {
-            addItemToScanExportSession(itemsFromScan);
+        // === PERMISSION CHECK ===
+        // If the user is QC, only show read-only information.
+        if (userRole === 'qc') {
+            showQcScanResult(itemsFromScan);
         } else {
-            startNewScanExportSession(itemsFromScan);
+            // For other roles (Admin, Staff), proceed with the export session logic.
+            const isSessionActive = document.getElementById('scan-export-form');
+
+            if (isSessionActive) {
+                addItemToScanExportSession(itemsFromScan);
+            } else {
+                startNewScanExportSession(itemsFromScan);
+            }
         }
 
     } catch (error) {
@@ -9203,11 +9209,7 @@ async function processUsbScan(decodedText) {
     }
 }
 
-// Thay thế hàm startScanner() cũ bằng hàm này
-// Thay thế hàm startScanner() cũ bằng hàm này
 function startScanner() {
-    // ---- KHỞI TẠO HOẶC KÍCH HOẠT AUDIOCONTEXT ----
-    // Đây là bước quan trọng nhất, nó phải được gọi từ một hành động của người dùng
     if (!audioContext) {
         audioContext = new (window.AudioContext || window.webkitAudioContext)();
     }
@@ -9240,8 +9242,38 @@ function startScanner() {
     });
 }
 
+function showQcScanResult(items) {
+    const resultContainer = document.getElementById('scanResultContainer');
+    
+    // Create a header for the results, clearly indicating the read-only permission
+    let html = `
+        <div class="d-flex justify-content-between align-items-center mb-2">
+            <h6 class="mb-0">Kết quả quét cho mã: <span class="badge bg-primary">${items[0].code}</span></h6>
+            <span class="badge bg-info"><i class="fas fa-eye me-1"></i>Quyền: Chỉ xem</span>
+        </div>
+    `;
 
-// Thay thế hoàn toàn hàm onScanSuccess() cũ bằng hàm này
+    // Loop through and display each location where the item is found
+    html += items.map(item => `
+        <div class="card mb-2">
+            <div class="card-body p-3">
+                <h5 class="card-title text-primary">${item.name}</h5>
+                <hr class="my-2">
+                <div class="row">
+                    <div class="col-sm-6">
+                        <p class="mb-1"><strong>Vị trí:</strong> <span class="badge bg-secondary fs-6">${item.location}</span></p>
+                    </div>
+                    <div class="col-sm-6">
+                        <p class="mb-1"><strong>Tồn kho tại đây:</strong> <span class="badge bg-success fs-6">${item.quantity} ${item.unit}</span></p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `).join('');
+
+    resultContainer.innerHTML = html;
+}
+
 async function onScanSuccess(decodedText, decodedResult) {
     stopScanner(); // Luôn dừng camera ngay khi có kết quả
     await processUsbScan(decodedText);
