@@ -13,6 +13,7 @@ import {
 } from './warehouse.js';
 
 import { auth, db } from './connect.js';
+export let companyInfo = { name: '', address: '' };
 export { currentUser, userRole }; 
 import { onAuthStateChanged, signOut,EmailAuthProvider,          // <-- THÊM VÀO
     reauthenticateWithCredential, // <-- THÊM VÀO
@@ -120,6 +121,7 @@ function initializeAuth() {
                 currentUser = { ...userData, uid: user.uid };
                 userRole = userData.role;
                 
+                await loadCompanyInfo();
                 loadSettings();
 
                 setupUserInterface();
@@ -139,6 +141,57 @@ function initializeAuth() {
         }
     });
 }
+
+// Thêm 2 hàm MỚI này vào file dashboard.js
+
+async function loadCompanyInfo() {
+    try {
+        const docRef = doc(db, 'settings', 'companyInfo');
+        const docSnap = await getDoc(docRef);
+
+        if (docSnap.exists()) {
+            companyInfo = docSnap.data();
+        } else {
+            // Nếu chưa có, giữ giá trị mặc định
+            companyInfo = { name: 'TÊN CÔNG TY', address: 'ĐỊA CHỈ CÔNG TY' };
+        }
+        
+        // Cập nhật giá trị vào các ô input trong tab Cài đặt
+        const companyNameInput = document.getElementById('companyName');
+        const companyAddressInput = document.getElementById('companyAddress');
+        if (companyNameInput) companyNameInput.value = companyInfo.name;
+        if (companyAddressInput) companyAddressInput.value = companyInfo.address;
+
+    } catch (error) {
+        console.error("Lỗi tải thông tin công ty:", error);
+        showToast("Không thể tải thông tin công ty.", "danger");
+    }
+}
+
+async function saveCompanyInfo() {
+    const name = document.getElementById('companyName').value.trim();
+    const address = document.getElementById('companyAddress').value.trim();
+
+    if (!name || !address) {
+        showToast("Vui lòng nhập đầy đủ Tên và Địa chỉ công ty.", "warning");
+        return;
+    }
+
+    try {
+        const docRef = doc(db, 'settings', 'companyInfo');
+        await setDoc(docRef, { name, address }, { merge: true });
+        
+        // Cập nhật lại biến toàn cục
+        companyInfo = { name, address };
+        
+        showToast("Đã lưu thông tin công ty thành công!", "success");
+
+    } catch (error) {
+        console.error("Lỗi lưu thông tin công ty:", error);
+        showToast("Lỗi khi lưu thông tin công ty.", "danger");
+    }
+}
+
 
 function setupUserInterface() {
     document.getElementById('userGreeting').textContent = `Hi, ${currentUser.name}`;
@@ -1059,7 +1112,7 @@ async function loadInventoryTable(useFilter = false, page = 1) {
 
         // --- BẮT ĐẦU TẠO TIÊU ĐỀ ĐỘNG ---
         let headerHTML = `
-            <tr>
+            <tr class="text-center">
                 <th>Mã hàng</th>
                 <th>Tên mô tả</th>
                 <th>Đơn vị tính</th>
@@ -1083,19 +1136,19 @@ async function loadInventoryTable(useFilter = false, page = 1) {
             }
             
             let rowHTML = `
-                <td>${doc.code}</td>
-                <td>${doc.name}</td>
-                <td>${doc.unit}</td>
-                <td>${doc.quantity}</td>
-                <td>${doc.category}</td>
-                <td>${doc.location}</td>
+                <td class="text-center">${doc.code}</td>
+                <td class="text-center">${doc.name}</td>
+                <td class="text-center">${doc.unit}</td>
+                <td class="text-center">${doc.quantity}</td>
+                <td class="text-center">${doc.category}</td>
+                <td class="text-center">${doc.location}</td>
             `;
 
             // Chỉ thêm ô chứa nút nếu là super_admin
             if (userRole === 'super_admin') {
                 const docDataString = JSON.stringify(doc).replace(/'/g, "\\'");
                 rowHTML += `
-                    <td>
+                    <td class="text-center">
                         <button class="btn btn-warning btn-sm me-1" onclick='editInventoryItem(${docDataString})'>
                             <i class="fas fa-edit"></i> Sửa
                         </button>
@@ -1333,6 +1386,8 @@ async function handleChangePassword(e) {
 
 // 5. KHỞI TẠO CÁC EVENT LISTENER CHO CÀI ĐẶT
 function initializeSettingsListeners() {
+
+    document.getElementById('saveCompanyInfoBtn')?.addEventListener('click', saveCompanyInfo);
     // Dark Mode Switch
     document.getElementById('darkModeSwitch').addEventListener('change', (e) => {
         userSettings.theme = e.target.checked ? 'dark' : 'light';

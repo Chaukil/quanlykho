@@ -18,7 +18,7 @@ import {
 } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
 
 import { showToast } from './auth.js';
-import { currentUser, userRole } from './dashboard.js';
+import { currentUser, userRole, companyInfo } from './dashboard.js';
 
 export function debounce(func, delay) {
     let timeout;
@@ -248,11 +248,14 @@ function createImportModal() {
                             <div class="table-responsive">
                                 <table class="table table-bordered table-compact">
                                     <thead class="table-success">
-                                        <tr>
-                                            <th style="width: 12%">Mã hàng</th><th style="width: 26%">Tên mô tả</th>
-                                            <th style="width: 10%">SL</th><th style="width: 10%">Đơn vị</th>
-                                            <th style="width: 13%">Danh mục</th><th style="width: 13%">Vị trí</th>
-                                            <th style="width: 16%">Thao tác</th>
+                                        <tr class="text-center">
+                                            <th style="width: 12%">Mã hàng</th>
+                                            <th style="width: 25%">Tên mô tả</th>
+                                            <th style="width: 12%">SL</th>
+                                            <th style="width: 12%">Đơn vị</th>
+                                            <th style="width: 12%">Danh mục</th>
+                                            <th style="width: 12%">Vị trí</th>
+                                            <th style="width: 15%">Thao tác</th>
                                         </tr>
                                     </thead>
                                     <tbody id="importItemsTable">
@@ -510,10 +513,12 @@ function updateImportItemsTable() {
         currentImportItems.forEach((item, index) => {
             const row = document.createElement('tr');
             row.innerHTML = `
-                <td><strong>${item.code}</strong></td><td>${item.name}</td>
+                <td class="text-center"><strong>${item.code}</strong></td>
+                <td>${item.name}</td>
                 <td class="text-center"><span class="badge bg-primary">${item.quantity}</span></td>
-                <td class="text-center">${item.unit}</td><td>${item.category}</td>
-                <td><span class="badge bg-secondary">${item.location}</span></td>
+                <td class="text-center">${item.unit}</td>
+                <td class="text-center">${item.category}</td>
+                <td class="text-center"><span class="badge bg-secondary">${item.location}</span></td>
                 <td class="text-center">
                     <button class="btn btn-warning btn-sm me-1" onclick="editImportItem(${index})"><i class="fas fa-edit"></i> Sửa</button>
                     <button class="btn btn-danger btn-sm" onclick="removeImportItem(${index})"><i class="fas fa-trash"></i> Xóa</button>
@@ -678,7 +683,7 @@ function showImportExcelPreviewModal(items) {
                     <div class="table-responsive">
                         <table class="table table-bordered" id="excelImportPreviewTable">
                             <thead class="table-success">
-                                <tr>
+                                <tr class="text-center">
                                     <th>Mã hàng</th>
                                     <th>Tên mô tả</th>
                                     <th>SL Nhập</th>
@@ -776,13 +781,13 @@ async function validateAndDisplayImportItems(items) {
         }
         
         row.innerHTML = `
-            <td>${item.code}</td>
+            <td class="text-center">${item.code}</td>
             <td>${item.name}</td>
-            <td>${item.quantity}</td>
-            <td>${item.unit}</td>
-            <td>${item.category}</td>
-            <td>${item.location}</td>
-            <td>${statusBadge}</td>
+            <td class="text-center">${item.quantity}</td>
+            <td class="text-center">${item.unit}</td>
+            <td class="text-center">${item.category}</td>
+            <td class="text-center">${item.location}</td>
+            <td class="text-center">${statusBadge}</td>
         `;
         tbody.appendChild(row);
 
@@ -1032,7 +1037,7 @@ function createImportPagination(allData, container) {
         table.className = 'table table-striped table-compact';
         table.innerHTML = `
             <thead>
-                <tr>
+                <tr class="text-center">
                     <th>Số phiếu</th><th>Nhà cung cấp</th><th>Số mặt hàng</th>
                     <th>Người thực hiện</th><th>Ngày nhập</th><th>Thao tác</th>
                 </tr>
@@ -1072,9 +1077,9 @@ function createImportPagination(allData, container) {
             }
 
             row.innerHTML = `
-                <td>${data.importNumber}</td><td>${data.supplier}</td>
-                <td>${data.items?.length || 0}</td><td>${data.performedByName}</td>
-                <td>${date}</td><td>${actionButtons}</td>
+                <td class="text-center">${data.importNumber}</td><td class="text-center">${data.supplier}</td>
+                <td class="text-center">${data.items?.length || 0}</td><td class="text-center">${data.performedByName}</td>
+                <td class="text-center">${date}</td><td class="text-center">${actionButtons}</td>
             `;
 
             tbody.appendChild(row);
@@ -1133,37 +1138,85 @@ window.viewImportDetails = async function (transactionId) {
     }
 };
 
-// Thay thế hàm này trong warehouse.js
 function createImportDetailsModal(transactionId, data) {
     const modal = document.createElement('div');
     modal.id = 'importDetailsModal';
     modal.className = 'modal fade';
 
-    // THAY ĐỔI: Chỉ hiển thị nút "Giao bù" khi còn hàng 'failed' CHƯA được xử lý.
-    const hasFailedItems = data.items?.some(item => item.qc_status === 'failed');
+    // --- Prepare data for display ---
+    const date = data.timestamp ? data.timestamp.toDate().toLocaleString('vi-VN') : 'N/A';
+    const totalItems = data.items?.length || 0;
+    const totalQuantity = data.items?.reduce((sum, item) => sum + (item.quantity || 0), 0) || 0;
+    
+    // Determine the overall status of the slip
+    const hasFailed = data.items?.some(item => item.qc_status === 'failed');
+    const hasPending = data.items?.some(item => item.qc_status === 'pending');
+    
+    let alertHtml = '';
+    let headerClass = 'modal-header bg-success text-white'; // Default to success
+    
+    if (hasFailed) {
+        headerClass = 'modal-header bg-danger text-white';
+        alertHtml = `
+            <div class="alert alert-danger d-flex align-items-center mb-4">
+                <i class="fas fa-exclamation-triangle fa-2x me-3"></i>
+                <div>
+                    <strong>Có hàng không đạt chất lượng</strong><br>
+                    <small>Một hoặc nhiều mặt hàng đã bị QC từ chối. Hàng này chưa được nhập vào kho.</small>
+                </div>
+            </div>`;
+    } else if (hasPending) {
+        headerClass = 'modal-header bg-warning text-dark';
+        alertHtml = `
+            <div class="alert alert-warning d-flex align-items-center mb-4">
+                <i class="fas fa-clock fa-2x me-3"></i>
+                <div>
+                    <strong>Phiếu đang chờ xử lý QC</strong><br>
+                    <small>Các mặt hàng cần được QC kiểm tra trước khi được nhập vào kho.</small>
+                </div>
+            </div>`;
+    } else { // All passed or replaced
+        alertHtml = `
+            <div class="alert alert-success d-flex align-items-center mb-4">
+                <i class="fas fa-check-circle fa-2x me-3"></i>
+                <div>
+                    <strong>Nhập kho thành công</strong><br>
+                    <small>Tất cả các mặt hàng đã được kiểm tra và nhập vào kho.</small>
+                </div>
+            </div>`;
+    }
 
     modal.innerHTML = `
         <div class="modal-dialog modal-xl">
             <div class="modal-content">
-                <div class="modal-header bg-success text-white">
+                <div class="${headerClass}">
                     <h5 class="modal-title"><i class="fas fa-download"></i> Chi tiết phiếu nhập kho</h5>
-                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                    <button type="button" class="btn-close ${headerClass.includes('text-white') ? 'btn-close-white' : ''}" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
+                    ${alertHtml}
                     <div class="row mb-3 theme-aware-info-box">
+                        <div class="col-12 mb-2">
+                             <span class="badge bg-success"><i class="fas fa-download"></i> Phiếu nhập kho</span>
+                        </div>
                         <div class="col-md-6"><strong>Số phiếu:</strong> ${data.importNumber}</div>
                         <div class="col-md-6"><strong>Nhà cung cấp:</strong> ${data.supplier}</div>
                         <div class="col-md-6"><strong>Người tạo phiếu:</strong> ${data.performedByName}</div>
-                        <div class="col-md-6"><strong>Ngày tạo:</strong> ${data.timestamp ? data.timestamp.toDate().toLocaleString('vi-VN') : 'N/A'}</div>
+                        <div class="col-md-6"><strong>Ngày tạo:</strong> ${date}</div>
+                        <div class="col-md-6"><strong>Tổng số mặt hàng:</strong> ${totalItems}</div>
+                        <div class="col-md-6"><strong>Tổng số lượng:</strong> ${totalQuantity}</div>
                     </div>
                     
-                    <h6 class="text-muted mb-3"><i class="fas fa-list me-2"></i>Danh sách hàng hóa</h6>
+                    <h6 class="text-muted mb-3"><i class="fas fa-list me-2"></i>Danh sách hàng hóa nhập kho</h6>
                     <div class="table-responsive">
                         <table class="table table-bordered table-compact">
-                            <thead class="table-success">
-                                <tr>
-                                    <th>Mã hàng</th><th>Tên mô tả</th><th>Số lượng</th>
-                                    <th>Vị trí</th><th>Trạng thái QC</th>
+                            <thead class="table-light">
+                                <tr class="text-center">
+                                    <th>Mã hàng</th>
+                                    <th>Tên mô tả</th>
+                                    <th>Số lượng</th>
+                                    <th>Vị trí</th>
+                                    <th>Trạng thái QC</th>
                                     ${userRole === 'qc' ? '<th>Hành động</th>' : ''}
                                 </tr>
                             </thead>
@@ -1183,14 +1236,12 @@ function createImportDetailsModal(transactionId, data) {
                                                 actionButtons = `<small class="text-muted">Đã đánh dấu</small>`;
                                             }
                                             break;
-                                        // --- BẮT ĐẦU THÊM MỚI CASE ---
                                         case 'replaced':
                                             locationDisplay = `<span class="badge bg-secondary">Đã xử lý</span>`;
                                             statusDisplay = `<span class="badge bg-secondary"><i class="fas fa-sync-alt"></i> Đã giao bù</span>`;
                                             break;
-                                        // --- KẾT THÚC THÊM MỚI CASE ---
                                         default: // 'pending'
-                                            locationDisplay = `<span class="badge bg-secondary">Chờ QC kiểm</span>`;
+                                            locationDisplay = `<span class="badge bg-secondary">Chờ QC</span>`;
                                             statusDisplay = `<span class="badge bg-warning text-dark"><i class="fas fa-clock"></i> Chờ duyệt</span>`;
                                             if (userRole === 'qc') {
                                                 actionButtons = `
@@ -1203,7 +1254,8 @@ function createImportDetailsModal(transactionId, data) {
 
                                     return `
                                         <tr data-index="${index}">
-                                            <td><strong>${item.code}</strong></td><td>${item.name}</td>
+                                            <td class="text-center"><strong>${item.code}</strong></td>
+                                            <td>${item.name}</td>
                                             <td class="text-center">${item.quantity}</td>
                                             <td class="text-center qc-location">${locationDisplay}</td>
                                             <td class="text-center qc-status">${statusDisplay}</td>
@@ -1216,8 +1268,8 @@ function createImportDetailsModal(transactionId, data) {
                     </div>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-info" id="replacementBtn" onclick="startReplacementProcess('${transactionId}')" style="display: ${hasFailedItems ? 'inline-block' : 'none'}">
-                        <i class="fas fa-sync-alt"></i> Nhà cung cấp đã giao bù hàng
+                    <button type="button" class="btn btn-info" id="replacementBtn" onclick="startReplacementProcess('${transactionId}')" style="display: ${hasFailed ? 'inline-block' : 'none'}">
+                        <i class="fas fa-sync-alt"></i> NCC đã giao bù hàng
                     </button>
                     <button type="button" class="btn btn-primary" onclick="printTransactionSlip('${transactionId}', 'import')">
                         <i class="fas fa-print"></i> In phiếu
@@ -1250,8 +1302,6 @@ async function generatePdfForTransaction(data, type) {
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF();
 
-    // Tải font hỗ trợ Unicode (Tiếng Việt)
-    // Lưu ý: Font này phải được đặt trong một thư mục có thể truy cập từ web, ví dụ: /fonts/
     try {
         const fontUrl = '/fonts/Roboto-Regular.ttf'; // Đường dẫn tới font của bạn
         const fontResponse = await fetch(fontUrl);
@@ -1266,6 +1316,11 @@ async function generatePdfForTransaction(data, type) {
         // Nếu không tải được, jsPDF sẽ dùng font mặc định
     }
     
+     doc.setFontSize(10);
+    doc.text(companyInfo.name.toUpperCase() || 'TÊN CÔNG TY', 14, 15);
+    doc.setFontSize(9);
+    doc.text(`Địa chỉ: ${companyInfo.address || 'ĐỊA CHỈ CÔNG TY'}`, 14, 20);
+
     const isImport = type === 'import';
     const title = isImport ? 'PHIẾU NHẬP KHO' : 'PHIẾU XUẤT KHO';
     const slipNumber = isImport ? data.importNumber : data.exportNumber;
@@ -1275,17 +1330,17 @@ async function generatePdfForTransaction(data, type) {
 
     // --- Header ---
     doc.setFontSize(18);
-    doc.text(title, 105, 20, { align: 'center' });
+    doc.text(title, 105, 30, { align: 'center' });
     doc.setFontSize(10);
-    doc.text(`Ngày: ${date}`, 105, 27, { align: 'center' });
-    doc.text(`Số: ${slipNumber}`, 105, 34, { align: 'center' });
+    doc.text(`Ngày: ${date}`, 105, 37, { align: 'center' });
+    doc.text(`Số: ${slipNumber}`, 105, 44, { align: 'center' });
 
     // --- Info ---
     doc.setFontSize(12);
-    doc.text(partnerLabel, 14, 45);
-    doc.text(partnerName, 50, 45);
-    doc.text('Người lập phiếu:', 14, 52);
-    doc.text(data.performedByName, 50, 52);
+    doc.text(partnerLabel, 14, 55);
+    doc.text(partnerName, 50, 55);
+    doc.text('Người lập phiếu:', 14, 62);
+    doc.text(data.performedByName, 50, 62);
 
     // --- Table ---
     const tableColumn = ["STT", "Mã hàng", "Tên sản phẩm", "ĐVT", "Số lượng"];
@@ -1305,7 +1360,7 @@ async function generatePdfForTransaction(data, type) {
     doc.autoTable({
         head: [tableColumn],
         body: tableRows,
-        startY: 60,
+        startY: 70,
         theme: 'grid',
         headStyles: { font: 'Roboto', fontStyle: 'bold' },
         styles: { font: 'Roboto' }
@@ -1444,9 +1499,13 @@ function createExportModal() {
                             <div class="table-responsive">
                                 <table class="table table-bordered table-compact">
                                     <thead class="table-warning">
-                                        <tr>
-                                            <th>Mã hàng</th><th>Tên mô tả</th><th>Vị trí</th>
-                                            <th>SL xuất</th><th>Đơn vị</th><th>Thao tác</th>
+                                        <tr class="text-center">
+                                            <th>Mã hàng</th>
+                                            <th>Tên mô tả</th>
+                                            <th>Vị trí</th>
+                                            <th>SL xuất</th>
+                                            <th>Đơn vị</th>
+                                            <th>Thao tác</th>
                                         </tr>
                                     </thead>
                                     <tbody id="exportItemsTable">
@@ -1560,6 +1619,7 @@ function fillDirectAdjustDetails(docId, data) {
     updateDirectAdjustmentCalculation();
 }
 
+// Thay thế hàm này trong warehouse.js
 window.saveDirectAdjust = async function () {
     if (userRole !== 'super_admin') {
         showToast('Chỉ Super Admin mới có quyền chỉnh số trực tiếp', 'danger');
@@ -1572,7 +1632,7 @@ window.saveDirectAdjust = async function () {
         const newQuantityStr = document.getElementById('directAdjustNewQuantity').value;
         const reason = document.getElementById('directAdjustReason').value.trim();
 
-        // Validation
+        // Validation (giữ nguyên)
         if (!inventoryId) {
             showToast('Vui lòng chọn một sản phẩm hợp lệ từ danh sách gợi ý.', 'warning');
             return;
@@ -1614,16 +1674,28 @@ window.saveDirectAdjust = async function () {
         // Update inventory quantity
         batch.update(inventoryRef, { quantity: newQuantity });
 
-        // Log the direct adjustment transaction
+        // --- SỬA LỖI: Gói thông tin vào một mảng 'items' ---
         const transactionRef = doc(collection(db, 'transactions'));
         batch.set(transactionRef, {
-            type: 'adjust', subtype: 'direct',
-            inventoryId: inventoryId, itemCode: inventoryData.code, itemName: inventoryData.name,
-            location: inventoryData.location, previousQuantity: currentQuantity,
-            newQuantity: newQuantity, adjustment: newQuantity - currentQuantity,
-            reason: reason, performedBy: currentUser.uid, performedByName: currentUser.name,
-            date: serverTimestamp(), timestamp: serverTimestamp()
+            type: 'adjust',
+            subtype: 'direct', // Đánh dấu là chỉnh số trực tiếp
+            reason: reason,
+            items: [ // Bọc thông tin chi tiết vào một mảng
+                {
+                    itemCode: inventoryData.code,
+                    itemName: inventoryData.name,
+                    location: inventoryData.location,
+                    previousQuantity: currentQuantity,
+                    newQuantity: newQuantity,
+                    adjustment: newQuantity - currentQuantity,
+                }
+            ],
+            performedBy: currentUser.uid,
+            performedByName: currentUser.name,
+            date: serverTimestamp(),
+            timestamp: serverTimestamp()
         });
+        // --- KẾT THÚC SỬA LỖI ---
 
         await batch.commit();
 
@@ -1633,7 +1705,6 @@ window.saveDirectAdjust = async function () {
             bootstrap.Modal.getInstance(modal).hide();
         }
         
-        // Cập nhật lại bảng chỉnh số trên giao diện
         loadAdjustData();
 
     } catch (error) {
@@ -1642,7 +1713,7 @@ window.saveDirectAdjust = async function () {
     }
 };
 
-
+// Thay thế hàm này trong warehouse.js
 async function loadDirectAdjustHistory(useFilter = false) {
     if (unsubscribeAdjustHistory) {
         unsubscribeAdjustHistory();
@@ -1668,17 +1739,23 @@ async function loadDirectAdjustHistory(useFilter = false) {
             if (useFilter) {
                 const itemCodeFilter = document.getElementById('adjustItemCodeFilter')?.value.toLowerCase();
                 if (itemCodeFilter) {
-                    docs = docs.filter(doc => doc.data().itemCode?.toLowerCase().includes(itemCodeFilter));
+                    // Cập nhật để tìm trong mảng items
+                    docs = docs.filter(doc => 
+                        doc.data().items?.some(item => item.itemCode?.toLowerCase().includes(itemCodeFilter))
+                    );
                 }
             }
 
             const content = document.getElementById('adjustContent');
             if (!content) return;
             if (docs.length === 0) {
-                content.innerHTML = '<p class="text-muted">Không tìm thấy phiếu chỉnh số nào.</p>';
+                // Thêm một div rỗng để giữ cấu trúc
+                content.innerHTML += '<div id="adjustTableContainer"><p class="text-muted">Không tìm thấy phiếu chỉnh số nào.</p></div>';
                 return;
             }
-            createDirectAdjustPagination(docs, content);
+            // SỬA LỖI: Gọi đúng hàm createAdjustPagination
+            renderAdjustTable(docs.map(doc => ({ id: doc.id, ...doc.data(), dataType: 'transaction' })));
+
         }, (error) => {
             console.error("Lỗi lắng nghe lịch sử chỉnh số:", error);
         });
@@ -1686,6 +1763,7 @@ async function loadDirectAdjustHistory(useFilter = false) {
         console.error('Lỗi thiết lập lắng nghe chỉnh số:', error);
     }
 }
+
 
 // === EDIT ADJUST TRANSACTION ===
 window.editAdjustTransaction = async function (transactionId) {
@@ -2230,9 +2308,9 @@ function updateExportItemsTable() {
         // Nếu có mặt hàng, hãy tạo danh sách các hàng đó.
         tbody.innerHTML = currentExportItems.map((item, index) => `
             <tr>
-                <td><strong>${item.code}</strong></td>
+                <td class="text-center"><strong>${item.code}</strong></td>
                 <td>${item.name}</td>
-                <td><span class="badge bg-secondary">${item.location}</span></td>
+                <td class="text-center"><span class="badge bg-secondary">${item.location}</span></td>
                 <td class="text-center"><span class="badge bg-warning text-dark">${item.quantity}</span></td>
                 <td class="text-center">${item.unit}</td>
                 <td class="text-center">
@@ -3056,17 +3134,43 @@ async function updatePendingAdjustmentsBadge() {
     }
 }
 
-// View adjustment request details
-window.viewAdjustRequestDetails = async function (requestId) {
+// Thay thế toàn bộ hàm này trong warehouse.js
+window.viewAdjustRequestDetails = async function (docId) {
     try {
-        const docSnap = await getDoc(doc(db, 'adjustment_requests', requestId));
+        // Thử tìm trong collection 'adjustment_requests' trước
+        let docSnap = await getDoc(doc(db, 'adjustment_requests', docId));
+        let data;
+        let isRequest = true;
+
         if (!docSnap.exists()) {
-            showToast('Không tìm thấy yêu cầu chỉnh số', 'danger');
-            return;
+            // Nếu không tìm thấy, thử tìm trong 'transactions'
+            docSnap = await getDoc(doc(db, 'transactions', docId));
+            if (!docSnap.exists()) {
+                showToast('Không tìm thấy phiếu chỉnh số hoặc yêu cầu.', 'danger');
+                return;
+            }
+            isRequest = false;
         }
 
-        const data = docSnap.data();
-        const modal = createAdjustRequestDetailsModal(data);
+        data = docSnap.data();
+
+        // Chuẩn bị dữ liệu để hiển thị một cách thống nhất
+        const displayData = {
+            reason: data.reason,
+            status: isRequest ? data.status : 'approved', // Giao dịch luôn là 'approved'
+            items: data.items,
+            requestedByName: data.requestedByName,
+            requestDate: data.requestDate,
+            approvedByName: isRequest ? data.approvedByName : data.performedByName,
+            approvedDate: isRequest ? data.approvedDate : data.timestamp,
+            rejectedByName: data.rejectedByName,
+            rejectedDate: data.rejectedDate,
+            rejectionReason: data.rejectionReason,
+            timestamp: data.timestamp
+        };
+        
+        // Tạo modal với dữ liệu đã được chuẩn hóa
+        const modal = createAdjustRequestDetailsModal(displayData);
         document.body.appendChild(modal);
         const bsModal = new bootstrap.Modal(modal);
         bsModal.show();
@@ -3076,10 +3180,11 @@ window.viewAdjustRequestDetails = async function (requestId) {
         });
 
     } catch (error) {
-        console.error('Error loading adjustment request details:', error);
-        showToast('Lỗi tải chi tiết yêu cầu chỉnh số', 'danger');
+        console.error('Lỗi tải chi tiết chỉnh số:', error);
+        showToast('Lỗi tải chi tiết chỉnh số', 'danger');
     }
 };
+
 
 // Thay thế hàm này trong warehouse.js
 function createAdjustRequestDetailsModal(data) {
@@ -3147,10 +3252,10 @@ function createAdjustRequestDetailsModal(data) {
         const diffClass = diff > 0 ? 'text-success' : diff < 0 ? 'text-danger' : 'text-muted';
         const diffSymbol = diff > 0 ? '+' : '';
         return `<tr>
-                    <td>
-                        <strong>${item.itemCode || item.code}</strong><br>
-                        <small class="text-muted">${item.itemName || item.name}</small>
+                    <td class="text-center align-middle">
+                        <strong>${item.itemCode || item.code}</strong>
                     </td>
+                    <td class="text-center align-middle">${item.itemName || item.name}</td>
                     <td class="text-center align-middle">${item.location}</td>
                     <td class="text-center align-middle">${item.currentQuantity !== undefined ? item.currentQuantity : item.previousQuantity}</td>
                     <td class="text-center align-middle">${item.requestedQuantity !== undefined ? item.requestedQuantity : item.newQuantity}</td>
@@ -3178,11 +3283,12 @@ function createAdjustRequestDetailsModal(data) {
                         <table class="table table-bordered table-compact">
                             <thead class="table-light">
                                 <tr>
-                                    <th>Mã hàng & Tên</th>
-                                    <th class="text-center">Vị trí</th>
-                                    <th class="text-center">SL Cũ</th>
-                                    <th class="text-center">SL Mới/Đề xuất</th>
-                                    <th class="text-center">Chênh lệch</th>
+                                    <th class="text-center" style="width: 13%">Mã hàng</th>
+                                    <th class="text-center" style="width: 35%">Mô tả</th>
+                                    <th class="text-center" style="width: 13%">Vị trí</th>
+                                    <th class="text-center" style="width: 13%">SL Cũ</th>
+                                    <th class="text-center" style="width: 13%">SL Mới/Đề xuất</th>
+                                    <th class="text-center" style="width: 13%">Chênh lệch</th>
                                 </tr>
                             </thead>
                             <tbody>${itemsHtml}</tbody>
@@ -3195,8 +3301,6 @@ function createAdjustRequestDetailsModal(data) {
     `;
     return modal;
 }
-
-
 
 export function loadTransferSection() {
     loadTransferHistory();
@@ -4051,7 +4155,6 @@ function renderAdjustUI(userRole) {
     content.innerHTML = buttonsHtml + filterHtml;
 }
 
-
 // Thay thế hàm này trong warehouse.js
 function createAdjustPagination(allData, container) {
     let currentPage = 1;
@@ -4080,15 +4183,13 @@ function createAdjustPagination(allData, container) {
         `;
         const tbody = table.querySelector('tbody');
 
-        // This is where the error occurred, but it's now fixed because
-        // 'pageData' will always be a proper array.
-        pageData.forEach(doc => { 
+        pageData.forEach(doc => {
             const row = document.createElement('tr');
-            const date = doc.timestamp.toDate().toLocaleDateString('vi-VN');
+            // SỬA LỖI: Thêm optional chaining (?.) để kiểm tra null an toàn
+            const date = doc.timestamp?.toDate().toLocaleDateString('vi-VN') || 'Đang xử lý...';
             let statusBadge = '';
             let actionButtons = `<button class="btn btn-info btn-sm" onclick="viewAdjustRequestDetails('${doc.id}')"><i class="fas fa-eye"></i> Xem</button>`;
             
-            // Logic hiển thị tùy theo loại dữ liệu và vai trò
             if (doc.dataType === 'request') {
                 const statusConfig = {
                     'pending': { class: 'bg-warning text-dark', text: 'Chờ duyệt' },
@@ -4096,12 +4197,16 @@ function createAdjustPagination(allData, container) {
                 };
                 const status = statusConfig[doc.status] || { class: 'bg-secondary', text: doc.status };
                 statusBadge = `<span class="badge ${status.class}">${status.text}</span>`;
+                
+                // SỬA LỖI: Thêm optional chaining (?.) để kiểm tra null an toàn
+                const requestDate = doc.requestDate?.toDate().toLocaleDateString('vi-VN') || 'N/A';
+
                 row.innerHTML = `
                     <td>${doc.reason}</td>
                     <td class="text-center">${doc.items?.length || 0}</td>
                     <td class="text-center">${statusBadge}</td>
                     <td>${doc.requestedByName}</td>
-                    <td>${doc.requestDate.toDate().toLocaleDateString('vi-VN')}</td>
+                    <td>${requestDate}</td>
                     <td class="text-center">${actionButtons}</td>
                 `;
                 if (userRole === 'super_admin' && doc.status === 'pending') {
@@ -4110,7 +4215,7 @@ function createAdjustPagination(allData, container) {
                         <button class="btn btn-danger btn-sm ms-1" onclick="rejectAdjustRequest('${doc.id}')"><i class="fas fa-times"></i> Từ chối</button>
                     `;
                 }
-            } else { // dataType === 'transaction'
+            } else { 
                 statusBadge = `<span class="badge bg-success">Đã duyệt</span>`;
                  row.innerHTML = `
                     <td>${doc.reason}</td>
@@ -4121,7 +4226,6 @@ function createAdjustPagination(allData, container) {
                     <td class="text-center">${actionButtons}</td>
                 `;
             }
-            // Cập nhật lại actionButtons sau khi đã có logic
             row.querySelector('td:last-child').innerHTML = actionButtons;
 
             tbody.appendChild(row);
@@ -4134,8 +4238,7 @@ function createAdjustPagination(allData, container) {
             <nav><ul class="pagination pagination-sm mb-0" id="adjustPagination"></ul></nav>
         `;
 
-        // The container is now the 'tableContainer' passed in, not the whole 'content' div
-        container.innerHTML = ''; // Clear the specific container
+        container.innerHTML = '';
         container.appendChild(table);
         container.appendChild(paginationContainer);
 
@@ -4143,7 +4246,6 @@ function createAdjustPagination(allData, container) {
     }
     renderPage(1);
 }
-
 
 export function loadHistorySection() {
     // Hàm này đảm bảo các sự kiện lọc chỉ được gán một lần duy nhất
@@ -4695,7 +4797,7 @@ function createDeletionDetailsModal(data) {
             detailsContentHtml = `
                 <div class="table-responsive" style="max-height: 200px;">
                     <table class="table table-sm table-bordered">
-                        <thead class="table-light"><tr><th>Mã hàng</th><th>Tên</th><th>Số lượng thu hồi</th></tr></thead>
+                        <thead class="table-light"><tr class="text-center"><th>Mã hàng</th><th>Tên</th><th>Số lượng thu hồi</th></tr></thead>
                         <tbody>
                             ${deletedImportItems.map(item => `<tr><td>${item.code}</td><td>${item.name}</td><td class="text-danger fw-bold">-${item.quantity}</td></tr>`).join('')}
                         </tbody>
@@ -4717,7 +4819,7 @@ function createDeletionDetailsModal(data) {
             detailsContentHtml = `
                 <div class="table-responsive" style="max-height: 200px;">
                     <table class="table table-sm table-bordered">
-                        <thead class="table-light"><tr><th>Mã hàng</th><th>Tên</th><th>Số lượng hoàn lại</th></tr></thead>
+                        <thead class="table-light"><tr class="text-center"><th>Mã hàng</th><th>Tên</th><th>Số lượng hoàn lại</th></tr></thead>
                         <tbody>
                             ${deletedExportItems.map(item => `<tr><td>${item.code}</td><td>${item.name}</td><td class="text-success fw-bold">+${item.quantity}</td></tr>`).join('')}
                         </tbody>
@@ -5758,7 +5860,7 @@ function createExportPagination(allData, container) {
         table.className = 'table table-striped table-compact';
         table.innerHTML = `
             <thead>
-                <tr>
+                <tr class="text-center">
                     <th>Số phiếu / Người yêu cầu</th>
                     <th>Người nhận / Trạng thái</th>
                     <th>Số mặt hàng</th>
@@ -5790,11 +5892,11 @@ function createExportPagination(allData, container) {
                 }
                 
                 row.innerHTML = `
-                    <td>Yêu cầu từ: <strong>${data.requestedByName}</strong></td>
-                    <td><span class="badge bg-warning text-dark">Chờ duyệt</span></td>
-                    <td>${data.items?.length || 0}</td>
-                    <td>Chưa có</td>
-                    <td>${date}</td>
+                    <td class="text-center">Yêu cầu từ: <strong>${data.requestedByName}</strong></td>
+                    <td class="text-center"><span class="badge bg-warning text-dark">Chờ duyệt</span></td>
+                    <td class="text-center">${data.items?.length || 0}</td>
+                    <td class="text-center">Chưa có</td>
+                    <td class="text-center">${date}</td>
                     <td class="text-center">${actionButtons}</td>
                 `;
 
@@ -5811,11 +5913,11 @@ function createExportPagination(allData, container) {
                 }
                 
                 row.innerHTML = `
-                    <td>${data.exportNumber}</td>
-                    <td>${data.recipient}</td>
-                    <td>${data.items?.length || 0}</td>
-                    <td>${data.performedByName}</td>
-                    <td>${date}</td>
+                    <td class="text-center">${data.exportNumber}</td>
+                    <td class="text-center">${data.recipient}</td>
+                    <td class="text-center">${data.items?.length || 0}</td>
+                    <td class="text-center">${data.performedByName}</td>
+                    <td class="text-center">${date}</td>
                     <td class="text-center">${actionButtons}</td>
                 `;
             }
@@ -5895,7 +5997,7 @@ window.viewExportRequestDetails = async function(requestId) {
                         <div class="table-responsive">
                             <table class="table table-sm table-bordered">
                                 <thead class="table-light">
-                                    <tr>
+                                    <tr class="text-center">
                                         <th>Mã hàng</th>
                                         <th>Tên</th>
                                         <th>SL Yêu cầu / Tồn kho</th>
@@ -7188,6 +7290,7 @@ export function createConfirmationModal(title, message, confirmText = 'Xác nh�
     return modal;
 }
 
+// Thay thế hàm này trong warehouse.js
 export function showConfirmation(title, message, confirmText = 'Xác nhận', cancelText = 'Hủy', type = 'warning') {
     return new Promise((resolve) => {
         const modal = createConfirmationModal(title, message, confirmText, cancelText, type);
@@ -7196,11 +7299,13 @@ export function showConfirmation(title, message, confirmText = 'Xác nhận', ca
 
         const confirmBtn = modal.querySelector('#confirmBtn');
         const handleConfirm = () => {
+            document.activeElement.blur(); // SỬA LỖI: Bỏ focus khỏi nút trước khi đóng
             bsModal.hide();
             resolve(true);
         };
 
         const handleCancel = () => {
+            document.activeElement.blur(); // SỬA LỖI: Bỏ focus khỏi nút trước khi đóng
             bsModal.hide();
             resolve(false);
         };
@@ -7210,7 +7315,6 @@ export function showConfirmation(title, message, confirmText = 'Xác nhận', ca
             modal.remove();
         });
 
-        // Handle cancel via close button or backdrop
         modal.addEventListener('hidden.bs.modal', handleCancel, { once: true });
         confirmBtn.addEventListener('click', () => {
             modal.removeEventListener('hidden.bs.modal', handleCancel);
@@ -7219,6 +7323,7 @@ export function showConfirmation(title, message, confirmText = 'Xác nhận', ca
         bsModal.show();
     });
 }
+
 
 // Input Modal for getting text input
 export function createInputModal(title, message, placeholder = '', inputType = 'text') {
@@ -7385,7 +7490,7 @@ function showExportExcelImportModal(items) {
                     <div class="table-responsive">
                         <table class="table table-bordered" id="excelExportPreviewTable">
                             <thead class="table-warning">
-                                <tr>
+                                <tr class="text-center">
                                     <th>Mã hàng</th>
                                     <th>Tên mô tả</th>
                                     <th>Vị trí</th>
@@ -7445,13 +7550,13 @@ async function loadExportItemDetails(items) {
             if (snapshot.empty) {
                 row.className = 'table-danger';
                 row.innerHTML = `
-                    <td>${item.code}</td>
-                    <td>Không tìm thấy</td>
-                     <td>${item.location}</td>
-                    <td>${item.quantity}</td>
-                    <td>-</td>
-                    <td>-</td>
-                    <td><span class="badge bg-danger">Không tồn tại</span></td>
+                    <td class="text-center">${item.code}</td>
+                    <td class="text-center">Không tìm thấy</td>
+                    <td class="text-center">${item.location}</td>
+                    <td class="text-center">${item.quantity}</td>
+                    <td class="text-center">-</td>
+                    <td class="text-center">-</td>
+                    <td class="text-center"><span class="badge bg-danger">Không tồn tại</span></td>
                 `;
                 allValid = false;
             } else {
@@ -7462,25 +7567,25 @@ async function loadExportItemDetails(items) {
                     row.className = 'table-warning';
                     allValid = false;
                     row.innerHTML = `
-                        <td>${item.code}</td>
-                        <td>${data.name}</td>
-                         <td>${item.location}</td>
-                        <td>${item.quantity}</td>
-                        <td>${data.quantity}</td>
-                        <td>${data.unit}</td>
-                        <td><span class="badge bg-warning text-dark">Vượt tồn kho</span></td>
+                        <td class="text-center">${item.code}</td>
+                        <td class="text-center">${data.name}</td>
+                        <td class="text-center">${item.location}</td>
+                        <td class="text-center">${item.quantity}</td>
+                        <td class="text-center">${data.quantity}</td>
+                        <td class="text-center">${data.unit}</td>
+                        <td class="text-center"><span class="badge bg-warning text-dark">Vượt tồn kho</span></td>
                     `;
                 } else {
                     // Các trường hợp khác vẫn giữ nguyên...
                     row.className = 'table-success';
                     row.innerHTML = `
-                        <td>${item.code}</td>
-                        <td>${data.name}</td>
-                         <td>${item.location}</td>
-                        <td>${item.quantity}</td>
-                        <td>${data.quantity}</td>
-                        <td>${data.unit}</td>
-                        <td><span class="badge bg-success">Hợp lệ</span></td>
+                        <td class="text-center">${item.code}</td>
+                        <td class="text-center">${data.name}</td>
+                         <td class="text-center">${item.location}</td>
+                        <td class="text-center">${item.quantity}</td>
+                        <td class="text-center">${data.quantity}</td>
+                        <td class="text-center">${data.unit}</td>
+                        <td class="text-center"><span class="badge bg-success">Hợp lệ</span></td>
                     `;
                     validItems.push({
                         inventoryId: doc.id,
@@ -7497,13 +7602,13 @@ async function loadExportItemDetails(items) {
             console.error('Error checking item:', error);
             row.className = 'table-danger';
             row.innerHTML = `
-                <td>${item.code}</td>
-                <td>Lỗi kiểm tra</td>
-                 <td>${item.location}</td>
-                <td>${item.quantity}</td>
-                <td>-</td>
-                <td>-</td>
-                <td><span class="badge bg-danger">Lỗi</span></td>
+                <td class="text-center">${item.code}</td>
+                <td class="text-center">Lỗi kiểm tra</td>
+                 <td class="text-center">${item.location}</td>
+                <td class="text-center">${item.quantity}</td>
+                <td class="text-center">-</td>
+                <td class="text-center">-</td>
+                <td class="text-center"><span class="badge bg-danger">Lỗi</span></td>
             `;
             allValid = false;
         }
@@ -7858,22 +7963,20 @@ window.saveExcelTransfers = async function() {
     }
 };
 
-// ===============================
-// EXCEL FUNCTIONS FOR ADJUST (Super Admin - Direct)
-// ===============================
-
 function downloadAdjustTemplate() {
     const data = [
-        ['Mã hàng', 'Vị trí', 'Số lượng MỚI', 'Lý do điều chỉnh'],
-        ['SP-EXIST-01', 'A1-01', '99', 'Kiểm kê phát hiện thừa']
+        // SỬA ĐỔI: Bỏ cột "Lý do điều chỉnh"
+        ['Mã hàng', 'Vị trí', 'Số lượng MỚI'],
+        ['SP-EXIST-01', 'A1-01', '99']
     ];
     const ws = XLSX.utils.aoa_to_sheet(data);
-    ws['!cols'] = [{ wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 30 }];
+    ws['!cols'] = [{ wch: 15 }, { wch: 15 }, { wch: 15 }];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Mau_Chinh_So');
     XLSX.writeFile(wb, 'mau-chinh-so.xlsx');
 }
 
+// Thay thế hàm này trong warehouse.js
 function handleAdjustExcelImport(event) {
     const file = event.target.files[0];
     if (!file) return;
@@ -7886,22 +7989,21 @@ function handleAdjustExcelImport(event) {
             const sheet = workbook.Sheets[sheetName];
             const data = XLSX.utils.sheet_to_json(sheet, { header: 1 });
 
-            // Skip header row and process data
-            const adjustments = data.slice(1).filter(row => row.length >= 4).map(row => ({
-                code: row[0]?.toString() || '',
-                location: row[1]?.toString() || '',
-                newQuantity: parseInt(row[2]) || 0,
-                reason: row[3]?.toString() || ''
+            // SỬA ĐỔI: Chỉ đọc 3 cột, bỏ qua cột lý do dòng
+            const adjustments = data.slice(1).filter(row => row.length >= 3 && row[0] && row[1] && row[2] !== undefined).map(row => ({
+                code: row[0]?.toString().trim() || '',
+                location: row[1]?.toString().trim() || '',
+                newQuantity: parseInt(row[2]),
             }));
 
             if (adjustments.length > 0) {
-                showAdjustExcelImportModal(adjustments);
+                showAdjustExcelPreviewModal(adjustments);
             } else {
-                showToast('File Excel không có dữ liệu hợp lệ', 'warning');
+                showToast('File Excel không có dữ liệu hợp lệ hoặc thiếu cột.', 'warning');
             }
 
         } catch (error) {
-            console.error('Error reading Excel file:', error);
+            console.error('Lỗi đọc file Excel:', error);
             showToast('Lỗi đọc file Excel', 'danger');
         }
     };
@@ -7909,6 +8011,155 @@ function handleAdjustExcelImport(event) {
     reader.readAsBinaryString(file);
     event.target.value = '';
 }
+
+// Thay thế hàm này trong warehouse.js
+function showAdjustExcelPreviewModal(adjustments) {
+    const modal = document.createElement('div');
+    modal.className = 'modal fade';
+    modal.id = 'adjustExcelPreviewModal';
+
+    modal.innerHTML = `
+        <div class="modal-dialog modal-xl">
+            <div class="modal-content">
+                <div class="modal-header bg-danger text-white">
+                    <h5 class="modal-title">Xem trước & Xác nhận Chỉnh số từ Excel</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="alert alert-danger">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <strong>Cảnh báo:</strong> Toàn bộ các thay đổi dưới đây sẽ được gộp vào MỘT phiếu chỉnh số duy nhất và thực hiện ngay lập tức.
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="excelGeneralReason" class="form-label"><strong>Lý do chung cho phiếu chỉnh số <span class="text-danger">*</span></strong></label>
+                        <input type="text" class="form-control" id="excelGeneralReason" placeholder="VD: Kiểm kê kho định kỳ cuối năm..." required>
+                    </div>
+                    
+                    <div class="table-responsive">
+                        <table class="table table-bordered" id="excelAdjustPreviewTable">
+                            <thead class="table-danger">
+                                <tr class="text-center">
+                                    <th>Mã hàng</th>
+                                    <th>Vị trí</th>
+                                    <th>SL Cũ</th>
+                                    <th>SL Mới</th>
+                                    <th>Chênh lệch</th>
+                                    <th>Trạng thái</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy</button>
+                    <button type="button" class="btn btn-danger" onclick="saveExcelAdjustments()" id="saveExcelAdjustmentsBtn" disabled>
+                        Thực hiện chỉnh số
+                    </button>
+                </div>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(modal);
+    const bsModal = new bootstrap.Modal(modal);
+    bsModal.show();
+
+    validateAndDisplayAdjustItems(adjustments);
+
+    modal.addEventListener('hidden.bs.modal', () => {
+        modal.remove();
+    });
+}
+
+// Thay thế hàm này trong warehouse.js
+async function validateAndDisplayAdjustItems(adjustments) {
+    const tbody = document.querySelector('#excelAdjustPreviewTable tbody');
+    const saveBtn = document.getElementById('saveExcelAdjustmentsBtn');
+    let allValid = true;
+    const validatedItems = [];
+
+    tbody.innerHTML = '';
+
+    for (const item of adjustments) {
+        const row = document.createElement('tr');
+        let statusBadge = '';
+        let itemIsValid = true;
+
+        if (!item.code || !item.location || isNaN(item.newQuantity)) {
+            statusBadge = `<span class="badge bg-danger">Lỗi - Thiếu thông tin</span>`;
+            itemIsValid = false;
+            row.classList.add('table-danger');
+            item.newQuantity = isNaN(item.newQuantity) ? 0 : item.newQuantity;
+        }
+
+        if (itemIsValid) {
+            try {
+                const inventoryQuery = query(collection(db, 'inventory'), where('code', '==', item.code), where('location', '==', item.location), limit(1));
+                const snapshot = await getDocs(inventoryQuery);
+
+                if (snapshot.empty) {
+                    statusBadge = `<span class="badge bg-danger">Không tìm thấy</span>`;
+                    itemIsValid = false;
+                    row.classList.add('table-danger');
+                    row.innerHTML = `<td>${item.code}</td><td>${item.location}</td><td>-</td><td>${item.newQuantity}</td><td>-</td><td>${statusBadge}</td>`;
+                } else {
+                    const doc = snapshot.docs[0];
+                    const data = doc.data();
+                    const difference = item.newQuantity - data.quantity;
+                    const diffClass = difference > 0 ? 'text-success' : difference < 0 ? 'text-danger' : 'text-muted';
+
+                    if (item.newQuantity < 0) {
+                        statusBadge = `<span class="badge bg-warning text-dark">SL âm</span>`;
+                        itemIsValid = false;
+                        row.classList.add('table-warning');
+                    } else if (difference === 0) {
+                        statusBadge = `<span class="badge bg-info">Không đổi</span>`;
+                    } else {
+                        statusBadge = `<span class="badge bg-success">Hợp lệ</span>`;
+                    }
+                    
+                    row.innerHTML = `
+                        <td class="text-center" style="width: 16%">${item.code}</td>
+                        <td class="text-center" style="width: 16%">${item.location}</td>
+                        <td class="text-center" style="width: 16%">${data.quantity}</td>
+                        <td class="text-center" style="width: 16%">${item.newQuantity}</td>
+                        <td class="${diffClass}" class="text-center" style="width: 16%">${difference >= 0 ? '+' : ''}${difference}</td>
+                        <td class="text-center" style="width: 16%">${statusBadge}</td>`;
+                    
+                    if (itemIsValid) {
+                        validatedItems.push({
+                            inventoryId: doc.id,
+                            itemCode: item.code,
+                            itemName: data.name,
+                            location: item.location,
+                            previousQuantity: data.quantity,
+                            newQuantity: item.newQuantity,
+                            adjustment: difference
+                        });
+                    }
+                }
+            } catch (error) {
+                statusBadge = `<span class="badge bg-danger">Lỗi kiểm tra</span>`;
+                itemIsValid = false;
+                row.classList.add('table-danger');
+                row.innerHTML = `<td>${item.code}</td><td>${item.location}</td><td>-</td><td>${item.newQuantity}</td><td>-</td><td>${statusBadge}</td>`;
+            }
+        } else {
+             row.innerHTML = `<td>${item.code}</td><td>${item.location}</td><td>-</td><td>${item.newQuantity}</td><td>-</td><td>${statusBadge}</td>`;
+        }
+        
+        tbody.appendChild(row);
+        if (!itemIsValid) {
+            allValid = false;
+        }
+    }
+
+    saveBtn.disabled = !allValid || validatedItems.length === 0;
+    window.validatedAdjustments = validatedItems; 
+}
+
 
 function showAdjustExcelImportModal(adjustments) {
     const modal = document.createElement('div');
@@ -8078,86 +8329,85 @@ async function loadAdjustItemDetails(adjustments) {
     window.validAdjustments = validAdjustments;
 }
 
+// Thay thế hàm này trong warehouse.js
 window.saveExcelAdjustments = async function() {
     if (userRole !== 'super_admin') {
-        showToast('Chỉ Super Admin mới có quyền thực hiện thao tác này', 'danger');
-        return;
+        return showToast('Chỉ Super Admin mới có quyền thực hiện thao tác này', 'danger');
     }
 
-    if (!window.validAdjustments || window.validAdjustments.length === 0) {
-        showToast('Không có điều chỉnh hợp lệ', 'warning');
-        return;
+    // Lấy lý do chung từ modal xem trước
+    const generalReason = document.getElementById('excelGeneralReason')?.value.trim();
+    if (!generalReason) {
+        return showToast('Vui lòng nhập lý do chung cho phiếu chỉnh số.', 'warning');
+    }
+
+    // Lấy danh sách đã được kiểm tra từ biến toàn cục
+    const adjustmentsToProcess = window.validatedAdjustments;
+    if (!adjustmentsToProcess || adjustmentsToProcess.length === 0) {
+        return showToast('Không có điều chỉnh hợp lệ nào để thực hiện.', 'warning');
     }
 
     const confirmed = await showConfirmation(
         'Xác nhận chỉnh số hàng loạt',
-        `Bạn có chắc muốn thực hiện ${window.validAdjustments.length} điều chỉnh tồn kho?<br><br><strong>Cảnh báo:</strong> Thao tác này không thể hoàn tác!`,
-        'Thực hiện chỉnh số',
-        'Hủy',
-        'danger'
+        `Bạn có chắc muốn thực hiện ${adjustmentsToProcess.length} thay đổi trong MỘT phiếu chỉnh số?`,
+        'Thực hiện chỉnh số', 'Hủy', 'danger'
     );
-
     if (!confirmed) return;
 
     try {
         const batch = writeBatch(db);
 
-        for (const adjustment of window.validAdjustments) {
-            // Update inventory
-            const inventoryRef = doc(db, 'inventory', adjustment.inventoryId);
-            batch.update(inventoryRef, {
-                quantity: adjustment.newQuantity
-            });
-
-            // Log transaction
-            const transactionRef = doc(collection(db, 'transactions'));
-            batch.set(transactionRef, {
-                type: 'adjust',
-                subtype: 'direct', // Mark as direct adjustment
-                inventoryId: adjustment.inventoryId,
-                itemCode: adjustment.code,
-                itemName: adjustment.name,
-                location: adjustment.location,
-                previousQuantity: adjustment.currentQuantity,
-                newQuantity: adjustment.newQuantity,
-                adjustment: adjustment.adjustment,
-                reason: adjustment.reason,
-                performedBy: currentUser.uid,
-                performedByName: currentUser.name,
-                date: serverTimestamp(),
-                timestamp: serverTimestamp(),
-                source: 'excel'
-            });
+        // 1. Tạo MỘT bản ghi giao dịch duy nhất chứa tất cả các thay đổi
+        const transactionRef = doc(collection(db, 'transactions'));
+        batch.set(transactionRef, {
+            type: 'adjust',
+            subtype: 'direct_excel', // Đánh dấu nguồn
+            reason: generalReason, // Lý do chung
+            items: adjustmentsToProcess, // Mảng chứa tất cả các mặt hàng
+            performedBy: currentUser.uid,
+            performedByName: currentUser.name,
+            date: serverTimestamp(),
+            timestamp: serverTimestamp()
+        });
+        
+        // 2. Cập nhật tồn kho cho từng mặt hàng trong batch
+        for (const adjustment of adjustmentsToProcess) {
+            if (adjustment.adjustment !== 0) { // Chỉ cập nhật nếu có chênh lệch
+                const inventoryRef = doc(db, 'inventory', adjustment.inventoryId);
+                batch.update(inventoryRef, { quantity: adjustment.newQuantity });
+            }
         }
 
         await batch.commit();
 
         showToast('Chỉnh số từ Excel thành công!', 'success');
-        bootstrap.Modal.getInstance(document.querySelector('.modal')).hide();
-        loadDirectAdjustHistory();
+        const modal = document.getElementById('adjustExcelPreviewModal');
+        if (modal) {
+            bootstrap.Modal.getInstance(modal).hide();
+        }
+        loadAdjustData();
 
     } catch (error) {
-        console.error('Error saving Excel adjustments:', error);
+        console.error('Lỗi lưu điều chỉnh từ Excel:', error);
         showToast('Lỗi lưu điều chỉnh từ Excel', 'danger');
     }
 };
 
-// ===============================
-// EXCEL FUNCTIONS FOR REQUEST ADJUST (Admin)
-// ===============================
-
+// Thay thế hàm này trong warehouse.js
 function downloadRequestAdjustTemplate() {
     const data = [
-        ['Mã hàng', 'Vị trí', 'Số lượng ĐỀ XUẤT', 'Lý do yêu cầu'],
-        ['SP-EXIST-01', 'A1-01', '101', 'Kiểm kê phát hiện thiếu']
+        // SỬA ĐỔI: Bỏ cột "Lý do yêu cầu"
+        ['Mã hàng', 'Vị trí', 'Số lượng ĐỀ XUẤT'],
+        ['SP-EXIST-01', 'A1-01', '101']
     ];
     const ws = XLSX.utils.aoa_to_sheet(data);
-    ws['!cols'] = [{ wch: 15 }, { wch: 15 }, { wch: 20 }, { wch: 30 }];
+    ws['!cols'] = [{ wch: 15 }, { wch: 15 }, { wch: 20 }];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Mau_Yeu_Cau_Chinh_So');
     XLSX.writeFile(wb, 'mau-yeu-cau-chinh-so.xlsx');
 }
 
+// Thay thế hàm này trong warehouse.js
 function handleRequestAdjustExcelImport(event) {
     const file = event.target.files[0];
     if (!file) return;
@@ -8170,22 +8420,21 @@ function handleRequestAdjustExcelImport(event) {
             const sheet = workbook.Sheets[sheetName];
             const data = XLSX.utils.sheet_to_json(sheet, { header: 1 });
 
-            // Skip header row and process data
-            const requests = data.slice(1).filter(row => row.length >= 4).map(row => ({
-                code: row[0]?.toString() || '',
-                location: row[1]?.toString() || '',
-                requestedQuantity: parseInt(row[2]) || 0,
-                reason: row[3]?.toString() || ''
+            // SỬA ĐỔI: Chỉ đọc 3 cột và đổi tên `newQuantity` thành `requestedQuantity`
+            const requests = data.slice(1).filter(row => row.length >= 3 && row[0] && row[1] && row[2] !== undefined).map(row => ({
+                code: row[0]?.toString().trim() || '',
+                location: row[1]?.toString().trim() || '',
+                requestedQuantity: parseInt(row[2]),
             }));
 
             if (requests.length > 0) {
                 showRequestAdjustExcelImportModal(requests);
             } else {
-                showToast('File Excel không có dữ liệu hợp lệ', 'warning');
+                showToast('File Excel không có dữ liệu hợp lệ hoặc thiếu cột.', 'warning');
             }
 
         } catch (error) {
-            console.error('Error reading Excel file:', error);
+            console.error('Lỗi đọc file Excel:', error);
             showToast('Lỗi đọc file Excel', 'danger');
         }
     };
@@ -8194,20 +8443,28 @@ function handleRequestAdjustExcelImport(event) {
     event.target.value = '';
 }
 
+// Thêm hàm MỚI này vào warehouse.js
 function showRequestAdjustExcelImportModal(requests) {
     const modal = document.createElement('div');
     modal.className = 'modal fade';
+    modal.id = 'requestAdjustExcelImportModal';
+
     modal.innerHTML = `
         <div class="modal-dialog modal-xl">
             <div class="modal-content">
                 <div class="modal-header bg-primary text-white">
-                    <h5 class="modal-title">Xác nhận yêu cầu chỉnh số từ Excel</h5>
+                    <h5 class="modal-title">Xem trước & Xác nhận Yêu cầu Chỉnh số từ Excel</h5>
                     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
                     <div class="alert alert-info">
                         <i class="fas fa-info-circle"></i>
-                        <strong>Thông tin:</strong> Các yêu cầu sẽ được gửi đến Super Admin để phê duyệt.
+                        <strong>Thông tin:</strong> Toàn bộ các thay đổi dưới đây sẽ được gộp vào MỘT phiếu yêu cầu và gửi đến Super Admin để phê duyệt.
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="excelRequestGeneralReason" class="form-label"><strong>Lý do chung cho phiếu yêu cầu <span class="text-danger">*</span></strong></label>
+                        <input type="text" class="form-control" id="excelRequestGeneralReason" placeholder="VD: Kiểm kê kho định kỳ..." required>
                     </div>
                     
                     <div class="table-responsive">
@@ -8215,12 +8472,10 @@ function showRequestAdjustExcelImportModal(requests) {
                             <thead class="table-primary">
                                 <tr>
                                     <th>Mã hàng</th>
-                                    <th>Tên mô tả</th>
                                     <th>Vị trí</th>
-                                    <th>SL hiện tại</th>
-                                    <th>SL đề xuất</th>
+                                    <th>SL Cũ</th>
+                                    <th>SL Đề xuất</th>
                                     <th>Chênh lệch</th>
-                                    <th>Lý do</th>
                                     <th>Trạng thái</th>
                                 </tr>
                             </thead>
@@ -8230,7 +8485,7 @@ function showRequestAdjustExcelImportModal(requests) {
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy</button>
-                    <button type="button" class="btn btn-primary" onclick="saveExcelRequestAdjustments()" id="saveExcelRequestAdjustmentsBtn">
+                    <button type="button" class="btn btn-primary" onclick="saveExcelRequestAdjustments()" id="saveExcelRequestAdjustmentsBtn" disabled>
                         Gửi yêu cầu
                     </button>
                 </div>
@@ -8242,7 +8497,6 @@ function showRequestAdjustExcelImportModal(requests) {
     const bsModal = new bootstrap.Modal(modal);
     bsModal.show();
 
-    // Load request details and validate
     loadRequestAdjustItemDetails(requests);
 
     modal.addEventListener('hidden.bs.modal', () => {
@@ -8250,6 +8504,7 @@ function showRequestAdjustExcelImportModal(requests) {
     });
 }
 
+// Thêm hàm MỚI này vào warehouse.js
 async function loadRequestAdjustItemDetails(requests) {
     const tbody = document.querySelector('#excelRequestAdjustPreviewTable tbody');
     const saveBtn = document.getElementById('saveExcelRequestAdjustmentsBtn');
@@ -8260,149 +8515,114 @@ async function loadRequestAdjustItemDetails(requests) {
 
     for (const request of requests) {
         const row = document.createElement('tr');
-        
-        try {
-            // Find item at specific location
-            const inventoryQuery = query(
-                collection(db, 'inventory'),
-                where('code', '==', request.code),
-                where('location', '==', request.location),
-                limit(1)
-            );
-            const snapshot = await getDocs(inventoryQuery);
+        let statusBadge = '';
+        let itemIsValid = true;
 
-            if (snapshot.empty) {
-                row.className = 'table-danger';
-                row.innerHTML = `
-                    <td>${request.code}</td>
-                    <td>Không tìm thấy tại vị trí</td>
-                    <td>${request.location}</td>
-                    <td>-</td>
-                    <td>${request.requestedQuantity}</td>
-                    <td>-</td>
-                    <td>${request.reason}</td>
-                    <td><span class="badge bg-danger">Không tìm thấy</span></td>
-                `;
-                allValid = false;
-            } else {
-                const doc = snapshot.docs[0];
-                const data = doc.data();
-                const difference = request.requestedQuantity - data.quantity;
-                
-                if (request.requestedQuantity < 0) {
-                    row.className = 'table-warning';
-                    allValid = false;
-                    row.innerHTML = `
-                        <td>${request.code}</td>
-                        <td>${data.name}</td>
-                        <td>${request.location}</td>
-                        <td>${data.quantity}</td>
-                        <td>${request.requestedQuantity}</td>
-                        <td>${difference >= 0 ? '+' : ''}${difference}</td>
-                        <td>${request.reason}</td>
-                        <td><span class="badge bg-warning text-dark">Số lượng âm</span></td>
-                    `;
-                } else if (difference === 0) {
-                    row.className = 'table-info';
-                    row.innerHTML = `
-                        <td>${request.code}</td>
-                        <td>${data.name}</td>
-                        <td>${request.location}</td>
-                        <td>${data.quantity}</td>
-                        <td>${request.requestedQuantity}</td>
-                        <td>0</td>
-                        <td>${request.reason}</td>
-                        <td><span class="badge bg-info">Không thay đổi</span></td>
-                    `;
-                    // Don't add to valid requests since no change needed
+        if (!request.code || !request.location || isNaN(request.requestedQuantity)) {
+            statusBadge = `<span class="badge bg-danger">Lỗi - Thiếu thông tin</span>`;
+            itemIsValid = false;
+            row.classList.add('table-danger');
+            request.requestedQuantity = isNaN(request.requestedQuantity) ? 0 : request.requestedQuantity;
+            row.innerHTML = `<td>${request.code}</td><td>${request.location}</td><td>-</td><td>${request.requestedQuantity}</td><td>-</td><td>${statusBadge}</td>`;
+        } else {
+            try {
+                const inventoryQuery = query(collection(db, 'inventory'), where('code', '==', request.code), where('location', '==', request.location), limit(1));
+                const snapshot = await getDocs(inventoryQuery);
+
+                if (snapshot.empty) {
+                    statusBadge = `<span class="badge bg-danger">Không tìm thấy</span>`;
+                    itemIsValid = false;
+                    row.classList.add('table-danger');
+                    row.innerHTML = `<td>${request.code}</td><td>${request.location}</td><td>-</td><td>${request.requestedQuantity}</td><td>-</td><td>${statusBadge}</td>`;
                 } else {
-                    row.className = 'table-success';
+                    const doc = snapshot.docs[0];
+                    const data = doc.data();
+                    const difference = request.requestedQuantity - data.quantity;
+                    const diffClass = difference > 0 ? 'text-success' : difference < 0 ? 'text-danger' : 'text-muted';
+
+                    if (request.requestedQuantity < 0) {
+                        statusBadge = `<span class="badge bg-warning text-dark">SL âm</span>`;
+                        itemIsValid = false;
+                        row.classList.add('table-warning');
+                    } else if (difference === 0) {
+                        statusBadge = `<span class="badge bg-info">Không đổi</span>`;
+                    } else {
+                        statusBadge = `<span class="badge bg-success">Hợp lệ</span>`;
+                    }
+                    
                     row.innerHTML = `
-                        <td>${request.code}</td>
-                        <td>${data.name}</td>
-                        <td>${request.location}</td>
-                        <td>${data.quantity}</td>
-                        <td>${request.requestedQuantity}</td>
-                        <td class="${difference > 0 ? 'text-success' : 'text-danger'}">${difference >= 0 ? '+' : ''}${difference}</td>
-                        <td>${request.reason}</td>
-                        <td><span class="badge bg-success">Hợp lệ</span></td>
-                    `;
-                    validRequests.push({
-                        inventoryId: doc.id,
-                        itemCode: data.code,
-                        itemName: data.name,
-                        location: request.location,
-                        currentQuantity: data.quantity,
-                        requestedQuantity: request.requestedQuantity,
-                        adjustment: difference,
-                        reason: request.reason
-                    });
+                        <td>${request.code}</td><td>${request.location}</td>
+                        <td>${data.quantity}</td><td>${request.requestedQuantity}</td>
+                        <td class="${diffClass}">${difference >= 0 ? '+' : ''}${difference}</td>
+                        <td>${statusBadge}</td>`;
+                    
+                    if (itemIsValid) {
+                        validRequests.push({
+                            inventoryId: doc.id,
+                            itemCode: request.code,
+                            itemName: data.name,
+                            location: request.location,
+                            currentQuantity: data.quantity,
+                            requestedQuantity: request.requestedQuantity,
+                            adjustment: difference,
+                        });
+                    }
                 }
+            } catch (error) {
+                statusBadge = `<span class="badge bg-danger">Lỗi kiểm tra</span>`;
+                itemIsValid = false;
+                row.classList.add('table-danger');
+                row.innerHTML = `<td>${request.code}</td><td>${request.location}</td><td>-</td><td>${request.requestedQuantity}</td><td>-</td><td>${statusBadge}</td>`;
             }
-        } catch (error) {
-            console.error('Error checking request:', error);
-            row.className = 'table-danger';
-            row.innerHTML = `
-                <td>${request.code}</td>
-                <td>Lỗi kiểm tra</td>
-                <td>${request.location}</td>
-                <td>-</td>
-                <td>${request.requestedQuantity}</td>
-                <td>-</td>
-                <td>${request.reason}</td>
-                <td><span class="badge bg-danger">Lỗi</span></td>
-            `;
-            allValid = false;
         }
         
         tbody.appendChild(row);
+        if (!itemIsValid) {
+            allValid = false;
+        }
     }
 
     saveBtn.disabled = !allValid || validRequests.length === 0;
-    window.validRequests = validRequests;
+    window.validRequestAdjustments = validRequests;
 }
 
+// Thêm hàm MỚI này vào warehouse.js
 window.saveExcelRequestAdjustments = async function() {
-    if (!window.validRequests || window.validRequests.length === 0) {
-        showToast('Không có yêu cầu hợp lệ', 'warning');
-        return;
+    const generalReason = document.getElementById('excelRequestGeneralReason')?.value.trim();
+    if (!generalReason) {
+        return showToast('Vui lòng nhập lý do chung cho phiếu yêu cầu.', 'warning');
+    }
+
+    const requestsToSave = window.validRequestAdjustments;
+    if (!requestsToSave || requestsToSave.length === 0) {
+        return showToast('Không có yêu cầu hợp lệ nào để gửi đi.', 'warning');
     }
 
     try {
-        const batch = writeBatch(db);
-
-        for (const request of window.validRequests) {
-            // Create adjustment request
-            const requestRef = doc(collection(db, 'adjustment_requests'));
-            batch.set(requestRef, {
-                inventoryId: request.inventoryId,
-                itemCode: request.itemCode,
-                itemName: request.itemName,
-                location: request.location,
-                currentQuantity: request.currentQuantity,
-                requestedQuantity: request.requestedQuantity,
-                adjustment: request.adjustment,
-                reason: request.reason,
-                status: 'pending',
-                requestedBy: currentUser.uid,
-                requestedByName: currentUser.name,
-                requestDate: serverTimestamp(),
-                timestamp: serverTimestamp(),
-                source: 'excel'
-            });
-        }
-
-        await batch.commit();
+        await addDoc(collection(db, 'adjustment_requests'), {
+            reason: generalReason,
+            items: requestsToSave, // Mảng chứa tất cả các yêu cầu
+            status: 'pending',
+            requestedBy: currentUser.uid,
+            requestedByName: currentUser.name,
+            requestDate: serverTimestamp(),
+            timestamp: serverTimestamp(),
+            source: 'excel_request' // Đánh dấu nguồn
+        });
 
         showToast('Đã gửi yêu cầu chỉnh số từ Excel thành công!', 'success');
-        bootstrap.Modal.getInstance(document.querySelector('.modal')).hide();
-        loadAdjustRequests();
+        const modal = document.getElementById('requestAdjustExcelImportModal');
+        if (modal) {
+            bootstrap.Modal.getInstance(modal).hide();
+        }
+        loadAdjustData();
 
     } catch (error) {
-        console.error('Error saving Excel requests:', error);
-        showToast('Lỗi lưu yêu cầu chỉnh số từ Excel', 'danger');
+        console.error('Lỗi lưu yêu cầu chỉnh số từ Excel:', error);
+        showToast('Lỗi khi gửi yêu cầu chỉnh số từ Excel.', 'danger');
     }
 };
+
 
 function initializeExcelFunctions() {
     // Sử dụng một trình lắng nghe ủy quyền duy nhất để có hiệu suất tốt hơn

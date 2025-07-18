@@ -437,6 +437,32 @@
 
                 <div id="settings-section" class="content-section" style="display: none;">
                     <div class="accordion" id="settingsAccordion">
+                        <div class="accordion-item">
+    <h2 class="accordion-header" id="headingGeneral">
+        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
+            data-bs-target="#collapseGeneral" aria-expanded="false" aria-controls="collapseGeneral">
+            <i class="fas fa-building me-2"></i> Cài đặt chung
+        </button>
+    </h2>
+    <div id="collapseGeneral" class="accordion-collapse collapse" aria-labelledby="headingGeneral"
+        data-bs-parent="#settingsAccordion">
+        <div class="accordion-body">
+            <h6 class="card-title">Thông tin Công ty</h6>
+            <p class="text-muted small">Thông tin này sẽ được hiển thị trên các phiếu in PDF.</p>
+            <div class="mb-3">
+                <label for="companyName" class="form-label">Tên công ty</label>
+                <input type="text" class="form-control" id="companyName" placeholder="Nhập tên công ty của bạn...">
+            </div>
+            <div class="mb-3">
+                <label for="companyAddress" class="form-label">Địa chỉ</label>
+                <input type="text" class="form-control" id="companyAddress" placeholder="Nhập địa chỉ công ty...">
+            </div>
+            <button type="button" class="btn btn-primary" id="saveCompanyInfoBtn">
+                <i class="fas fa-save me-1"></i> Lưu thông tin
+            </button>
+        </div>
+    </div>
+</div>
                         <!-- Mục Accordion 1: Tùy chỉnh Giao diện -->
                         <div class="accordion-item">
                             <h2 class="accordion-header" id="headingOne">
