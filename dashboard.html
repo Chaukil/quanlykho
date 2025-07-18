@@ -10,7 +10,7 @@
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <link href="css/styles.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
-    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>.
+    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.23/jspdf.plugin.autotable.min.js"></script>
@@ -50,21 +50,9 @@
                             </a>
                         </li>
                         <!-- Chức năng yêu cầu chỉnh số cho Admin -->
-                        <li class="nav-item admin-only">
-                            <a class="nav-link" href="#" data-section="request-adjust">
-                                <i class="fas fa-edit"></i> Yêu cầu chỉnh số
-                            </a>
-                        </li>
-                        <li class="nav-item super-admin-only">
+                        <li class="nav-item admin-access"> <!-- Sử dụng một class chung -->
                             <a class="nav-link" href="#" data-section="adjust">
                                 <i class="fas fa-cogs"></i> Chỉnh số
-                            </a>
-                        </li>
-                        <!-- Chức năng duyệt chỉnh số cho Super Admin -->
-                        <li class="nav-item super-admin-only" id="pendingAdjustmentsNav" style="display: none;">
-                            <a class="nav-link" href="#" data-section="pending-adjustments">
-                                <i class="fas fa-clipboard-check"></i>
-                                Duyệt chỉnh số <span class="badge bg-warning" id="pendingAdjustmentCount">0</span>
                             </a>
                         </li>
                         <li class="nav-item super-admin-only" id="userManagementNav" style="display: none;">
@@ -259,18 +247,27 @@
                             <div class="card-body">
                                 <h6 class="card-title">Bộ lọc</h6>
                                 <div class="row">
-                                    <div class="col-md-4">
+                                    <div class="col-md-3">
                                         <label class="form-label">Từ ngày</label>
                                         <input type="date" class="form-control" id="importFromDate">
                                     </div>
-                                    <div class="col-md-4">
+                                    <div class="col-md-3">
                                         <label class="form-label">Đến ngày</label>
                                         <input type="date" class="form-control" id="importToDate">
                                     </div>
-                                    <div class="col-md-4">
+                                    <div class="col-md-3">
                                         <label class="form-label">Mã hàng</label>
                                         <input type="text" class="form-control" id="importItemCodeFilter"
                                             placeholder="Mã hàng">
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label class="form-label">Trạng thái phiếu</label>
+                                        <select class="form-select" id="importStatusFilter">
+                                            <option value="">Tất cả trạng thái</option>
+                                            <option value="pending">Chờ QC</option>
+                                            <option value="failed">Có hàng không đạt</option>
+                                            <option value="completed">Đã hoàn thành</option>
+                                        </select>
                                     </div>
                                 </div>
                             </div>
@@ -360,41 +357,6 @@
 
                     <!-- Adjust Section -->
                     <div id="adjust-section" class="content-section" style="display: none;">
-                        <div class="d-flex justify-content-between align-items-center mb-3">
-                            <div>
-                                <button class="btn btn-info me-2" id="downloadAdjustTemplate">
-                                    <i class="fas fa-download"></i> Tải mẫu Excel Chỉnh số
-                                </button>
-                                <button class="btn btn-warning me-2" id="importAdjustExcel">
-                                    <i class="fas fa-file-excel"></i> Nhập từ Excel
-                                </button>
-                                <button class="btn btn-primary" id="addAdjustBtn">
-                                    <i class="fas fa-plus"></i> Chỉnh sửa tồn kho
-                                </button>
-                            </div>
-                        </div>
-
-                        <!-- Filter cho Adjust -->
-                        <div class="card mb-3">
-                            <div class="card-body">
-                                <h6 class="card-title">Bộ lọc</h6>
-                                <div class="row">
-                                    <div class="col-md-4">
-                                        <label class="form-label">Từ ngày</label>
-                                        <input type="date" class="form-control" id="adjustFromDate">
-                                    </div>
-                                    <div class="col-md-4">
-                                        <label class="form-label">Đến ngày</label>
-                                        <input type="date" class="form-control" id="adjustToDate">
-                                    </div>
-                                    <div class="col-md-4">
-                                        <label class="form-label">Mã hàng</label>
-                                        <input type="text" class="form-control" id="adjustItemCodeFilter"
-                                            placeholder="Mã hàng">
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
                         <div id="adjustContent"></div>
                     </div>
 
@@ -434,54 +396,6 @@
                             </div>
                         </div>
                         <div id="historyContent"></div>
-                    </div>
-
-                    <div id="request-adjust-section" class="content-section" style="display: none;">
-                        <div class="d-flex justify-content-between align-items-center mb-3">
-                            <div>
-                                <button class="btn btn-info me-2" id="downloadRequestAdjustTemplate">
-                                    <i class="fas fa-download"></i> Tải mẫu Excel Yêu cầu chỉnh số
-                                </button>
-                                <button class="btn btn-warning me-2" id="importRequestAdjustExcel">
-                                    <i class="fas fa-file-excel"></i> Nhập từ Excel
-                                </button>
-                                <button class="btn btn-primary" id="addAdjustRequestBtn">
-                                    <i class="fas fa-plus"></i> Tạo yêu cầu chỉnh số
-                                </button>
-                            </div>
-                        </div>
-
-                        <!-- Filter cho Adjustment Requests -->
-                        <div class="card mb-3">
-                            <div class="card-body">
-                                <h6 class="card-title">Bộ lọc</h6>
-                                <div class="row">
-                                    <div class="col-md-3">
-                                        <label class="form-label">Từ ngày</label>
-                                        <input type="date" class="form-control" id="requestFromDate">
-                                    </div>
-                                    <div class="col-md-3">
-                                        <label class="form-label">Đến ngày</label>
-                                        <input type="date" class="form-control" id="requestToDate">
-                                    </div>
-                                    <div class="col-md-3">
-                                        <label class="form-label">Trạng thái</label>
-                                        <select class="form-select" id="requestStatusFilter">
-                                            <option value="">Tất cả</option>
-                                            <option value="pending">Chờ duyệt</option>
-                                            <option value="approved">Đã duyệt</option>
-                                            <option value="rejected">Từ chối</option>
-                                        </select>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        <div id="adjustRequestContent"></div>
-                    </div>
-                    <!-- Pending Adjustments Section for Super Admin -->
-                    <div id="pending-adjustments-section" class="content-section" style="display: none;">
-                        <h4>Duyệt yêu cầu chỉnh số</h4>
-                        <div id="pendingAdjustmentsContent"></div>
                     </div>
                 </div>
                 <div id="user-management-section" class="content-section" style="display: none;">
@@ -638,7 +552,6 @@
                                         placeholder="Nhập mã hàng hoặc tên sản phẩm...">
                                     <div id="barcodeSearchResults"></div>
                                     <hr>
-
                                     <h6 class="card-title">2. Tùy chỉnh tem</h6>
                                     <!-- Mã mới đã được sửa lỗi -->
                                     <div class="mb-3">
@@ -734,9 +647,7 @@
                                     <p class="text-muted">Nhấp vào ô bên dưới, sau đó sử dụng máy quét của bạn.</p>
                                     <input type="text" id="usbScannerInput" class="form-control usb-scanner-input"
                                         placeholder="Sẵn sàng để quét...">
-
                                     <hr>
-
                                     <h6 class="mt-2">Kết quả quét:</h6>
                                     <div id="scanResultContainer" class="flex-grow-1">
                                         <p class="text-muted text-center mt-4">Chưa có kết quả.</p>
@@ -746,8 +657,8 @@
                         </div>
                     </div>
                 </div>
+            </div>
         </div>
-    </div>
     </div>
     </main>
     </div>
@@ -811,11 +722,13 @@
         </div>
     </div>
 
-    <div class="modal fade" id="layoutPrintModal" tabindex="-1" aria-labelledby="layoutPrintModalLabel" aria-hidden="true">
+    <div class="modal fade" id="layoutPrintModal" tabindex="-1" aria-labelledby="layoutPrintModalLabel"
+        aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title" id="layoutPrintModalLabel"><i class="fas fa-print"></i> Tùy chọn In Danh sách</h5>
+                    <h5 class="modal-title" id="layoutPrintModalLabel"><i class="fas fa-print"></i> Tùy chọn In Danh
+                        sách</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body">
@@ -826,15 +739,19 @@
                     <div class="mb-3">
                         <label class="form-label">Lọc theo Trạng thái</label>
                         <div class="form-check">
-                            <input class="form-check-input" type="radio" name="printStatusFilter" id="printStatusAll" value="all" checked>
+                            <input class="form-check-input" type="radio" name="printStatusFilter" id="printStatusAll"
+                                value="all" checked>
                             <label class="form-check-label" for="printStatusAll">Tất cả vị trí</label>
                         </div>
                         <div class="form-check">
-                            <input class="form-check-input" type="radio" name="printStatusFilter" id="printStatusOccupied" value="occupied">
-                            <label class="form-check-label" for="printStatusOccupied">Chỉ vị trí có hàng (Số lượng > 0)</label>
+                            <input class="form-check-input" type="radio" name="printStatusFilter"
+                                id="printStatusOccupied" value="occupied">
+                            <label class="form-check-label" for="printStatusOccupied">Chỉ vị trí có hàng (Số lượng >
+                                0)</label>
                         </div>
                         <div class="form-check">
-                            <input class="form-check-input" type="radio" name="printStatusFilter" id="printStatusEmpty" value="empty">
+                            <input class="form-check-input" type="radio" name="printStatusFilter" id="printStatusEmpty"
+                                value="empty">
                             <label class="form-check-label" for="printStatusEmpty">Chỉ vị trí trống</label>
                         </div>
                     </div>
@@ -842,7 +759,8 @@
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy</button>
                     <button type="button" class="btn btn-primary" id="generatePdfBtn" onclick="generateLayoutPdf()">
-                        <span id="pdfSpinner" class="spinner-border spinner-border-sm" role="status" aria-hidden="true" style="display: none;"></span>
+                        <span id="pdfSpinner" class="spinner-border spinner-border-sm" role="status" aria-hidden="true"
+                            style="display: none;"></span>
                         <span id="pdfBtnText">Xuất PDF</span>
                     </button>
                 </div>

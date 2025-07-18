@@ -7,14 +7,13 @@ import {
     loadTransferSection,
     loadAdjustSection,
     loadHistorySection,
-    loadRequestAdjustSection,
-    loadPendingAdjustmentsSection,
     loadPrintBarcodeSection,
     loadScanBarcodeSection,
     debounce,
 } from './warehouse.js';
 
 import { auth, db } from './connect.js';
+export { currentUser, userRole }; 
 import { onAuthStateChanged, signOut,EmailAuthProvider,          // <-- THÊM VÀO
     reauthenticateWithCredential, // <-- THÊM VÀO
     updatePassword } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
@@ -141,40 +140,42 @@ function initializeAuth() {
     });
 }
 
-// Trong dashboard.js
 function setupUserInterface() {
     document.getElementById('userGreeting').textContent = `Hi, ${currentUser.name}`;
-
+    document.querySelectorAll('.admin-only, .super-admin-only, .admin-only-feature, .admin-access').forEach(element => {
+        element.style.display = 'none';
+    });
+    
     if (userRole === 'staff') {
-        // Hide admin and super admin sections
-        document.querySelectorAll('.admin-only, .super-admin-only').forEach(element => {
-            element.style.display = 'none';
+    } else if (userRole === 'qc') {
+        const qcPermissions = ['dashboard', 'history', 'scan-barcode', 'settings', 'import'];
+        document.querySelectorAll('.nav-link[data-section]').forEach(link => {
+            if (qcPermissions.includes(link.dataset.section)) {
+                link.parentElement.style.display = 'block';
+            } else {
+                link.parentElement.style.display = 'none';
+            }
         });
-        // THÊM MỚI: Ẩn các tính năng riêng lẻ chỉ dành cho admin trở lên
-        document.querySelectorAll('.admin-only-feature').forEach(element => {
-            element.style.display = 'none';
+        // Hiển thị cả mục menu cha của barcode
+        document.querySelector('#barcodeSubmenu').parentElement.style.display = 'block';
+        const buttonsToHideForQc = ['addImportBtn', 'importExcel', 'downloadTemplate'];
+        buttonsToHideForQc.forEach(id => {
+            const button = document.getElementById(id);
+            if (button) {
+                // Thay vì ẩn hoàn toàn, chúng ta có thể làm cho nó biến mất khỏi layout
+                button.style.display = 'none';
+            }
         });
+
     } else if (userRole === 'admin') {
-        // Show admin features but hide super admin features
-        document.querySelectorAll('.admin-only, .admin-only-feature').forEach(element => {
+        document.querySelectorAll('.admin-only, .admin-access, .admin-only-feature').forEach(element => {
             element.style.display = 'block';
-        });
-        document.querySelectorAll('.super-admin-only').forEach(element => {
-            element.style.display = 'none';
         });
     } else if (userRole === 'super_admin') {
-        // Show all features for super admin
-        document.querySelectorAll('.admin-only, .super-admin-only, .admin-only-feature').forEach(element => {
+        document.querySelectorAll('.admin-only, .super-admin-only, .admin-access, .admin-only-feature').forEach(element => {
             element.style.display = 'block';
         });
-        
-        const requestAdjustNav = document.querySelector('[data-section="request-adjust"]');
-        if (requestAdjustNav) {
-            requestAdjustNav.parentElement.style.display = 'none';
-        }
     }
-
-    // Setup logout button
     document.getElementById('logoutBtn').addEventListener('click', async () => {
         try {
             await signOut(auth);
@@ -184,6 +185,7 @@ function setupUserInterface() {
         }
     });
 }
+
 
 // Initialize navigation
 function initializeNavigation() {
@@ -240,22 +242,10 @@ function loadSectionData(sectionName) {
             loadTransferSection();
             break;
         case 'adjust':
-            if (userRole === 'super_admin') {
+            if (userRole === 'admin' || userRole === 'super_admin') {
                 loadAdjustSection();
             } else {
                 showToast('Bạn không có quyền truy cập chức năng này', 'danger');
-            }
-            break;
-        case 'request-adjust':
-            if (userRole === 'admin') {
-                loadRequestAdjustSection();
-            } else {
-                showToast('Bạn không có quyền truy cập chức năng này', 'danger');
-            }
-            break;
-        case 'pending-adjustments':
-            if (userRole === 'super_admin') {
-                loadPendingAdjustmentsSection();
             }
             break;
         case 'history':
@@ -283,11 +273,6 @@ async function loadDashboardData() {
         await loadTodayStatistics();
         await loadInventoryTable();
         initializeDashboardFilters();
-        
-        // Kiểm tra pending adjustments cho Super Admin
-        if (userRole === 'super_admin') {
-            checkPendingAdjustments();
-        }
 
     } catch (error) {
         console.error('Error loading dashboard data:', error);
@@ -445,7 +430,8 @@ async function loadUsersTable(useFilter = false, page = 1) {
             const roleConfig = {
                 'super_admin': { class: 'bg-danger', text: 'Super Admin' },
                 'admin': { class: 'bg-primary', text: 'Admin' },
-                'staff': { class: 'bg-info text-dark', text: 'Staff' }
+                'staff': { class: 'bg-info text-dark', text: 'Staff' },
+                'qc': { class: 'bg-secondary', text: 'QC' },
             };
             const roleInfo = roleConfig[user.role] || { class: 'bg-secondary', text: user.role };
             
@@ -488,11 +474,6 @@ async function loadUsersTable(useFilter = false, page = 1) {
     }
 }
 
-// THÊM 2 HÀM MỚI NÀY VÀO CUỐI dashboard.js
-
-/**
- * Tạo các nút bấm và thông tin cho thanh phân trang của trang Quản lý user
- */
 function updateUserManagementPagination(currentPage, totalPages, totalItems, startIndex, endIndex) {
     const container = document.getElementById('userManagementContent');
     
@@ -693,14 +674,17 @@ window.showEditUserModal = async function(userId) {
     }
 };
 
+// Thay thế hàm này trong file dashboard.js
 function createEditUserModal(userId, userData) {
     const modal = document.createElement('div');
     modal.className = 'modal fade';
     modal.id = 'editUserModal';
     modal.setAttribute('tabindex', '-1');
 
+    // *** THÊM MỚI: Thêm vai trò QC vào danh sách ***
     const roles = [
         { value: 'staff', label: 'Staff', color: 'info', icon: 'fas fa-user' },
+        { value: 'qc', label: 'QC', color: 'secondary', icon: 'fas fa-clipboard-check' }, // Thêm vai trò QC
         { value: 'admin', label: 'Admin', color: 'primary', icon: 'fas fa-user-tie' },
         { value: 'super_admin', label: 'Super Admin', color: 'danger', icon: 'fas fa-user-shield' }
     ];
@@ -713,7 +697,7 @@ function createEditUserModal(userId, userData) {
     ];
 
     modal.innerHTML = `
-        <div class="modal-dialog modal-lg">
+        <div class="modal-dialog modal-xl">
             <div class="modal-content">
                 <div class="modal-header bg-primary text-white">
                     <h5 class="modal-title">
@@ -811,6 +795,7 @@ function createEditUserModal(userId, userData) {
     return modal;
 }
 
+
 function updateCompactStatusPreview() {
     const selectedRole = document.getElementById('selectedRole')?.value;
     const selectedStatus = document.getElementById('selectedStatus')?.value;
@@ -821,7 +806,8 @@ function updateCompactStatusPreview() {
     const roleLabels = {
         'staff': 'Staff',
         'admin': 'Admin', 
-        'super_admin': 'Super Admin'
+        'super_admin': 'Super Admin',
+        'qc': 'QC'
     };
 
     const statusLabels = {
@@ -876,7 +862,8 @@ function updateCurrentStatusDisplay() {
     const roleConfig = {
         'staff': { color: 'info', icon: 'fas fa-user', label: 'Staff' },
         'admin': { color: 'primary', icon: 'fas fa-user-tie', label: 'Admin' },
-        'super_admin': { color: 'danger', icon: 'fas fa-user-shield', label: 'Super Admin' }
+        'super_admin': { color: 'danger', icon: 'fas fa-user-shield', label: 'Super Admin' },
+        'qc': { color: 'secondary', icon: 'fas fa-clipboard-check', label: 'QC' },
     };
 
     const statusConfig = {
@@ -1254,30 +1241,6 @@ async function updateUserManagementBadge() {
     }
 }
 
-async function checkPendingAdjustments() {
-    if (userRole !== 'super_admin') return;
-
-    try {
-        const pendingQuery = query(
-            collection(db, 'adjustment_requests'),
-            where('status', '==', 'pending')
-        );
-        const snapshot = await getDocs(pendingQuery);
-
-        const count = snapshot.size;
-        document.getElementById('pendingAdjustmentCount').textContent = count;
-
-        if (count > 0) {
-            document.getElementById('pendingAdjustmentsNav').style.display = 'block';
-        } else {
-            document.getElementById('pendingAdjustmentsNav').style.display = 'none';
-        }
-
-    } catch (error) {
-        console.error('Error checking pending adjustments:', error);
-    }
-}
-
 function saveSettings() {
     // Lưu cài đặt riêng cho người dùng hiện tại (giữ nguyên)
     localStorage.setItem(`userSettings_${currentUser.uid}`, JSON.stringify(userSettings));
@@ -1396,9 +1359,6 @@ function initializeSettingsListeners() {
     // Change Password Form
     document.getElementById('changePasswordForm').addEventListener('submit', handleChangePassword);
 }
-
-// Export current user and role for use in other modules
-export { currentUser, userRole };
 
 function initializeDashboardFilters() {
     // Gán sự kiện cho nút xuất Excel

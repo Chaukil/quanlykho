@@ -97,6 +97,13 @@
     background-color: #fff3cd; 
 }
 
+[data-theme="dark"] .table-danger,
+[data-theme="dark"] .table-danger > th,
+[data-theme="dark"] .table-danger > td {
+    color: #000 !important; /* Chữ màu đen để tương phản cao */
+    background-color: #f0c1c5 !important; /* Nền màu đỏ nhạt của Bootstrap */
+}
+
 [data-theme="dark"] .accordion-button::after {
    filter: brightness(0) invert(1); /* Đảo ngược màu của icon cho chế độ tối */
 }
@@ -338,9 +345,13 @@ main.col-md-9 {
 }
 
 .modal-header {
-    background-color: #f8f9fa;
+    background-color: var(--bg-color);
     border-bottom: 1px solid #dee2e6;
     border-radius: 10px 10px 0 0;
+}
+
+.modal-header .btn-close {
+    background-color: #dee2e6;
 }
 
 .badge {
@@ -360,6 +371,10 @@ main.col-md-9 {
 .toast {
     border-radius: 10px;
     box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+}
+
+.bg-warning {
+    color: #212529;
 }
 
 /* Responsive adjustments */
@@ -435,12 +450,25 @@ main.col-md-9 {
 .table-warning th {
     background-color: rgba(255, 193, 7, 0.1) !important;
     border-color: rgba(255, 193, 7, 0.2) !important;
+    color: #000 !important; 
 }
 
-.table-warning > th,
-.table-warning > td {
-    background-color: #fff3cd !important; /* Dùng !important để đảm bảo màu nền luôn là vàng */
-    color: #664d03 !important;           /* Màu chữ mặc định cho nền vàng là màu sẫm */
+.table > tbody > tr.table-warning > td,
+.table > tbody > tr.table-warning > th {
+    color: #000 !important; 
+    background-color: #fff3cd !important; 
+}
+
+.table-danger th {
+    background-color: f0c1c5 !important;
+    border-color: f0c1c5 !important;
+    color: #000 !important; 
+}
+
+.table > tbody > tr.table-danger > td,
+.table > tbody > tr.table-danger > th {
+    color: #000 !important; 
+    background-color: #f0c1c5 !important; 
 }
 
 .table-info th {
@@ -1738,3 +1766,9 @@ main.col-md-9 {
 .tooltip-list li { display: flex; justify-content: space-between; padding: 0.1rem 0; }
 .tooltip-list li span:first-child { color: var(--text-muted-color); margin-right: 0.5rem; }
 .tooltip-list li span:last-child { font-weight: 500; }
+
+.batch-action-container {
+    background-color: var(--sidebar-bg-color);
+    border: 1px solid var(--border-color);
+    transition: all 0.3s ease-in-out;
+}
