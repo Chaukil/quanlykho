@@ -7103,34 +7103,43 @@ export function createConfirmationModal(title, message, confirmText = 'Xác nh�
 }
 
 // Thay thế hàm này trong warehouse.js
+// Thay thế toàn bộ hàm cũ bằng phiên bản mới này
 export function showConfirmation(title, message, confirmText = 'Xác nhận', cancelText = 'Hủy', type = 'warning') {
     return new Promise((resolve) => {
+        // Hàm tạo modal vẫn giữ nguyên
         const modal = createConfirmationModal(title, message, confirmText, cancelText, type);
         document.body.appendChild(modal);
         const bsModal = new bootstrap.Modal(modal);
 
         const confirmBtn = modal.querySelector('#confirmBtn');
-        const handleConfirm = () => {
-            document.activeElement.blur(); // SỬA LỖI: Bỏ focus khỏi nút trước khi đóng
-            bsModal.hide();
-            resolve(true);
-        };
 
+        // === BẮT ĐẦU SỬA LỖI LOGIC ===
+
+        // 1. Tách riêng hàm xử lý hủy bỏ
         const handleCancel = () => {
-            document.activeElement.blur(); // SỬA LỖI: Bỏ focus khỏi nút trước khi đóng
-            bsModal.hide();
             resolve(false);
         };
 
+        // 2. Tách riêng hàm xử lý xác nhận
+        const handleConfirm = () => {
+            // Quan trọng: Gỡ bỏ trình lắng nghe sự kiện hủy trước khi làm bất cứ điều gì khác
+            modal.removeEventListener('hidden.bs.modal', handleCancel);
+            resolve(true);
+        };
+        
+        // 3. Gán sự kiện
         confirmBtn.addEventListener('click', handleConfirm);
+
+        // Sự kiện 'hidden' giờ chỉ dành cho việc người dùng nhấn nút 'X' hoặc click ra ngoài
+        modal.addEventListener('hidden.bs.modal', handleCancel, { once: true });
+        
+        // Sự kiện dọn dẹp cuối cùng, luôn chạy sau khi modal đã đóng
         modal.addEventListener('hidden.bs.modal', () => {
+            bsModal.dispose();
             modal.remove();
         });
 
-        modal.addEventListener('hidden.bs.modal', handleCancel, { once: true });
-        confirmBtn.addEventListener('click', () => {
-            modal.removeEventListener('hidden.bs.modal', handleCancel);
-        });
+        // === KẾT THÚC SỬA LỖI LOGIC ===
 
         bsModal.show();
     });
