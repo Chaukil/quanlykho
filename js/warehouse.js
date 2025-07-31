@@ -2569,7 +2569,6 @@ window.saveExport = async function () {
         showToast('Xuất kho thành công!', 'success');
         const exportModal = document.getElementById('exportModal');
         if (exportModal) bootstrap.Modal.getInstance(exportModal).hide();
-        loadExportHistory();
     } catch (error) {
         console.error('Lỗi khi lưu phiếu xuất:', error);
         showToast('Lỗi lưu phiếu xuất', 'danger');
@@ -5862,7 +5861,6 @@ window.approveExportRequest = async function (requestId) {
 
         await batch.commit();
         showToast('Duyệt yêu cầu xuất kho thành công!', 'success');
-        loadExportHistory(); // Tải lại danh sách để cập nhật giao diện
 
     } catch (e) {
         console.error("Lỗi khi duyệt yêu cầu xuất kho:", e);
@@ -5888,7 +5886,6 @@ window.rejectExportRequest = async function (requestId) {
             rejectionReason: reason
         });
         showToast('Đã từ chối yêu cầu xuất kho.', 'success');
-        loadExportHistory(); // Tải lại danh sách để cập nhật giao diện
     } catch (e) {
         console.error("Lỗi khi từ chối yêu cầu xuất kho:", e);
         showToast('Lỗi khi từ chối yêu cầu.', 'danger');
@@ -6623,7 +6620,6 @@ window.saveEditExport = async function () {
 
         showToast('Đã cập nhật phiếu xuất thành công!', 'success');
         bootstrap.Modal.getInstance(document.getElementById('editExportModal')).hide();
-        loadExportHistory();
 
     } catch (error) {
         console.error('Error updating export:', error);
@@ -6693,7 +6689,6 @@ window.deleteExportTransaction = async function (transactionId) {
         await batch.commit();
 
         showToast('Đã xóa phiếu xuất thành công!', 'success');
-        loadExportHistory();
 
     } catch (error) {
         console.error('Error deleting export:', error);
@@ -7480,7 +7475,6 @@ window.saveExcelExport = async function () {
 
         showToast('Xuất kho từ Excel thành công!', 'success');
         bootstrap.Modal.getInstance(document.querySelector('.modal')).hide();
-        loadExportHistory();
 
     } catch (error) {
         console.error('Error saving Excel export:', error);
@@ -9378,7 +9372,7 @@ window.removeExportItemFromList = (index) => {
     renderScanExportTableBody();
 };
 
-// THAY THẾ TOÀN BỘ HÀM NÀY BẰNG PHIÊN BẢN MỚI
+// Thay thế toàn bộ hàm cũ bằng phiên bản mới này
 window.finalizeExport = async function () {
     if (exportItemsList.length === 0) {
         showToast('Danh sách xuất kho đang trống.', 'warning');
@@ -9403,14 +9397,15 @@ window.finalizeExport = async function () {
     );
     if (!confirmed) return;
 
+    // === SỬA LỖI Ở ĐÂY: Thêm các giá trị dự phòng để tránh lỗi 'undefined' ===
     const itemsToSave = exportItemsList.map(item => ({
-        inventoryId: item.inventoryId,
-        code: item.code,
-        name: item.name,
-        unit: item.unit,
-        location: item.location,
-        quantity: item.requestedQuantity,
-        availableQuantityBefore: item.availableQuantity
+        inventoryId: item.inventoryId || '',
+        code: item.code || '',
+        name: item.name || '',
+        unit: item.unit || '', // Quan trọng: Nếu item.unit là undefined, nó sẽ là ''
+        location: item.location || '', // Quan trọng: Nếu item.location là undefined, nó sẽ là ''
+        quantity: item.requestedQuantity || 0,
+        availableQuantityBefore: item.availableQuantity || 0
     }));
 
     if (userRole === 'staff') {
@@ -9422,15 +9417,15 @@ window.finalizeExport = async function () {
                 status: 'pending',
                 exportNumber: exportNumber,
                 recipient: recipient,
-                items: itemsToSave
+                items: itemsToSave // Gửi đi dữ liệu đã được làm sạch
             });
             showToast('Đã gửi yêu cầu xuất kho thành công!', 'success');
             cancelScanExportSession();
         } catch (error) {
             console.error("Lỗi khi tạo yêu cầu xuất kho:", error);
-            showToast('Đã xảy ra lỗi khi gửi yêu cầu.', 'danger');
+            showToast('Đã xảy ra lỗi khi gửi yêu cầu. Vui lòng kiểm tra lại thông tin.', 'danger');
         }
-    } else {
+    } else { // Dành cho Admin và Super Admin
         const batch = writeBatch(db);
         const transactionRef = doc(collection(db, 'transactions'));
         batch.set(transactionRef, {
@@ -9459,6 +9454,7 @@ window.finalizeExport = async function () {
         }
     }
 };
+
 
 window.viewItemHistoryFromScan = async function (itemCode) {
     try {
