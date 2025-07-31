@@ -18,7 +18,7 @@ import {
 } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
 
 import { showToast } from './auth.js';
-import { currentUser, userRole, companyInfo } from './dashboard.js';
+import { currentUser, userRole, companyInfo, layoutConfig } from './dashboard.js';
 
 export function debounce(func, delay) {
     let timeout;
@@ -40,6 +40,67 @@ let unsubscribeAdjustRequests = null;
 let unsubscribeAdjust = null;
 let unsubscribeAllHistory = null;
 let currentRequestItems = [];
+const historyListeners = {
+    import: null,
+    export: null,
+    transfer: null,
+    adjust: null,
+    all: null // Cho tab Lịch sử chung
+};
+
+// Biến lưu trữ dữ liệu và trang hiện tại của mỗi section
+const sectionState = {
+    import: { data: [], page: 1 },
+    export: { data: [], page: 1 },
+    transfer: { data: [], page: 1 },
+    adjust: { data: [], page: 1 },
+    all: { data: [], page: 1 },
+};
+
+const historyConfig = {
+    import: {
+        collection: 'transactions',
+        baseConstraints: [where('type', '==', 'import')],
+        filterIds: ['importFromDate', 'importToDate', 'importItemCodeFilter', 'importStatusFilter'],
+        contentId: 'importContent',
+        tableHeader: '<thead><tr class="text-center"><th>Số phiếu</th><th>Nhà cung cấp</th><th>Số mã hàng</th><th>Người thực hiện</th><th>Ngày nhập</th><th>Thao tác</th></tr></thead>',
+        tableBodyId: 'importTableBody',
+        paginationContainerId: 'importPaginationContainer',
+        cols: 6,
+        createRowFunc: createImportRow
+    },
+    export: {
+        collection: 'transactions',
+        baseConstraints: [where('type', '==', 'export')],
+        filterIds: ['exportFromDate', 'exportToDate', 'exportItemCodeFilter'],
+        contentId: 'exportContent',
+        tableHeader: '<thead><tr class="text-center"><th>Số phiếu</th><th>Người nhận</th><th>Số mã hàng</th><th>Người thực hiện</th><th>Ngày xuất</th><th>Thao tác</th></tr></thead>',
+        tableBodyId: 'exportTableBody',
+        paginationContainerId: 'exportPaginationContainer',
+        cols: 6,
+        createRowFunc: createExportRow
+    },
+    transfer: {
+        collection: 'transactions',
+        baseConstraints: [where('type', '==', 'transfer')],
+        filterIds: ['transferFromDate', 'transferToDate', 'transferItemCodeFilter'],
+        contentId: 'transferContent',
+        tableHeader: '<thead><tr class="text-center"><th>Mã hàng</th><th>Số lượng</th><th>Từ vị trí</th><th>Đến vị trí</th><th>Người thực hiện</th><th>Ngày chuyển</th><th>Thao tác</th></tr></thead>',
+        tableBodyId: 'transferTableBody',
+        paginationContainerId: 'transferPaginationContainer',
+        cols: 7,
+        createRowFunc: createTransferRow
+    },
+    adjust: {
+        isComplex: true, // Đánh dấu đây là trường hợp đặc biệt
+        contentId: 'adjustContent',
+        tableHeader: '<thead><tr><th>Lý do / Nguồn gốc</th><th class="text-center">Số mã hàng</th><th class="text-center">Trạng thái</th><th>Người tạo / Xử lý</th><th>Ngày tạo / Xử lý</th><th class="text-center">Thao tác</th></tr></thead>',
+        tableBodyId: 'adjustTableBody',
+        paginationContainerId: 'adjustPaginationContainer',
+        cols: 6,
+        createRowFunc: createAdjustRow
+    }
+};
 
 let itemCodeCache = new Map();
 let unitCache = new Set(['Cái', 'Chiếc', 'Bộ', 'Hộp', 'Thùng', 'Cuộn', 'Tấm', 'Túi', 'Gói', 'Chai', 'Lọ', 'Lon', 'Bao', 'Kg', 'Gam', 'Tấn', 'Mét', 'Cây', 'Thanh', 'Đôi']);
@@ -58,6 +119,9 @@ export async function loadCacheData() {
 
         snapshot.forEach(doc => {
             const data = doc.data();
+            if (data.status === 'archived') {
+                return; // Bỏ qua mã hàng này
+            }
             if (data.code) {
                 itemCodeCache.set(data.code, {
                     name: data.name,
@@ -83,43 +147,68 @@ function forceUIRefresh() {
     return new Promise(resolve => setTimeout(resolve, 0));
 }
 
+// HÀM MỚI ĐÃ SỬA LỖI
 export function initializeWarehouseFunctions() {
-    // Nếu các trình lắng nghe đã được thiết lập, không thực hiện lại.
-    if (listenersInitialized) {
-        return;
-    }
-    document.body.addEventListener('click', function(event) {
+    if (listenersInitialized) return;
+
+    document.body.addEventListener('click', function (event) {
         const target = event.target.closest('button');
         if (!target) return;
-
-        // Xử lý các nút chung
         switch (target.id) {
-            case 'addImportBtn':
-                showImportModal();
-                break;
-            case 'addExportBtn':
-                showExportModal();
-                break;
-            case 'addTransferBtn':
-                showTransferModal();
-                break;
+            case 'addImportBtn': showImportModal(); break;
+            case 'addExportBtn': showExportModal(); break;
+            case 'addTransferBtn': showTransferModal(); break;
         }
     });
 
-    // Các trình lắng nghe được tập trung hóa cho Filter và Excel
-    initializeFilters();
+    // THAY ĐỔI Ở ĐÂY: Gọi hàm mới đã được tái cấu trúc
+    initializeAllFilterListeners();
     initializeExcelFunctions();
-
-    // Đánh dấu là đã khởi tạo để không chạy lại
+    
     listenersInitialized = true;
 }
 
 // Import Section Functions
 export function loadImportSection() {
-    loadImportHistory();
+    initializeRealtimeHistoryTable('import');
 }
 
-// Thay thế hàm này trong warehouse.js
+/**
+ * Gán sự kiện cho tất cả các bộ lọc một lần duy nhất.
+ */
+function initializeAllFilterListeners() {
+    // Cờ để đảm bảo hàm chỉ chạy một lần
+    if (window.allFiltersInitialized) return;
+
+    // Lặp qua tất cả các mục trong cấu hình (import, export, transfer, adjust)
+    Object.keys(historyConfig).forEach(sectionName => {
+        const config = historyConfig[sectionName];
+        
+        // Tạo một hàm xử lý chung cho bộ lọc của section này
+        const handler = () => {
+            // Khi lọc, luôn quay về trang đầu tiên
+            sectionState[sectionName].page = 1; 
+            renderPaginatedHistoryTable(sectionName);
+        };
+
+        // Gán sự kiện cho từng ID filter được định nghĩa trong config
+        config.filterIds?.forEach(id => {
+            const element = document.getElementById(id);
+            if (element) {
+                // Sử dụng sự kiện 'input' cho ô text, 'change' cho các loại khác
+                const eventType = element.type === 'text' ? 'input' : 'change';
+                
+                // Nếu là ô text, dùng debounce để tránh gọi liên tục
+                const listener = eventType === 'input' ? debounce(handler, 500) : handler;
+                
+                element.addEventListener(eventType, listener);
+            }
+        });
+    });
+    
+    // Đánh dấu là đã khởi tạo xong
+    window.allFiltersInitialized = true;
+}
 
 function showImportModal() {
     const lastFocusedElement = document.activeElement;
@@ -149,6 +238,17 @@ function createImportModal() {
     modal.id = 'importModal';
     modal.setAttribute('tabindex', '-1');
 
+    // Tạo các option cho Dãy, Kệ, Tầng
+    const aisleOptions = layoutConfig.aisles.map(a => `<option value="${a}">${a}</option>`).join('');
+    let bayOptions = '';
+    for (let i = 1; i <= layoutConfig.maxBay; i++) {
+        bayOptions += `<option value="${i}">Kệ ${i}</option>`;
+    }
+    let levelOptions = '';
+    for (let i = 1; i <= layoutConfig.maxLevel; i++) {
+        levelOptions += `<option value="${i}">Tầng ${i}</option>`;
+    }
+
     modal.innerHTML = `
         <div class="modal-dialog modal-xl">
             <div class="modal-content">
@@ -164,105 +264,63 @@ function createImportModal() {
                                 <i class="fas fa-file-alt"></i> Thông tin phiếu nhập
                             </div>
                             <div class="row">
-                                <div class="col-md-6">
-                                    <div class="form-group-compact">
-                                        <label class="form-label-compact"><i class="fas fa-hashtag text-primary"></i> Số phiếu nhập <span class="text-danger">*</span></label>
-                                        <input type="text" class="form-control-compact" id="importNumber" required>
-                                    </div>
-                                </div>
-                                <div class="col-md-6">
-                                    <div class="form-group-compact">
-                                        <label class="form-label-compact"><i class="fas fa-truck text-primary"></i> Nhà cung cấp <span class="text-danger">*</span></label>
-                                        <input type="text" class="form-control-compact" id="supplier" required>
-                                    </div>
-                                </div>
+                                <div class="col-md-6"><div class="form-group-compact">
+                                    <label class="form-label-compact"><i class="fas fa-hashtag text-primary"></i> Số phiếu nhập <span class="text-danger">*</span></label>
+                                    <input type="text" class="form-control-compact" id="importNumber" required>
+                                </div></div>
+                                <div class="col-md-6"><div class="form-group-compact">
+                                    <label class="form-label-compact"><i class="fas fa-truck text-primary"></i> Nhà cung cấp <span class="text-danger">*</span></label>
+                                    <input type="text" class="form-control-compact" id="supplier" required>
+                                </div></div>
                             </div>
                         </div>
 
-                        <!-- THÊM MẶT HÀNG - VERSION GỌN GÀNG -->
+                        <!-- THÊM mã hàng - VERSION GỌN GÀNG -->
                         <div class="form-section-compact form-section-collapsible" id="addItemSection">
                             <div class="form-section-header-compact">
-                                <i class="fas fa-plus-circle"></i> Thêm mặt hàng
-                                <button type="button" class="collapse-toggle" onclick="toggleAddItemSection()">
-                                    <i class="fas fa-chevron-up" id="collapseIcon"></i> Thu gọn
-                                </button>
+                                <i class="fas fa-plus-circle"></i> Thêm mã hàng
+                                <button type="button" class="collapse-toggle" onclick="toggleAddItemSection()"><i class="fas fa-chevron-up" id="collapseIcon"></i> Thu gọn</button>
                             </div>
                             <div class="form-section-body">
-                                <div class="row quick-add-row mb-2">
-                                    <div class="col-md-2">
-                                        <label class="form-label-compact"><i class="fas fa-barcode text-primary"></i> Mã hàng *</label>
-                                        <div class="autocomplete-container-compact">
-                                            <input type="text" class="form-control-compact" id="newItemCode" placeholder="Mã hàng..." autocomplete="off">
-                                            <div class="suggestion-dropdown-compact" id="itemCodeSuggestions" style="display: none;"></div>
-                                        </div>
-                                        <div id="itemStatus"></div>
-                                    </div>
-                                    <div class="col-md-2">
-                                        <label class="form-label-compact"><i class="fas fa-tag text-primary"></i> Tên mô tả *</label>
-                                        <input type="text" class="form-control-compact" id="newItemName" placeholder="Tên sản phẩm..." required>
-                                    </div>
-                                    <div class="col-md-2">
-                                        <label class="form-label-compact"><i class="fas fa-sort-numeric-up text-primary"></i> SL *</label>
-                                        <input type="number" class="form-control-compact" id="newItemQuantity" placeholder="0" required min="0" step="1">
-                                    </div>
-                                    <div class="col-md-2">
-                                        <label class="form-label-compact"><i class="fas fa-ruler text-primary"></i> Đơn vị *</label>
-                                        <select class="form-select-compact" id="newItemUnit" required></select>
-                                    </div>
-                                    <div class="col-md-2">
-                                        <label class="form-label-compact"><i class="fas fa-list text-primary"></i> Danh mục *</label>
-                                        <div class="autocomplete-container-compact">
-                                            <input type="text" class="form-control-compact" id="newItemCategory" placeholder="Danh mục..." required autocomplete="off">
-                                            <div class="suggestion-dropdown-compact" id="categorySuggestions" style="display: none;"></div>
-                                        </div>
-                                    </div>
-                                    <div class="col-md-2">
-                                        <label class="form-label-compact"><i class="fas fa-map-marker-alt text-primary"></i> Vị trí *</label>
-                                        <input type="text" class="form-control-compact" id="newItemLocation" placeholder="A1-01" required>
-                                    </div>
-                                </div>
-                                <div class="row align-items-end">
-                                    <div class="col-md-3">
-                                         <div class="d-flex gap-1">
-                                            <button type="button" class="add-unit-btn" onclick="toggleCustomUnitInput()" title="Thêm đơn vị mới"><i class="fas fa-plus"></i> Đơn vị</button>
-                                            <div class="custom-unit-container" id="customUnitContainer" style="display: none;">
-                                                <input type="text" class="form-control-compact" id="customUnitInput" placeholder="Đơn vị mới..." maxlength="20" style="width: 80px;">
-                                                <button type="button" class="btn btn-sm btn-success" onclick="addCustomUnit()" style="height: 32px;"><i class="fas fa-check"></i></button>
+                                <div class="row quick-add-row mb-2 g-2">
+                                    <div class="col-md-3"><label class="form-label-compact"><i class="fas fa-barcode text-primary"></i> Mã hàng *</label><div class="autocomplete-container-compact"><input type="text" class="form-control-compact" id="newItemCode" placeholder="Mã hàng..." autocomplete="off"><div class="suggestion-dropdown-compact" id="itemCodeSuggestions" style="display: none;"></div></div><div id="itemStatus"></div></div>
+                                    <div class="col-md-3"><label class="form-label-compact"><i class="fas fa-tag text-primary"></i> Tên mô tả *</label><input type="text" class="form-control-compact" id="newItemName" placeholder="Tên mã hàng..." required></div>
+                                    <div class="col-md-2"><label class="form-label-compact"><i class="fas fa-sort-numeric-up text-primary"></i> SL *</label><input type="number" class="form-control-compact" id="newItemQuantity" placeholder="0" required min="1" step="1"></div>
+                                    <div class="col-md-2"><label class="form-label-compact"><i class="fas fa-ruler text-primary"></i> Đơn vị *</label><select class="form-select-compact" id="newItemUnit" required></select></div>
+                                    <div class="col-md-2"><label class="form-label-compact"><i class="fas fa-list text-primary"></i> Danh mục *</label><div class="autocomplete-container-compact"><input type="text" class="form-control-compact" id="newItemCategory" placeholder="Danh mục..." required autocomplete="off"><div class="suggestion-dropdown-compact" id="categorySuggestions" style="display: none;"></div></div></div>
+                                    
+                                    <!-- === THAY ĐỔI VỊ TRÍ === -->
+                                    <div class="col-md-9"><label class="form-label-compact"><i class="fas fa-map-marker-alt text-primary"></i> Vị trí *</label>
+                                        <div class="row">
+                                            <div class="col-md-3">
+                                            <small class="form-label">Chọn dãy</small>
+                                                <select class="form-select-compact" id="newItemAisle">${aisleOptions}</select>
+                                            </div>
+                                            <div class="col-md-3">
+                                            <small class="form-label">Chọn kệ</small>
+                                                <select class="form-select-compact" id="newItemBay">${bayOptions}</select>
+                                            </div>
+                                            <div class="col-md-3">
+                                            <small class="form-label">Chọn tầng</small>
+                                                <select class="form-select-compact" id="newItemLevel">${levelOptions}</select>
                                             </div>
                                         </div>
                                     </div>
+                                    <!-- === KẾT THÚC THAY ĐỔI VỊ TRÍ === -->
+
+                                </div>
+                                <div class="row align-items-end mt-2">
+                                    <div class="col-md-3"><div class="d-flex gap-1"><button type="button" class="add-unit-btn" onclick="toggleCustomUnitInput()" title="Thêm đơn vị mới"><i class="fas fa-plus"></i> Đơn vị</button><div class="custom-unit-container" id="customUnitContainer" style="display: none;"><input type="text" class="form-control-compact" id="customUnitInput" placeholder="Đơn vị mới..." maxlength="20" style="width: 80px;"><button type="button" class="btn btn-sm btn-success" onclick="addCustomUnit()" style="height: 32px;"><i class="fas fa-check"></i></button></div></div></div>
                                     <div class="col-md-6"><small class="text-muted"><i class="fas fa-lightbulb"></i> Nhập mã hàng để tự động điền thông tin có sẵn</small></div>
-                                    <div class="col-md-3 text-end">
-                                        <button type="button" class="btn btn-primary btn-sm" onclick="addItemToImportList()"><i class="fas fa-plus"></i> Thêm vào danh sách</button>
-                                    </div>
+                                    <div class="col-md-3 text-end"><button type="button" class="btn btn-primary btn-sm" onclick="addItemToImportList()"><i class="fas fa-plus"></i> Thêm vào danh sách</button></div>
                                 </div>
                             </div>
                         </div>
 
                         <!-- DANH SÁCH HÀNG HÓA -->
                         <div class="form-section-compact">
-                            <div class="form-section-header-compact">
-                                <i class="fas fa-list-ul"></i> Danh sách hàng hóa nhập kho
-                                <span class="badge bg-primary ms-auto" id="itemCountBadge">0 mặt hàng</span>
-                            </div>
-                            <div class="table-responsive">
-                                <table class="table table-bordered table-compact">
-                                    <thead class="table-success">
-                                        <tr class="text-center">
-                                            <th style="width: 12%">Mã hàng</th>
-                                            <th style="width: 25%">Tên mô tả</th>
-                                            <th style="width: 12%">SL</th>
-                                            <th style="width: 12%">Đơn vị</th>
-                                            <th style="width: 12%">Danh mục</th>
-                                            <th style="width: 12%">Vị trí</th>
-                                            <th style="width: 15%">Thao tác</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="importItemsTable">
-                                        <tr id="emptyTableRow"><td colspan="7" class="text-center text-muted py-3"><i class="fas fa-inbox fa-lg mb-1"></i><br><small>Chưa có mặt hàng nào.</small></td></tr>
-                                    </tbody>
-                                </table>
-                            </div>
+                            <div class="form-section-header-compact"><i class="fas fa-list-ul"></i> Danh sách hàng hóa nhập kho<span class="badge bg-primary ms-auto" id="itemCountBadge">0 mã hàng</span></div>
+                            <div class="table-responsive"><table class="table table-bordered table-compact"><thead class="table-success"><tr class="text-center"><th style="width: 12%">Mã hàng</th><th style="width: 25%">Tên mô tả</th><th style="width: 12%">SL</th><th style="width: 12%">Đơn vị</th><th style="width: 12%">Danh mục</th><th style="width: 12%">Vị trí</th><th style="width: 15%">Thao tác</th></tr></thead><tbody id="importItemsTable"><tr id="emptyTableRow"><td colspan="7" class="text-center text-muted py-3"><i class="fas fa-inbox fa-lg mb-1"></i><br><small>Chưa có mã hàng nào.</small></td></tr></tbody></table></div>
                         </div>
                     </form>
                 </div>
@@ -308,6 +366,22 @@ function autoCollapseAfterAdd() {
     }
 }
 
+function updateTableBody(tableBodyId, rows, emptyMessage, colspan) {
+    const tbody = document.getElementById(tableBodyId);
+    if (!tbody) return;
+
+    // Xóa nội dung cũ
+    while (tbody.firstChild) {
+        tbody.removeChild(tbody.firstChild);
+    }
+
+    if (rows.length > 0) {
+        rows.forEach(row => tbody.appendChild(row));
+    } else {
+        tbody.innerHTML = `<tr><td colspan="${colspan}" class="text-center text-muted p-4">${emptyMessage}</td></tr>`;
+    }
+}
+
 function setupImportModalEventListeners() {
     document.getElementById('importNumber')?.addEventListener('input', updateSaveButtonState);
     document.getElementById('supplier')?.addEventListener('input', updateSaveButtonState);
@@ -335,7 +409,7 @@ function suggestImportNumber() {
     document.getElementById('importNumber').placeholder = `Gợi ý: ${suggested}`;
 }
 
-function hideSuggestions(dropdownId) {
+export function hideSuggestions(dropdownId) {
     const dropdown = document.getElementById(dropdownId);
     if (dropdown) dropdown.style.display = 'none';
 }
@@ -364,18 +438,31 @@ window.addCustomUnit = function () {
 };
 
 window.addItemToImportList = function () {
+    // Lấy giá trị từ 3 ô chọn vị trí
+    const aisle = document.getElementById('newItemAisle').value;
+    const bay = document.getElementById('newItemBay').value;
+    const level = document.getElementById('newItemLevel').value;
+
+    if (!aisle || !bay || !level) {
+        return showToast('Vui lòng chọn đầy đủ thông tin vị trí (Dãy, Kệ, Tầng).', 'warning');
+    }
+
+    // Tạo chuỗi vị trí hoàn chỉnh
+    const locationString = `${aisle}${bay}-${level.toString().padStart(2, '0')}`;
+
     const item = {
         code: document.getElementById('newItemCode').value.trim(),
         name: document.getElementById('newItemName').value.trim(),
         quantity: parseInt(document.getElementById('newItemQuantity').value),
         unit: document.getElementById('newItemUnit').value,
         category: document.getElementById('newItemCategory').value.trim(),
-        location: document.getElementById('newItemLocation').value.trim()
+        location: locationString // Sử dụng chuỗi vị trí mới
     };
+
     if (Object.values(item).some(v => !v) || item.quantity <= 0) {
         return showToast('Vui lòng điền đầy đủ thông tin hợp lệ', 'warning');
     }
-    const existingIndex = currentImportItems.findIndex(i => i.code === item.code);
+    const existingIndex = currentImportItems.findIndex(i => i.code === item.code && i.location === item.location);
     if (existingIndex >= 0) {
         currentImportItems[existingIndex].quantity += item.quantity;
     } else {
@@ -453,7 +540,9 @@ function handleItemCodeAutocomplete(event) {
 function clearItemFields() {
     document.getElementById('newItemName').value = '';
     document.getElementById('newItemCategory').value = '';
-    document.getElementById('newItemLocation').value = '';
+    document.getElementById('newItemAisle').selectedIndex = 0;
+    document.getElementById('newItemBay').selectedIndex = 0;
+    document.getElementById('newItemLevel').selectedIndex = 0;
     document.getElementById('newItemUnit').value = '';
 }
 
@@ -485,8 +574,25 @@ function updateItemStatus(type, message) {
 function fillItemFields(itemData) {
     document.getElementById('newItemName').value = itemData.name;
     document.getElementById('newItemCategory').value = itemData.category;
-    document.getElementById('newItemLocation').value = itemData.location;
+    if (itemData.unit && !unitCache.has(itemData.unit)) {
+        unitCache.add(itemData.unit);
+        loadUnitsIntoSelector();
+    }
     document.getElementById('newItemUnit').value = itemData.unit;
+    const locationRegex = /^([A-Z])(\d+)-(\d+)$/;
+    const match = itemData.location.match(locationRegex);
+
+    if (match) {
+        // match[1] là Dãy (A), match[2] là Kệ (1), match[3] là Tầng (02)
+        const aisle = match[1];
+        const bay = parseInt(match[2], 10);
+        const level = parseInt(match[3], 10);
+
+        // Đặt giá trị cho từng ô dropdown
+        document.getElementById('newItemAisle').value = aisle;
+        document.getElementById('newItemBay').value = bay;
+        document.getElementById('newItemLevel').value = level;
+    }
 }
 
 function selectUnit(unit) {
@@ -527,7 +633,7 @@ function updateImportItemsTable() {
             tbody.appendChild(row);
         });
     }
-    document.getElementById('itemCountBadge').textContent = `${currentImportItems.length} mặt hàng`;
+    document.getElementById('itemCountBadge').textContent = `${currentImportItems.length} mã hàng`;
 }
 
 window.editImportItem = function (index) {
@@ -552,7 +658,7 @@ window.editImportItem = function (index) {
 
 window.removeImportItem = async function (index) {
     const item = currentImportItems[index];
-    const confirmed = await showConfirmation('Xóa mặt hàng', `Bạn có chắc muốn xóa "${item.name}"?`, 'Xóa', 'Hủy', 'danger');
+    const confirmed = await showConfirmation('Xóa mã hàng', `Bạn có chắc muốn xóa "${item.name}"?`, 'Xóa', 'Hủy', 'danger');
     if (confirmed) {
         currentImportItems.splice(index, 1);
         updateImportItemsTable();
@@ -563,7 +669,7 @@ window.removeImportItem = async function (index) {
 
 window.saveImport = async function () {
     if (currentImportItems.length === 0) {
-        return showToast('Vui lòng thêm ít nhất một mặt hàng', 'warning');
+        return showToast('Vui lòng thêm ít nhất một mã hàng', 'warning');
     }
     const importNumber = document.getElementById('importNumber').value;
     const supplier = document.getElementById('supplier').value;
@@ -601,8 +707,8 @@ function downloadImportTemplate() {
     const data = [
         // THAY ĐỔI: Thêm cột 'Vị trí'
         ['Mã hàng', 'Tên mô tả', 'Số lượng', 'Đơn vị tính', 'Danh mục', 'Vị trí'],
-        ['SP-NEW-01', 'Sản phẩm mới hoàn toàn', '100', 'Cái', 'Hàng mới', 'C1-01'],
-        ['SP-EXIST-01', 'Sản phẩm đã có tại A1-05', '50', 'Hộp', 'Hàng tiêu dùng', 'A1-05']
+        ['SP-NEW-01', 'Mã hàng mới hoàn toàn', '100', 'Cái', 'Hàng mới', 'C1-01'],
+        ['SP-EXIST-01', 'Mã hàng đã có tại A1-05', '50', 'Hộp', 'Hàng tiêu dùng', 'A1-05']
     ];
     const ws = XLSX.utils.aoa_to_sheet(data);
     // THAY ĐỔI: Cập nhật độ rộng cột
@@ -654,7 +760,7 @@ function handleExcelImport(event) {
 
 /**
  * Hiển thị modal xem trước cho việc nhập từ Excel, và bắt đầu quá trình kiểm tra dữ liệu.
- * @param {Array} items - Danh sách mặt hàng từ file Excel.
+ * @param {Array} items - Danh sách mã hàng từ file Excel.
  */
 function showImportExcelPreviewModal(items) {
     const modal = document.createElement('div');
@@ -741,7 +847,25 @@ async function validateAndDisplayImportItems(items) {
         let statusBadge = '';
         let itemIsValid = true;
         let status = '';
+        let tooltip = ''; // Biến để chứa tooltip thông báo
 
+        // SỬA ĐỔI: Logic cốt lõi nằm ở đây
+        // 1. Kiểm tra nếu mã hàng đã có trong bộ nhớ đệm (database)
+        if (itemCodeCache.has(item.code)) {
+            const existingData = itemCodeCache.get(item.code);
+            
+            // 2. Ghi đè thông tin từ Excel bằng dữ liệu cũ để đảm bảo nhất quán
+            item.name = existingData.name;
+            item.unit = existingData.unit;
+            item.category = existingData.category;
+            
+            status = 'existing_updated';
+            // 3. Hiển thị một huy hiệu khác để người dùng biết dữ liệu đã được tự động sửa
+            statusBadge = `<span class="badge bg-info text-dark">Tồn tại</span>`;
+            tooltip = `data-bs-toggle="tooltip" title="Tên, ĐVT, Danh mục được tự động cập nhật theo dữ liệu hiện có."`;
+        }
+
+        // 4. Tiếp tục các bước kiểm tra như cũ
         if (!item.code || !item.name || !item.unit || !item.category || !item.location) {
             statusBadge = `<span class="badge bg-danger">Lỗi - Thiếu thông tin</span>`;
             itemIsValid = false;
@@ -750,15 +874,13 @@ async function validateAndDisplayImportItems(items) {
             statusBadge = `<span class="badge bg-warning text-dark">Lỗi - SL không hợp lệ</span>`;
             itemIsValid = false;
             row.classList.add('table-warning');
-        }
-
-        if (itemIsValid) {
-            try {
-                // THAY ĐỔI: Tìm kiếm theo cả code VÀ location để xác định duy nhất
+        } else if (status !== 'existing_updated') {
+            // Nếu là mã mới, kiểm tra xem nó đã có ở đúng vị trí đó chưa
+             try {
                 const inventoryQuery = query(
-                    collection(db, 'inventory'), 
-                    where('code', '==', item.code), 
-                    where('location', '==', item.location), 
+                    collection(db, 'inventory'),
+                    where('code', '==', item.code),
+                    where('location', '==', item.location),
                     limit(1)
                 );
                 const snapshot = await getDocs(inventoryQuery);
@@ -766,11 +888,9 @@ async function validateAndDisplayImportItems(items) {
                 if (snapshot.empty) {
                     status = 'new';
                     statusBadge = `<span class="badge bg-primary">Mới</span>`;
-                    row.classList.add('table-primary');
                 } else {
                     status = 'existing';
                     statusBadge = `<span class="badge bg-info">Tồn tại</span>`;
-                    row.classList.add('table-info');
                 }
             } catch (error) {
                 console.error("Error checking item:", item.code, error);
@@ -780,6 +900,12 @@ async function validateAndDisplayImportItems(items) {
             }
         }
         
+        // Cập nhật lại màu sắc cho dòng dựa trên trạng thái cuối cùng
+        if (status === 'new') row.classList.add('table-primary', 'bg-opacity-10');
+        if (status === 'existing' || status === 'existing_updated') row.classList.add('table-info', 'bg-opacity-10');
+
+
+        // 5. Hiển thị dòng với dữ liệu đã được sửa (nếu có)
         row.innerHTML = `
             <td class="text-center">${item.code}</td>
             <td>${item.name}</td>
@@ -787,7 +913,7 @@ async function validateAndDisplayImportItems(items) {
             <td class="text-center">${item.unit}</td>
             <td class="text-center">${item.category}</td>
             <td class="text-center">${item.location}</td>
-            <td class="text-center">${statusBadge}</td>
+            <td class="text-center" ${tooltip}>${statusBadge}</td>
         `;
         tbody.appendChild(row);
 
@@ -799,75 +925,12 @@ async function validateAndDisplayImportItems(items) {
     }
 
     saveBtn.disabled = !allValid || validatedItems.length === 0;
-    window.validatedImportItems = validatedItems; 
-}
+    window.validatedImportItems = validatedItems;
 
-
-function showExcelImportModal(items) {
-    const modal = document.createElement('div');
-    modal.className = 'modal fade';
-    modal.innerHTML = `
-        <div class="modal-dialog modal-xl">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">Xác nhận nhập từ Excel</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body">
-                    <div class="row mb-3">
-                        <div class="col-md-6">
-                            <label class="form-label">Số phiếu nhập</label>
-                            <input type="text" class="form-control" id="excelImportNumber" required>
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">Nhà cung cấp</label>
-                            <input type="text" class="form-control" id="excelSupplier" required>
-                        </div>
-                    </div>
-                    
-                    <div class="table-responsive">
-                        <table class="table table-bordered">
-                            <thead>
-                                <tr>
-                                    <th>Mã hàng</th>
-                                    <th>Tên mô tả</th>
-                                    <th>Đơn vị tính</th>
-                                    <th>Số lượng</th>
-                                    <th>Danh mục</th>
-                                    <th>Vị trí</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                ${items.map(item => `
-                                    <tr>
-                                        <td>${item.code}</td>
-                                        <td>${item.name}</td>
-                                        <td>${item.unit}</td>
-                                        <td>${item.quantity}</td>
-                                        <td>${item.category}</td>
-                                        <td>${item.location}</td>
-                                    </tr>
-                                `).join('')}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy</button>
-                    <button type="button" class="btn btn-primary" onclick="saveExcelImport(${JSON.stringify(items).replace(/"/g, '&quot;')})">
-                        Xác nhận nhập kho
-                    </button>
-                </div>
-            </div>
-        </div>
-    `;
-
-    document.body.appendChild(modal);
-    const bsModal = new bootstrap.Modal(modal);
-    bsModal.show();
-
-    modal.addEventListener('hidden.bs.modal', () => {
-        modal.remove();
+    // Kích hoạt tooltip cho các dòng được cập nhật
+    const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+    tooltipTriggerList.map(function (tooltipTriggerEl) {
+        return new bootstrap.Tooltip(tooltipTriggerEl);
     });
 }
 
@@ -879,24 +942,33 @@ window.saveExcelImport = async function () {
         showToast('Vui lòng điền Số phiếu nhập và Nhà cung cấp', 'warning');
         return;
     }
-    
+
     // Lấy dữ liệu đã được kiểm tra từ biến window
     const itemsToImport = window.validatedImportItems;
     if (!itemsToImport || itemsToImport.length === 0) {
-        showToast('Không có mặt hàng hợp lệ để nhập kho', 'warning');
+        showToast('Không có mã hàng hợp lệ để nhập kho', 'warning');
         return;
     }
 
     try {
         const batch = writeBatch(db);
+        const itemsWithQcStatus = itemsToImport.map(item => ({
+            code: item.code,
+            name: item.name,
+            quantity: item.quantity,
+            unit: item.unit,
+            category: item.category,
+            location: item.location,
+            qc_status: 'pending'
+        }));
 
-        // Tạo transaction log
+        // BƯỚC 2: Chỉ tạo một bản ghi giao dịch duy nhất
         const importDocRef = doc(collection(db, 'transactions'));
         batch.set(importDocRef, {
             type: 'import',
             importNumber: importNumber,
             supplier: supplier,
-            items: itemsToImport, // Lưu danh sách đầy đủ
+            items: itemsWithQcStatus,
             performedBy: currentUser.uid,
             performedByName: currentUser.name,
             date: serverTimestamp(),
@@ -904,205 +976,24 @@ window.saveExcelImport = async function () {
             source: 'excel'
         });
 
-        // Cập nhật hoặc tạo mới trong kho
-        for (const item of itemsToImport) {
-            if (item.status === 'new') {
-                // Tạo mới sản phẩm trong kho
-                const newInventoryDoc = doc(collection(db, 'inventory'));
-                batch.set(newInventoryDoc, {
-                    code: item.code,
-                    name: item.name,
-                    unit: item.unit,
-                    quantity: item.quantity,
-                    category: item.category,
-                    location: item.location,
-                    createdAt: serverTimestamp()
-                });
-            } else if (item.status === 'existing') {
-                // Cập nhật sản phẩm đã có
-                const q = query(collection(db, 'inventory'), where('code', '==', item.code), limit(1));
-                const snapshot = await getDocs(q); // Phải query lại trong batch
-                if (!snapshot.empty) {
-                    const inventoryDocRef = snapshot.docs[0].ref;
-                    batch.update(inventoryDocRef, {
-                        quantity: increment(item.quantity),
-                        name: item.name, // Cập nhật cả thông tin khác nếu cần
-                        unit: item.unit,
-                        category: item.category,
-                        location: item.location
-                    });
-                }
-            }
-        }
-
         await batch.commit();
 
-        showToast('Nhập kho từ Excel thành công!', 'success');
-        
+        // **FIX:** Cập nhật thông báo thành công cho đúng quy trình
+        showToast('Tạo phiếu nhập từ Excel thành công! Phiếu đang chờ QC.', 'success');
+
         const modal = document.getElementById('importExcelPreviewModal');
         if (modal) {
-           bootstrap.Modal.getInstance(modal).hide();
+            bootstrap.Modal.getInstance(modal).hide();
         }
-        
+
+        // Tải lại lịch sử để thấy phiếu mới
         loadImportHistory();
 
     } catch (error) {
-        console.error('Error saving Excel import:', error);
+        console.error('Lỗi khi lưu phiếu nhập từ Excel:', error);
         showToast('Lỗi lưu phiếu nhập từ Excel', 'danger');
     }
 };
-
-async function loadImportHistory(useFilter = false) {
-    // Nếu có một trình lắng nghe cũ đang chạy, hãy hủy nó đi để tránh rò rỉ bộ nhớ
-    if (unsubscribeImportHistory) {
-        unsubscribeImportHistory();
-    }
-
-    try {
-        let constraints = [where('type', '==', 'import')];
-
-        // Việc lọc theo ngày và theo loại vẫn thực hiện trên server
-        if (useFilter) {
-            const fromDate = document.getElementById('importFromDate')?.value;
-            const toDate = document.getElementById('importToDate')?.value;
-            if (fromDate) constraints.push(where('timestamp', '>=', new Date(fromDate)));
-            if (toDate) {
-                const endDate = new Date(toDate);
-                endDate.setHours(23, 59, 59, 999);
-                constraints.push(where('timestamp', '<=', endDate));
-            }
-        }
-
-        constraints.push(orderBy('timestamp', 'desc'));
-        const importsQuery = query(collection(db, 'transactions'), ...constraints);
-        unsubscribeImportHistory = onSnapshot(importsQuery, (snapshot) => {
-            let docs = snapshot.docs;
-            
-            // Logic lọc trên client vẫn giữ nguyên
-            if (useFilter) {
-                const itemCodeFilter = document.getElementById('importItemCodeFilter')?.value.toLowerCase();
-                const statusFilter = document.getElementById('importStatusFilter')?.value;
-
-                docs = docs.filter(doc => {
-                    const data = doc.data();
-                    let itemCodeMatch = true;
-                    let statusMatch = true;
-
-                    if (itemCodeFilter) {
-                        itemCodeMatch = data.items?.some(item => item.code?.toLowerCase().includes(itemCodeFilter));
-                    }
-
-                    if (statusFilter) {
-                        const hasFailed = data.items?.some(item => item.qc_status === 'failed');
-                        const hasPending = data.items?.some(item => item.qc_status === 'pending');
-                        if (statusFilter === 'failed') statusMatch = hasFailed;
-                        else if (statusFilter === 'pending') statusMatch = hasPending && !hasFailed;
-                        else if (statusFilter === 'completed') statusMatch = !hasPending && !hasFailed;
-                    }
-                    return itemCodeMatch && statusMatch;
-                });
-            }
-
-            const content = document.getElementById('importContent');
-            if (!content) return; // Nếu người dùng đã chuyển tab, không làm gì cả
-
-            if (docs.length === 0) {
-                content.innerHTML = '<p class="text-muted">Không tìm thấy phiếu nhập nào.</p>';
-                return;
-            }
-            createImportPagination(docs, content);
-        }, (error) => {
-            console.error("Lỗi lắng nghe lịch sử nhập kho:", error);
-            showToast("Lỗi kết nối thời gian thực đến dữ liệu nhập kho.", 'danger');
-        });
-
-    } catch (error) {
-        console.error('Lỗi thiết lập lắng nghe nhập kho:', error);
-        showToast('Lỗi thiết lập bộ lọc nhập kho.', 'danger');
-    }
-}
-
-// Thay thế hàm này trong warehouse.js
-function createImportPagination(allData, container) {
-    let currentPage = 1;
-    const itemsPerPage = 15;
-    const totalPages = Math.ceil(allData.length / itemsPerPage);
-
-    function renderPage(page) {
-        const startIndex = (page - 1) * itemsPerPage;
-        const endIndex = Math.min(startIndex + itemsPerPage, allData.length);
-        const pageData = allData.slice(startIndex, endIndex);
-
-        const table = document.createElement('table');
-        table.className = 'table table-striped table-compact';
-        table.innerHTML = `
-            <thead>
-                <tr class="text-center">
-                    <th>Số phiếu</th><th>Nhà cung cấp</th><th>Số mặt hàng</th>
-                    <th>Người thực hiện</th><th>Ngày nhập</th><th>Thao tác</th>
-                </tr>
-            </thead>
-            <tbody></tbody>
-        `;
-
-        const tbody = table.querySelector('tbody');
-
-        pageData.forEach(doc => {
-            const data = doc.data();
-            const row = document.createElement('tr');
-
-            // --- BẮT ĐẦU LOGIC TÔ MÀU MỚI ---
-            const hasFailed = data.items?.some(item => item.qc_status === 'failed');
-            const hasPending = data.items?.some(item => item.qc_status === 'pending');
-
-            if (hasFailed) {
-                // Ưu tiên cao nhất: Nếu có bất kỳ mặt hàng nào 'failed', tô màu đỏ.
-                row.classList.add('table-danger');
-            } else if (hasPending) {
-                // Nếu không có 'failed' nhưng có 'pending', tô màu vàng.
-                row.classList.add('table-warning');
-            }
-            // Nếu không rơi vào 2 trường hợp trên, phiếu sẽ không có màu (hoàn thành).
-            // --- KẾT THÚC LOGIC TÔ MÀU MỚI ---
-
-            const date = data.timestamp ? data.timestamp.toDate().toLocaleDateString('vi-VN') : 'N/A';
-            
-            let actionButtons = `<button class="btn btn-info btn-sm me-1" onclick="viewImportDetails('${doc.id}')"><i class="fas fa-eye"></i> Xem</button>`;
-
-            if (userRole === 'super_admin') {
-                actionButtons += `
-                    <button class="btn btn-warning btn-sm me-1" onclick="editImportTransaction('${doc.id}')"><i class="fas fa-edit"></i> Sửa</button>
-                    <button class="btn btn-danger btn-sm" onclick="deleteImportTransaction('${doc.id}')"><i class="fas fa-trash"></i> Xóa</button>
-                `;
-            }
-
-            row.innerHTML = `
-                <td class="text-center">${data.importNumber}</td><td class="text-center">${data.supplier}</td>
-                <td class="text-center">${data.items?.length || 0}</td><td class="text-center">${data.performedByName}</td>
-                <td class="text-center">${date}</td><td class="text-center">${actionButtons}</td>
-            `;
-
-            tbody.appendChild(row);
-        });
-
-        // Phần tạo phân trang giữ nguyên...
-        const paginationContainer = document.createElement('div');
-        paginationContainer.className = 'd-flex justify-content-between align-items-center mt-3';
-        paginationContainer.innerHTML = `
-            <small class="text-muted">Hiển thị ${startIndex + 1} - ${endIndex} của ${allData.length} kết quả</small>
-            <nav aria-label="Import pagination"><ul class="pagination pagination-sm mb-0" id="importPagination"></ul></nav>
-        `;
-
-        container.innerHTML = '';
-        container.appendChild(table);
-        container.appendChild(paginationContainer);
-
-        updatePaginationControls(page, totalPages, 'importPagination', renderPage);
-    }
-
-    renderPage(1);
-}
-
 
 // Thay thế hàm này trong warehouse.js
 window.viewImportDetails = async function (transactionId) {
@@ -1111,7 +1002,7 @@ window.viewImportDetails = async function (transactionId) {
         if (existingModal) {
             bootstrap.Modal.getInstance(existingModal)?.hide();
         }
-        
+
         const docSnap = await getDoc(doc(db, 'transactions', transactionId));
         if (!docSnap.exists()) {
             showToast('Không tìm thấy phiếu nhập', 'danger');
@@ -1122,7 +1013,7 @@ window.viewImportDetails = async function (transactionId) {
         const modal = createImportDetailsModal(transactionId, data);
         document.body.appendChild(modal);
         const bsModal = new bootstrap.Modal(modal);
-        
+
         // *** FIX: Lắng nghe sự kiện khi modal được đóng ***
         // Khi người dùng đóng modal này, nó sẽ tự động tải lại bảng lịch sử nhập kho
         modal.addEventListener('hidden.bs.modal', () => {
@@ -1143,47 +1034,24 @@ function createImportDetailsModal(transactionId, data) {
     modal.id = 'importDetailsModal';
     modal.className = 'modal fade';
 
-    // --- Prepare data for display ---
     const date = data.timestamp ? data.timestamp.toDate().toLocaleString('vi-VN') : 'N/A';
     const totalItems = data.items?.length || 0;
     const totalQuantity = data.items?.reduce((sum, item) => sum + (item.quantity || 0), 0) || 0;
-    
-    // Determine the overall status of the slip
+
     const hasFailed = data.items?.some(item => item.qc_status === 'failed');
     const hasPending = data.items?.some(item => item.qc_status === 'pending');
-    
+
     let alertHtml = '';
-    let headerClass = 'modal-header bg-success text-white'; // Default to success
-    
+    let headerClass = 'modal-header bg-success text-white';
+
     if (hasFailed) {
         headerClass = 'modal-header bg-danger text-white';
-        alertHtml = `
-            <div class="alert alert-danger d-flex align-items-center mb-4">
-                <i class="fas fa-exclamation-triangle fa-2x me-3"></i>
-                <div>
-                    <strong>Có hàng không đạt chất lượng</strong><br>
-                    <small>Một hoặc nhiều mặt hàng đã bị QC từ chối. Hàng này chưa được nhập vào kho.</small>
-                </div>
-            </div>`;
+        alertHtml = `<div class="alert alert-danger d-flex align-items-center mb-4"><i class="fas fa-exclamation-triangle fa-2x me-3"></i><div><strong>Có hàng không đạt chất lượng</strong><br><small>Một hoặc nhiều mã hàng đã bị QC từ chối. Hàng này chưa được nhập vào kho.</small></div></div>`;
     } else if (hasPending) {
         headerClass = 'modal-header bg-warning text-dark';
-        alertHtml = `
-            <div class="alert alert-warning d-flex align-items-center mb-4">
-                <i class="fas fa-clock fa-2x me-3"></i>
-                <div>
-                    <strong>Phiếu đang chờ xử lý QC</strong><br>
-                    <small>Các mặt hàng cần được QC kiểm tra trước khi được nhập vào kho.</small>
-                </div>
-            </div>`;
-    } else { // All passed or replaced
-        alertHtml = `
-            <div class="alert alert-success d-flex align-items-center mb-4">
-                <i class="fas fa-check-circle fa-2x me-3"></i>
-                <div>
-                    <strong>Nhập kho thành công</strong><br>
-                    <small>Tất cả các mặt hàng đã được kiểm tra và nhập vào kho.</small>
-                </div>
-            </div>`;
+        alertHtml = `<div class="alert alert-warning d-flex align-items-center mb-4"><i class="fas fa-clock fa-2x me-3"></i><div><strong>Phiếu đang chờ xử lý QC</strong><br><small>Các mã hàng cần được QC kiểm tra trước khi được nhập vào kho.</small></div></div>`;
+    } else {
+        alertHtml = `<div class="alert alert-success d-flex align-items-center mb-4"><i class="fas fa-check-circle fa-2x me-3"></i><div><strong>Nhập kho thành công</strong><br><small>Tất cả các mã hàng đã được kiểm tra và nhập vào kho.</small></div></div>`;
     }
 
     modal.innerHTML = `
@@ -1196,14 +1064,12 @@ function createImportDetailsModal(transactionId, data) {
                 <div class="modal-body">
                     ${alertHtml}
                     <div class="row mb-3 theme-aware-info-box">
-                        <div class="col-12 mb-2">
-                             <span class="badge bg-success"><i class="fas fa-download"></i> Phiếu nhập kho</span>
-                        </div>
+                        <div class="col-12 mb-2"><span class="badge bg-success"><i class="fas fa-download"></i> Phiếu nhập kho</span></div>
                         <div class="col-md-6"><strong>Số phiếu:</strong> ${data.importNumber}</div>
                         <div class="col-md-6"><strong>Nhà cung cấp:</strong> ${data.supplier}</div>
                         <div class="col-md-6"><strong>Người tạo phiếu:</strong> ${data.performedByName}</div>
                         <div class="col-md-6"><strong>Ngày tạo:</strong> ${date}</div>
-                        <div class="col-md-6"><strong>Tổng số mặt hàng:</strong> ${totalItems}</div>
+                        <div class="col-md-6"><strong>Tổng số mã hàng:</strong> ${totalItems}</div>
                         <div class="col-md-6"><strong>Tổng số lượng:</strong> ${totalQuantity}</div>
                     </div>
                     
@@ -1216,64 +1082,59 @@ function createImportDetailsModal(transactionId, data) {
                                     <th>Tên mô tả</th>
                                     <th>Số lượng</th>
                                     <th>Vị trí</th>
-                                    <th>Trạng thái QC</th>
+                                    <th>Trạng thái & Người QC</th>
                                     ${userRole === 'qc' ? '<th>Hành động</th>' : ''}
                                 </tr>
                             </thead>
                             <tbody>
                                 ${data.items?.map((item, index) => {
-                                    let locationDisplay, statusDisplay, actionButtons = '';
-                                    
-                                    switch(item.qc_status) {
-                                        case 'passed':
-                                            locationDisplay = `<span class="badge bg-success">${item.location}</span>`;
-                                            statusDisplay = `<span class="badge bg-success"><i class="fas fa-check-circle"></i> Đạt</span>`;
-                                            break;
-                                        case 'failed':
-                                            locationDisplay = `<span class="badge bg-danger">Chưa nhập</span>`;
-                                            statusDisplay = `<span class="badge bg-danger"><i class="fas fa-times-circle"></i> Không đạt</span>`;
-                                            if (userRole === 'qc') {
-                                                actionButtons = `<small class="text-muted">Đã đánh dấu</small>`;
-                                            }
-                                            break;
-                                        case 'replaced':
-                                            locationDisplay = `<span class="badge bg-secondary">Đã xử lý</span>`;
-                                            statusDisplay = `<span class="badge bg-secondary"><i class="fas fa-sync-alt"></i> Đã giao bù</span>`;
-                                            break;
-                                        default: // 'pending'
-                                            locationDisplay = `<span class="badge bg-secondary">Chờ QC</span>`;
-                                            statusDisplay = `<span class="badge bg-warning text-dark"><i class="fas fa-clock"></i> Chờ duyệt</span>`;
-                                            if (userRole === 'qc') {
-                                                actionButtons = `
-                                                    <button class="btn btn-sm btn-success me-1" onclick="approveQcItem('${transactionId}', ${index})"><i class="fas fa-check"></i> Đạt</button>
-                                                    <button class="btn btn-sm btn-danger" onclick="rejectQcItem('${transactionId}', ${index})"><i class="fas fa-times"></i> Không đạt</button>
-                                                `;
-                                            }
-                                            break;
-                                    }
+        // THÊM MỚI: Chuẩn bị HTML cho tên người QC
+        const qcByNameHtml = item.qc_by_name ? `<small class="text-muted d-block">bởi: ${item.qc_by_name}</small>` : '';
+        let locationDisplay, statusDisplay, actionButtons = '';
 
-                                    return `
-                                        <tr data-index="${index}">
-                                            <td class="text-center"><strong>${item.code}</strong></td>
-                                            <td>${item.name}</td>
-                                            <td class="text-center">${item.quantity}</td>
-                                            <td class="text-center qc-location">${locationDisplay}</td>
-                                            <td class="text-center qc-status">${statusDisplay}</td>
-                                            ${userRole === 'qc' ? `<td class="text-center qc-actions">${actionButtons}</td>` : ''}
-                                        </tr>
-                                    `;
-                                }).join('') || '<tr><td colspan="6" class="text-center">Không có dữ liệu</td></tr>'}
+        switch (item.qc_status) {
+            case 'passed':
+                locationDisplay = `<span class="badge bg-success">${item.location}</span>`;
+                // SỬA LẠI: Bọc trong div và thêm tên người QC
+                statusDisplay = `<div><span class="badge bg-success"><i class="fas fa-check-circle"></i> Đạt</span>${qcByNameHtml}</div>`;
+                break;
+            case 'failed':
+                locationDisplay = `<span class="badge bg-danger">Chưa nhập</span>`;
+                // SỬA LẠI: Bọc trong div và thêm tên người QC
+                statusDisplay = `<div><span class="badge bg-danger"><i class="fas fa-times-circle"></i> Không đạt</span>${qcByNameHtml}</div>`;
+                if (userRole === 'qc') {
+                    actionButtons = `<small class="text-muted">Đã đánh dấu</small>`;
+                }
+                break;
+            case 'replaced':
+                locationDisplay = `<span class="badge bg-secondary">Đã xử lý</span>`;
+                statusDisplay = `<span class="badge bg-secondary"><i class="fas fa-sync-alt"></i> Đã giao bù</span>`;
+                break;
+            default: // 'pending'
+                locationDisplay = `<span class="badge bg-secondary">Chờ QC</span>`;
+                statusDisplay = `<span class="badge bg-warning text-dark"><i class="fas fa-clock"></i> Chờ duyệt</span>`;
+                if (userRole === 'qc') {
+                    actionButtons = `<button class="btn btn-sm btn-success me-1" onclick="approveQcItem('${transactionId}', ${index})"><i class="fas fa-check"></i> Đạt</button><button class="btn btn-sm btn-danger" onclick="rejectQcItem('${transactionId}', ${index})"><i class="fas fa-times"></i> Không đạt</button>`;
+                }
+                break;
+        }
+
+        return `<tr data-index="${index}">
+                    <td class="text-center"><strong>${item.code}</strong></td>
+                    <td>${item.name}</td>
+                    <td class="text-center">${item.quantity}</td>
+                    <td class="text-center qc-location">${locationDisplay}</td>
+                    <td class="text-center qc-status">${statusDisplay}</td>
+                    ${userRole === 'qc' ? `<td class="text-center qc-actions">${actionButtons}</td>` : ''}
+                </tr>`;
+    }).join('') || '<tr><td colspan="6" class="text-center">Không có dữ liệu</td></tr>'}
                             </tbody>
                         </table>
                     </div>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-info" id="replacementBtn" onclick="startReplacementProcess('${transactionId}')" style="display: ${hasFailed ? 'inline-block' : 'none'}">
-                        <i class="fas fa-sync-alt"></i> NCC đã giao bù hàng
-                    </button>
-                    <button type="button" class="btn btn-primary" onclick="printTransactionSlip('${transactionId}', 'import')">
-                        <i class="fas fa-print"></i> In phiếu
-                    </button>
+                    <button type="button" class="btn btn-info" id="replacementBtn" onclick="startReplacementProcess('${transactionId}')" style="display: ${hasFailed ? 'inline-block' : 'none'}"><i class="fas fa-sync-alt"></i> NCC đã giao bù hàng</button>
+                    <button type="button" class="btn btn-primary" onclick="printTransactionSlip('${transactionId}', 'import')"><i class="fas fa-print"></i> In phiếu</button>
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Đóng</button>
                 </div>
             </div>
@@ -1282,7 +1143,8 @@ function createImportDetailsModal(transactionId, data) {
     return modal;
 }
 
-window.printTransactionSlip = async function(transactionId, type) {
+
+window.printTransactionSlip = async function (transactionId, type) {
     try {
         const docRef = doc(db, 'transactions', transactionId);
         const docSnap = await getDoc(docRef);
@@ -1315,8 +1177,8 @@ async function generatePdfForTransaction(data, type) {
         console.warn("Không thể tải font tùy chỉnh, PDF có thể hiển thị lỗi font. Lỗi: ", error);
         // Nếu không tải được, jsPDF sẽ dùng font mặc định
     }
-    
-     doc.setFontSize(10);
+
+    doc.setFontSize(10);
     doc.text(companyInfo.name.toUpperCase() || 'TÊN CÔNG TY', 14, 15);
     doc.setFontSize(9);
     doc.text(`Địa chỉ: ${companyInfo.address || 'ĐỊA CHỈ CÔNG TY'}`, 14, 20);
@@ -1343,7 +1205,7 @@ async function generatePdfForTransaction(data, type) {
     doc.text(data.performedByName, 50, 62);
 
     // --- Table ---
-    const tableColumn = ["STT", "Mã hàng", "Tên sản phẩm", "ĐVT", "Số lượng"];
+    const tableColumn = ["STT", "Mã hàng", "Tên mã hàng", "ĐVT", "Số lượng"];
     const tableRows = [];
 
     data.items.forEach((item, index) => {
@@ -1385,7 +1247,7 @@ async function generatePdfForTransaction(data, type) {
 
 // Export Section Functions
 export function loadExportSection() {
-    loadExportHistory();
+    initializeRealtimeHistoryTable('export');
 }
 
 function showExportModal() {
@@ -1441,10 +1303,10 @@ function createExportModal() {
                             </div>
                         </div>
 
-                        <!-- THÊM MẶT HÀNG (GIAO DIỆN GIỐNG NHẬP KHO) -->
+                        <!-- THÊM mã hàng (GIAO DIỆN GIỐNG NHẬP KHO) -->
                         <div class="form-section-compact form-section-collapsible" id="addExportItemSection">
                             <div class="form-section-header-compact" style="color: #ffc107;">
-                                <i class="fas fa-plus-circle"></i> Thêm mặt hàng
+                                <i class="fas fa-plus-circle"></i> Thêm mã hàng
                                 <button type="button" class="collapse-toggle" onclick="toggleExportItemSection()">
                                     <i class="fas fa-chevron-up" id="exportCollapseIcon"></i> Thu gọn
                                 </button>
@@ -1480,7 +1342,7 @@ function createExportModal() {
                                     <input type="hidden" id="exportItemUnit">
                                 </div>
                                 <div class="row align-items-end">
-                                    <div class="col-md-9"><small class="text-muted"><i class="fas fa-lightbulb"></i> Tìm sản phẩm, chọn vị trí (nếu cần), sau đó nhập số lượng.</small></div>
+                                    <div class="col-md-9"><small class="text-muted"><i class="fas fa-lightbulb"></i> Tìm mã hàng, chọn vị trí (nếu cần), sau đó nhập số lượng.</small></div>
                                     <div class="col-md-3 text-end">
                                         <button type="button" class="btn btn-warning btn-sm text-dark" onclick="addExportItem()">
                                             <i class="fas fa-plus"></i> Thêm vào danh sách
@@ -1494,7 +1356,7 @@ function createExportModal() {
                         <div class="form-section-compact">
                             <div class="form-section-header-compact" style="color: #ffc107;">
                                 <i class="fas fa-list-check"></i> Danh sách hàng hóa xuất kho
-                                <span class="badge bg-warning text-dark ms-auto" id="exportItemCountBadge">0 mặt hàng</span>
+                                <span class="badge bg-warning text-dark ms-auto" id="exportItemCountBadge">0 mã hàng</span>
                             </div>
                             <div class="table-responsive">
                                 <table class="table table-bordered table-compact">
@@ -1542,7 +1404,7 @@ function suggestExportNumber() {
 function createLocationCard(docId, data, targetPrefix) {
     const card = document.createElement('div');
     card.className = 'col-md-6 mb-3';
-    
+
     // Xác định hàm sẽ được gọi khi click
     let clickHandler = '';
     if (targetPrefix === 'transfer') {
@@ -1619,7 +1481,7 @@ function fillDirectAdjustDetails(docId, data) {
     updateDirectAdjustmentCalculation();
 }
 
-// Thay thế hàm này trong warehouse.js
+// HÀM MỚI ĐÃ SỬA LỖI
 window.saveDirectAdjust = async function () {
     if (userRole !== 'super_admin') {
         showToast('Chỉ Super Admin mới có quyền chỉnh số trực tiếp', 'danger');
@@ -1628,13 +1490,13 @@ window.saveDirectAdjust = async function () {
 
     try {
         const inventoryId = document.getElementById('directAdjustInventoryId').value;
-        const currentQuantity = parseInt(document.getElementById('directAdjustCurrentStock').value) || 0;
+        const currentStockInput = document.getElementById('directAdjustCurrentStock').value;
+        const currentQuantity = parseInt(currentStockInput) || 0;
         const newQuantityStr = document.getElementById('directAdjustNewQuantity').value;
         const reason = document.getElementById('directAdjustReason').value.trim();
 
-        // Validation (giữ nguyên)
         if (!inventoryId) {
-            showToast('Vui lòng chọn một sản phẩm hợp lệ từ danh sách gợi ý.', 'warning');
+            showToast('Vui lòng chọn một mã hàng hợp lệ từ danh sách gợi ý.', 'warning');
             return;
         }
         if (newQuantityStr === '' || isNaN(parseInt(newQuantityStr))) {
@@ -1671,17 +1533,19 @@ window.saveDirectAdjust = async function () {
         const inventoryData = inventorySnap.data();
         const batch = writeBatch(db);
 
-        // Update inventory quantity
         batch.update(inventoryRef, { quantity: newQuantity });
 
-        // --- SỬA LỖI: Gói thông tin vào một mảng 'items' ---
+        // --- SỬA LỖI Ở ĐÂY ---
+        // Gói toàn bộ thông tin chi tiết của mã hàng vào một mảng tên là "items",
+        // để có cùng cấu trúc với các yêu cầu chỉnh số được duyệt.
         const transactionRef = doc(collection(db, 'transactions'));
         batch.set(transactionRef, {
             type: 'adjust',
-            subtype: 'direct', // Đánh dấu là chỉnh số trực tiếp
+            subtype: 'direct', 
             reason: reason,
             items: [ // Bọc thông tin chi tiết vào một mảng
                 {
+                    inventoryId: inventoryId, // Lưu lại ID để dễ truy vết
                     itemCode: inventoryData.code,
                     itemName: inventoryData.name,
                     location: inventoryData.location,
@@ -1704,7 +1568,8 @@ window.saveDirectAdjust = async function () {
         if (modal) {
             bootstrap.Modal.getInstance(modal).hide();
         }
-        
+
+        // Tải lại dữ liệu của tab chỉnh số
         loadAdjustData();
 
     } catch (error) {
@@ -1712,58 +1577,6 @@ window.saveDirectAdjust = async function () {
         showToast('Lỗi nghiêm trọng khi chỉnh số trực tiếp.', 'danger');
     }
 };
-
-// Thay thế hàm này trong warehouse.js
-async function loadDirectAdjustHistory(useFilter = false) {
-    if (unsubscribeAdjustHistory) {
-        unsubscribeAdjustHistory();
-    }
-
-    try {
-        let constraints = [where('type', '==', 'adjust')];
-        if (useFilter) {
-            const fromDate = document.getElementById('adjustFromDate')?.value;
-            const toDate = document.getElementById('adjustToDate')?.value;
-            if (fromDate) constraints.push(where('timestamp', '>=', new Date(fromDate)));
-            if (toDate) {
-                const endDate = new Date(toDate);
-                endDate.setHours(23, 59, 59, 999);
-                constraints.push(where('timestamp', '<=', endDate));
-            }
-        }
-        constraints.push(orderBy('timestamp', 'desc'));
-        const adjustsQuery = query(collection(db, 'transactions'), ...constraints);
-
-        unsubscribeAdjustHistory = onSnapshot(adjustsQuery, (snapshot) => {
-            let docs = snapshot.docs;
-            if (useFilter) {
-                const itemCodeFilter = document.getElementById('adjustItemCodeFilter')?.value.toLowerCase();
-                if (itemCodeFilter) {
-                    // Cập nhật để tìm trong mảng items
-                    docs = docs.filter(doc => 
-                        doc.data().items?.some(item => item.itemCode?.toLowerCase().includes(itemCodeFilter))
-                    );
-                }
-            }
-
-            const content = document.getElementById('adjustContent');
-            if (!content) return;
-            if (docs.length === 0) {
-                // Thêm một div rỗng để giữ cấu trúc
-                content.innerHTML += '<div id="adjustTableContainer"><p class="text-muted">Không tìm thấy phiếu chỉnh số nào.</p></div>';
-                return;
-            }
-            // SỬA LỖI: Gọi đúng hàm createAdjustPagination
-            renderAdjustTable(docs.map(doc => ({ id: doc.id, ...doc.data(), dataType: 'transaction' })));
-
-        }, (error) => {
-            console.error("Lỗi lắng nghe lịch sử chỉnh số:", error);
-        });
-    } catch (error) {
-        console.error('Lỗi thiết lập lắng nghe chỉnh số:', error);
-    }
-}
-
 
 // === EDIT ADJUST TRANSACTION ===
 window.editAdjustTransaction = async function (transactionId) {
@@ -1823,7 +1636,7 @@ function createEditAdjustModal(transactionId, data) {
                     </div>
                     
                     <form id="editAdjustForm">
-                        <!-- THÔNG TIN SẢN PHẨM -->
+                        <!-- THÔNG TIN mã hàng -->
                         <div class="row mb-3 p-3 theme-aware-inset-box rounded">
                             <div class="col-md-6">
                                 <strong>Mã hàng:</strong> ${data.itemCode}
@@ -2098,6 +1911,8 @@ function setupExportModalEventListeners() {
     suggestExportNumber();
 }
 
+// warehouse.js
+
 async function handleExportItemSearch(event) {
     const searchTerm = event.target.value.trim();
     const suggestionsContainer = document.getElementById('exportItemSuggestions');
@@ -2106,22 +1921,26 @@ async function handleExportItemSearch(event) {
     if (searchTerm.length < 2) return;
 
     try {
-        const codeQuery = query(collection(db, 'inventory'), where('code', '>=', searchTerm.toUpperCase()), where('code', '<=', searchTerm.toUpperCase() + '\uf8ff'), where('quantity', '>', 0), limit(5));
-        const nameQuery = query(collection(db, 'inventory'), where('name', '>=', searchTerm), where('name', '<=', searchTerm + '\uf8ff'), where('quantity', '>', 0), limit(5));
-        
+        // BỎ ĐIỀU KIỆN LỌC 'status' KHỎI CÂU TRUY VẤN
+        const codeQuery = query(collection(db, 'inventory'), where('quantity', '>', 0), where('code', '>=', searchTerm.toUpperCase()), where('code', '<=', searchTerm.toUpperCase() + '\uf8ff'), limit(10));
+        const nameQuery = query(collection(db, 'inventory'), where('quantity', '>', 0), where('name', '>=', searchTerm), where('name', '<=', searchTerm + '\uf8ff'), limit(10));
+
         const [codeSnapshot, nameSnapshot] = await Promise.all([getDocs(codeQuery), getDocs(nameQuery)]);
         const resultsMap = new Map();
-        
+
         codeSnapshot.forEach(doc => resultsMap.set(doc.id, { id: doc.id, ...doc.data() }));
         nameSnapshot.forEach(doc => resultsMap.set(doc.id, { id: doc.id, ...doc.data() }));
 
-        const finalResults = Array.from(resultsMap.values());
-        if (finalResults.length === 0) {
+        // THÊM: Lọc kết quả trên client
+        const activeResults = Array.from(resultsMap.values())
+            .filter(item => item.status !== 'archived');
+
+        if (activeResults.length === 0) {
             suggestionsContainer.style.display = 'none';
             return;
         }
 
-        suggestionsContainer.innerHTML = finalResults.map(item => {
+        suggestionsContainer.innerHTML = activeResults.map(item => {
             const itemJsonString = JSON.stringify(item).replace(/'/g, "\\'");
             return `<div class="suggestion-item-compact" onclick='selectItemForExport(${itemJsonString})'>
                         <strong>${item.code}</strong> - ${item.name} (Vị trí: ${item.location} | Tồn: ${item.quantity})
@@ -2133,7 +1952,7 @@ async function handleExportItemSearch(event) {
     }
 }
 
-window.selectItemForExport = function(item) {
+window.selectItemForExport = function (item) {
     // Điền thông tin vào các trường của form
     document.getElementById('exportInventoryId').value = item.id;
     document.getElementById('exportItemSearch').value = `${item.code} - ${item.name}`;
@@ -2143,7 +1962,7 @@ window.selectItemForExport = function(item) {
     document.getElementById('exportItemLocation').value = item.location;
     document.getElementById('exportAvailableStock').value = item.quantity;
     document.getElementById('exportQuantity').max = item.quantity;
-    
+
     hideSuggestions('exportItemSuggestions');
     document.getElementById('exportQuantity').focus();
 };
@@ -2157,11 +1976,18 @@ function updateExportSaveButtonState() {
 
 function updateTransferSaveButtonState() {
     const saveBtn = document.getElementById('saveTransferBtn');
-    const hasAllInfo = document.getElementById('sourceInventoryId').value &&
-        document.getElementById('transferQuantity').value &&
-        document.getElementById('transferNewLocation').value.trim();
+    if (!saveBtn) return; // Thêm dòng này để phòng trường hợp nút không tồn tại
 
-    saveBtn.disabled = !hasAllInfo;
+    // SỬA LẠI: Kiểm tra các ô nhập liệu mới
+    const hasSourceInfo = document.getElementById('sourceInventoryId').value &&
+        document.getElementById('transferQuantity').value;
+
+    const hasDestinationInfo = document.getElementById('transferNewAisle').value &&
+        document.getElementById('transferNewBay').value &&
+        document.getElementById('transferNewLevel').value;
+
+    // Chỉ bật nút khi tất cả thông tin cần thiết đã được điền
+    saveBtn.disabled = !(hasSourceInfo && hasDestinationInfo);
 }
 
 async function handleExportItemCodeInput(event) {
@@ -2205,7 +2031,7 @@ async function handleExportItemCodeInput(event) {
     }
 }
 
-window.selectLocationForExport = function(docId, data) {
+window.selectLocationForExport = function (docId, data) {
     document.getElementById('exportLocationSelection').style.display = 'none';
     const itemDetailsDiv = document.getElementById('exportItemDetails');
     document.getElementById('selectedExportInventoryId').value = docId;
@@ -2218,11 +2044,11 @@ window.selectLocationForExport = function(docId, data) {
     document.getElementById('exportQuantity').focus();
 }
 
-window.editExportItem = function(index) {
+window.editExportItem = function (index) {
     const itemToEdit = currentExportItems[index];
     if (!itemToEdit) return; // Kiểm tra an toàn
 
-    // Điền lại thông tin của mặt hàng vào form để người dùng sửa
+    // Điền lại thông tin của mã hàng vào form để người dùng sửa
     document.getElementById('exportItemSearch').value = `${itemToEdit.code} - ${itemToEdit.name}`;
     document.getElementById('exportInventoryId').value = itemToEdit.inventoryId;
     document.getElementById('exportItemCode').value = itemToEdit.code;
@@ -2233,19 +2059,19 @@ window.editExportItem = function(index) {
     document.getElementById('exportQuantity').value = itemToEdit.quantity; // Đặt lại số lượng cần sửa
     document.getElementById('exportQuantity').max = itemToEdit.availableQuantity;
 
-    // Tạm thời xóa mặt hàng khỏi danh sách.
+    // Tạm thời xóa mã hàng khỏi danh sách.
     // Người dùng sẽ thêm lại nó với thông tin mới bằng cách nhấn nút "Thêm vào danh sách".
     currentExportItems.splice(index, 1);
-    
-    // Cập nhật lại bảng để phản ánh việc mặt hàng đã được đưa lên form sửa
+
+    // Cập nhật lại bảng để phản ánh việc mã hàng đã được đưa lên form sửa
     updateExportItemsTable();
 
-    // Đảm bảo khu vực "Thêm mặt hàng" đang mở để người dùng có thể thấy thông tin
+    // Đảm bảo khu vực "Thêm mã hàng" đang mở để người dùng có thể thấy thông tin
     const section = document.getElementById('addExportItemSection');
     if (section.classList.contains('collapsed')) {
         toggleExportItemSection();
     }
-    
+
     // Tập trung vào ô số lượng để tiện cho việc sửa đổi
     document.getElementById('exportQuantity').focus();
     document.getElementById('exportQuantity').select();
@@ -2264,7 +2090,7 @@ window.addExportItem = function () {
     };
 
     if (!item.inventoryId || !item.code || isNaN(item.quantity) || item.quantity <= 0) {
-        return showToast('Vui lòng chọn sản phẩm và nhập số lượng hợp lệ.', 'warning');
+        return showToast('Vui lòng chọn mã hàng và nhập số lượng hợp lệ.', 'warning');
     }
     if (item.quantity > item.availableQuantity) {
         return showToast('Số lượng xuất vượt quá tồn kho tại vị trí này.', 'warning');
@@ -2295,17 +2121,17 @@ function resetExportItemForm() {
 
 function updateExportItemsTable() {
     const tbody = document.getElementById('exportItemsTable');
-    
+
     // Thêm một bước kiểm tra an toàn: nếu không tìm thấy tbody thì không làm gì cả.
     if (!tbody) {
         return;
     }
 
     if (currentExportItems.length === 0) {
-        // Nếu không có mặt hàng nào, hãy tạo lại hàng placeholder.
+        // Nếu không có mã hàng nào, hãy tạo lại hàng placeholder.
         tbody.innerHTML = `<tr id="emptyExportTableRow"><td colspan="6" class="text-center text-muted py-3">Chưa có hàng hóa nào để xuất</td></tr>`;
     } else {
-        // Nếu có mặt hàng, hãy tạo danh sách các hàng đó.
+        // Nếu có mã hàng, hãy tạo danh sách các hàng đó.
         tbody.innerHTML = currentExportItems.map((item, index) => `
             <tr>
                 <td class="text-center"><strong>${item.code}</strong></td>
@@ -2321,8 +2147,8 @@ function updateExportItemsTable() {
         `).join('');
     }
 
-    // Cập nhật số lượng mặt hàng (phần này vẫn đúng)
-    document.getElementById('exportItemCountBadge').textContent = `${currentExportItems.length} mặt hàng`;
+    // Cập nhật số lượng mã hàng (phần này vẫn đúng)
+    document.getElementById('exportItemCountBadge').textContent = `${currentExportItems.length} mã hàng`;
 }
 
 
@@ -2350,7 +2176,7 @@ function createAdjustRequestModal() {
                         </div>
 
                         <div class="form-section-compact">
-                            <div class="form-section-header-compact"><i class="fas fa-plus-circle"></i> Thêm mặt hàng cần chỉnh số</div>
+                            <div class="form-section-header-compact"><i class="fas fa-plus-circle"></i> Thêm mã hàng cần chỉnh số</div>
                              <div class="row quick-add-row mb-2">
                                 <div class="col-md-4">
                                     <label class="form-label-compact"><i class="fas fa-barcode text-primary"></i> Tìm mã hàng *</label>
@@ -2407,7 +2233,7 @@ function createAdjustRequestModal() {
     return modal;
 }
 
-window.addRequestItemToList = function() {
+window.addRequestItemToList = function () {
     const newQuantity = parseInt(document.getElementById('requestNewQuantity').value);
     const item = {
         inventoryId: document.getElementById('requestInventoryId').value,
@@ -2418,7 +2244,7 @@ window.addRequestItemToList = function() {
         requestedQuantity: isNaN(newQuantity) ? 0 : newQuantity,
     };
     if (!item.inventoryId || !item.code || isNaN(newQuantity)) {
-        return showToast('Vui lòng chọn sản phẩm và nhập số lượng hợp lệ.', 'warning');
+        return showToast('Vui lòng chọn mã hàng và nhập số lượng hợp lệ.', 'warning');
     }
     const existingIndex = currentRequestItems.findIndex(i => i.inventoryId === item.inventoryId);
     if (existingIndex !== -1) {
@@ -2451,7 +2277,7 @@ function updateRequestItemsTable() {
     }
 }
 
-window.removeRequestItem = function(index) {
+window.removeRequestItem = function (index) {
     currentRequestItems.splice(index, 1);
     updateRequestItemsTable();
 }
@@ -2470,28 +2296,37 @@ async function handleRequestItemSearch(event) {
     suggestionsContainer.innerHTML = '';
     if (searchTerm.length < 2) return;
     try {
-        const codeQuery = query(collection(db, 'inventory'), where('code', '>=', searchTerm.toUpperCase()), where('code', '<=', searchTerm.toUpperCase() + '\uf8ff'), limit(5));
-        const nameQuery = query(collection(db, 'inventory'), where('name', '>=', searchTerm), where('name', '<=', searchTerm + '\uf8ff'), limit(5));
+        // BỎ ĐIỀU KIỆN LỌC 'status' KHỎI CÂU TRUY VẤN
+        const codeQuery = query(collection(db, 'inventory'), where('code', '>=', searchTerm.toUpperCase()), where('code', '<=', searchTerm.toUpperCase() + '\uf8ff'), limit(10));
+        const nameQuery = query(collection(db, 'inventory'), where('name', '>=', searchTerm), where('name', '<=', searchTerm + '\uf8ff'), limit(10));
+
         const [codeSnapshot, nameSnapshot] = await Promise.all([getDocs(codeQuery), getDocs(nameQuery)]);
         const resultsMap = new Map();
+
         codeSnapshot.forEach(doc => resultsMap.set(doc.id, { id: doc.id, ...doc.data() }));
         nameSnapshot.forEach(doc => resultsMap.set(doc.id, { id: doc.id, ...doc.data() }));
-        const finalResults = Array.from(resultsMap.values());
-        if (finalResults.length === 0) {
+
+        // THÊM: Lọc kết quả trên client để loại bỏ mã hàng đã xóa
+        const activeResults = Array.from(resultsMap.values())
+            .filter(item => item.status !== 'archived');
+
+        if (activeResults.length === 0) {
             suggestionsContainer.style.display = 'none';
             return;
         }
-        suggestionsContainer.innerHTML = finalResults.map(item => {
+        suggestionsContainer.innerHTML = activeResults.map(item => {
             const itemJsonString = JSON.stringify(item).replace(/'/g, "\\'");
             return `<div class="suggestion-item-compact" onclick='selectItemForRequest(${itemJsonString})'>
                         <strong>${item.code}</strong> - ${item.name} (Vị trí: ${item.location} | Tồn: ${item.quantity})
                     </div>`;
         }).join('');
         suggestionsContainer.style.display = 'block';
-    } catch (error) { console.error("Lỗi tìm kiếm hàng để yêu cầu:", error); }
+    } catch (error) {
+        console.error("Lỗi tìm kiếm hàng để yêu cầu:", error);
+    }
 }
 
-window.selectItemForRequest = function(item) {
+window.selectItemForRequest = function (item) {
     document.getElementById('requestInventoryId').value = item.id;
     document.getElementById('requestItemSearch').value = `${item.code} - ${item.name}`;
     document.getElementById('requestItemCode').value = item.code;
@@ -2608,7 +2443,7 @@ async function handleRequestItemCodeInput(event) {
         const snapshot = await getDocs(inventoryQuery);
 
         if (snapshot.empty) {
-            locationList.innerHTML = '<div class="col-12"><p class="text-danger p-2">Không tìm thấy sản phẩm với mã này.</p></div>';
+            locationList.innerHTML = '<div class="col-12"><p class="text-danger p-2">Không tìm thấy mã hàng với mã này.</p></div>';
             locationContainer.style.display = 'block';
         } else {
             snapshot.docs.forEach(doc => {
@@ -2656,10 +2491,10 @@ function fillRequestDetails(docId, data) {
     updateRequestCalculation();
 }
 
-window.saveAdjustRequest = async function() {
+window.saveAdjustRequest = async function () {
     const generalReason = document.getElementById('requestGeneralReason').value.trim();
     if (!generalReason) return showToast('Vui lòng nhập lý do chung cho yêu cầu.', 'warning');
-    if (currentRequestItems.length === 0) return showToast('Vui lòng thêm ít nhất một mặt hàng vào yêu cầu.', 'warning');
+    if (currentRequestItems.length === 0) return showToast('Vui lòng thêm ít nhất một mã hàng vào yêu cầu.', 'warning');
 
     try {
         const itemsToSave = currentRequestItems.map(item => ({
@@ -2692,7 +2527,7 @@ window.saveAdjustRequest = async function() {
 
 window.removeExportItem = async function (index) {
     const item = currentExportItems[index];
-    const confirmed = await showConfirmation('Xóa mặt hàng', `Bạn có chắc muốn xóa "${item.name}" khỏi phiếu xuất?`, 'Xóa', 'Hủy', 'danger');
+    const confirmed = await showConfirmation('Xóa mã hàng', `Bạn có chắc muốn xóa "${item.name}" khỏi phiếu xuất?`, 'Xóa', 'Hủy', 'danger');
     if (confirmed) {
         currentExportItems.splice(index, 1);
         updateExportItemsTable();
@@ -2702,7 +2537,7 @@ window.removeExportItem = async function (index) {
 
 window.saveExport = async function () {
     if (currentExportItems.length === 0) {
-        return showToast('Vui lòng thêm ít nhất một mặt hàng vào phiếu xuất', 'warning');
+        return showToast('Vui lòng thêm ít nhất một mã hàng vào phiếu xuất', 'warning');
     }
     const exportNumber = document.getElementById('exportNumber').value.trim();
     const recipient = document.getElementById('recipient').value.trim();
@@ -2741,164 +2576,6 @@ window.saveExport = async function () {
     }
 };
 
-function createTransferPagination(allData, container) {
-    let currentPage = 1;
-    const itemsPerPage = 15;
-    const totalPages = Math.ceil(allData.length / itemsPerPage);
-
-    function renderPage(page) {
-        const startIndex = (page - 1) * itemsPerPage;
-        const endIndex = Math.min(startIndex + itemsPerPage, allData.length);
-        const pageData = allData.slice(startIndex, endIndex);
-
-        // Create table
-        const table = document.createElement('table');
-        table.className = 'table table-striped table-compact';
-        table.innerHTML = `
-            <thead>
-                <tr>
-                    <th>Mã hàng</th>
-                    <th>Số lượng</th>
-                    <th>Từ vị trí</th>
-                    <th>Đến vị trí</th>
-                    <th>Người thực hiện</th>
-                    <th>Ngày chuyển</th>
-                    <th>Thao tác</th>
-                </tr>
-            </thead>
-            <tbody></tbody>
-        `;
-
-        const tbody = table.querySelector('tbody');
-
-        pageData.forEach(doc => {
-            const data = doc.data();
-            const row = document.createElement('tr');
-
-            const date = data.timestamp ?
-                data.timestamp.toDate().toLocaleDateString('vi-VN') :
-                'N/A';
-
-            // Tạo nút thao tác dựa trên quyền
-            let actionButtons = `
-                <button class="btn btn-info btn-sm me-1" onclick="viewTransferDetails('${doc.id}')">
-                    <i class="fas fa-eye"></i> Xem
-                </button>
-            `;
-
-            // Chỉ Super Admin mới thấy nút sửa/xóa
-            if (userRole === 'super_admin') {
-                actionButtons += `
-                    <button class="btn btn-warning btn-sm me-1" onclick="editTransferTransaction('${doc.id}')">
-                        <i class="fas fa-edit"></i> Sửa
-                    </button>
-                    <button class="btn btn-danger btn-sm" onclick="deleteTransferTransaction('${doc.id}')">
-                        <i class="fas fa-trash"></i> Xóa
-                    </button>
-                `;
-            }
-
-            row.innerHTML = `
-                <td>${data.itemCode}</td>
-                <td><strong>${data.quantity || 0}</strong></td>
-                <td>${data.fromLocation}</td>
-                <td>${data.toLocation}</td>
-                <td>${data.performedByName}</td>
-                <td>${date}</td>
-                <td>${actionButtons}</td>
-            `;
-
-            tbody.appendChild(row);
-        });
-
-        // Create pagination
-        const paginationContainer = document.createElement('div');
-        paginationContainer.className = 'd-flex justify-content-between align-items-center mt-3';
-        paginationContainer.innerHTML = `
-            <small class="text-muted">Hiển thị ${startIndex + 1} - ${endIndex} của ${allData.length} kết quả</small>
-            <nav aria-label="Transfer pagination">
-                <ul class="pagination pagination-sm mb-0" id="transferPagination">
-                </ul>
-            </nav>
-        `;
-
-        container.innerHTML = '';
-        container.appendChild(table);
-        container.appendChild(paginationContainer);
-
-        updatePaginationControls(page, totalPages, 'transferPagination', renderPage);
-    }
-
-    renderPage(1);
-}
-
-
-async function loadExportHistory(useFilter = false) {
-    if (unsubscribeExportHistory) {
-        unsubscribeExportHistory();
-    }
-
-    try {
-        const fromDate = document.getElementById('exportFromDate')?.value;
-        const toDate = document.getElementById('exportToDate')?.value;
-        let endDate = null;
-        if (toDate) {
-            endDate = new Date(toDate);
-            endDate.setHours(23, 59, 59, 999);
-        }
-
-        const completedQuery = query(collection(db, 'transactions'), where('type', '==', 'export'));
-        const pendingQuery = query(collection(db, 'export_requests'), where('status', '==', 'pending'));
-
-        // Lắng nghe cả hai collection
-        const unsubscribeCompleted = onSnapshot(completedQuery, handleSnapshots);
-        const unsubscribePending = onSnapshot(pendingQuery, handleSnapshots);
-
-        let allData = [];
-
-        function handleSnapshots() {
-            // Lấy dữ liệu mới nhất mỗi khi có thay đổi
-            Promise.all([getDocs(completedQuery), getDocs(pendingQuery)]).then(([completedSnapshot, pendingSnapshot]) => {
-                let completedExports = completedSnapshot.docs.map(doc => ({ ...doc.data(), docId: doc.id, dataType: 'completed' }));
-                let pendingRequests = pendingSnapshot.docs.map(doc => ({ ...doc.data(), docId: doc.id, dataType: 'pending' }));
-                
-                allData = [...pendingRequests, ...completedExports].sort((a, b) => b.timestamp.toMillis() - a.timestamp.toMillis());
-
-                let filteredData = allData;
-                if (useFilter) {
-                    const itemCodeFilter = document.getElementById('exportItemCodeFilter')?.value.toLowerCase();
-                    filteredData = allData.filter(doc => {
-                        const docDate = doc.timestamp.toDate();
-                        if (fromDate && docDate < new Date(fromDate)) return false;
-                        if (endDate && docDate > endDate) return false;
-                        if (itemCodeFilter) {
-                            return doc.items?.some(item => item.code?.toLowerCase().includes(itemCodeFilter));
-                        }
-                        return true;
-                    });
-                }
-                
-                const content = document.getElementById('exportContent');
-                if (!content) return;
-                if (filteredData.length === 0) {
-                    content.innerHTML = '<p class="text-muted">Không tìm thấy phiếu xuất hoặc yêu cầu nào.</p>';
-                    return;
-                }
-                createExportPagination(filteredData, content);
-            });
-        }
-        
-        unsubscribeExportHistory = () => {
-            unsubscribeCompleted();
-            unsubscribePending();
-        };
-
-    } catch (error) {
-        console.error('Lỗi thiết lập lắng nghe xuất kho:', error);
-    }
-}
-
-
 window.viewExportDetails = async function (transactionId) {
     try {
         const docSnap = await getDoc(doc(db, 'transactions', transactionId));
@@ -2930,7 +2607,7 @@ function createExportDetailsModal(transactionId, data) {
     const date = data.timestamp ? data.timestamp.toDate().toLocaleString('vi-VN') : 'N/A';
     const totalItems = data.items?.length || 0;
     const totalQuantity = data.items?.reduce((sum, item) => sum + (item.quantity || 0), 0) || 0;
-    
+
     let performerInfoHtml = '';
     if (data.requestInfo) {
         performerInfoHtml = `
@@ -2956,7 +2633,7 @@ function createExportDetailsModal(transactionId, data) {
                         <i class="fas fa-check-circle fa-2x me-3"></i>
                         <div>
                             <strong>Xuất kho thành công</strong><br>
-                            <small>Đã xuất ${totalItems} mặt hàng với tổng số lượng ${totalQuantity} khỏi kho</small>
+                            <small>Đã xuất ${totalItems} mã hàng với tổng số lượng ${totalQuantity} khỏi kho</small>
                         </div>
                     </div>
                     <div class="row mb-3 theme-aware-info-box">
@@ -2969,7 +2646,7 @@ function createExportDetailsModal(transactionId, data) {
                         <div class="col-md-6"><strong>Người nhận:</strong> ${data.recipient}</div>
                         ${performerInfoHtml}
                         <div class="col-md-6"><strong>Ngày xuất:</strong> ${date}</div>
-                        <div class="col-md-6"><strong>Tổng số mặt hàng:</strong> ${totalItems}</div>
+                        <div class="col-md-6"><strong>Tổng số mã hàng:</strong> ${totalItems}</div>
                         <div class="col-md-6"><strong>Tổng số lượng:</strong> ${totalQuantity}</div>
                     </div>                    
                     <h6 class="text-muted mb-3">
@@ -3017,6 +2694,8 @@ function createExportDetailsModal(transactionId, data) {
     return modal;
 }
 
+// File: js/warehouse.js
+
 window.approveAdjustRequest = async function (requestId) {
     if (userRole !== 'super_admin') return showToast('Chỉ Super Admin mới có quyền thực hiện.', 'danger');
 
@@ -3037,13 +2716,13 @@ window.approveAdjustRequest = async function (requestId) {
 
         const batch = writeBatch(db);
 
-        // Loop qua từng item trong yêu cầu để cập nhật tồn kho
+        // Cập nhật tồn kho cho tất cả items trong yêu cầu
         for (const item of requestData.items) {
             const inventoryRef = doc(db, 'inventory', item.inventoryId);
             batch.update(inventoryRef, { quantity: item.requestedQuantity });
         }
 
-        // Cập nhật trạng thái của toàn bộ yêu cầu
+        // Cập nhật trạng thái của yêu cầu gốc
         batch.update(requestRef, {
             status: 'approved',
             approvedBy: currentUser.uid,
@@ -3051,35 +2730,40 @@ window.approveAdjustRequest = async function (requestId) {
             approvedDate: serverTimestamp()
         });
 
-        // Ghi log giao dịch loại 'adjust' với toàn bộ danh sách items
+        // === BẮT ĐẦU SỬA LỖI QUAN TRỌNG ===
+        // Khi ghi log giao dịch, sao chép đầy đủ thông tin từ yêu cầu gốc
         const transactionRef = doc(collection(db, 'transactions'));
         batch.set(transactionRef, {
             type: 'adjust',
             reason: requestData.reason,
-            items: requestData.items.map(item => ({ // Sao chép lại các trường cần thiết cho log
-                itemCode: item.itemCode,
-                itemName: item.itemName,
-                location: item.location,
-                previousQuantity: item.currentQuantity,
-                newQuantity: item.requestedQuantity,
-                adjustment: item.adjustment,
-            })),
-            requestId: requestId,
+            items: requestData.items,
+            requestId: requestId, // Liên kết lại với yêu cầu gốc
+            
+            // Thông tin người duyệt (người thực hiện giao dịch)
             performedBy: currentUser.uid,
             performedByName: currentUser.name,
+
+            // Sao chép thông tin người yêu cầu
+            requestedBy: requestData.requestedBy,
+            requestedByName: requestData.requestedByName,
+            requestDate: requestData.requestDate,
+            
+            // Dấu thời gian của giao dịch
             date: serverTimestamp(),
             timestamp: serverTimestamp()
         });
+        // === KẾT THÚC SỬA LỖI QUAN TRỌNG ===
 
         await batch.commit();
         showToast('Đã duyệt yêu cầu chỉnh số thành công.', 'success');
-        updatePendingAdjustmentsBadge();
+        // Bảng sẽ tự cập nhật nhờ onSnapshot
 
     } catch (error) {
         console.error('Lỗi duyệt yêu cầu chỉnh số:', error);
         showToast('Lỗi duyệt yêu cầu chỉnh số', 'danger');
     }
 };
+
 
 window.rejectAdjustRequest = async function (requestId) {
     if (userRole !== 'super_admin') return showToast('Chỉ Super Admin mới có quyền thực hiện.', 'danger');
@@ -3134,43 +2818,27 @@ async function updatePendingAdjustmentsBadge() {
     }
 }
 
-// Thay thế toàn bộ hàm này trong warehouse.js
 window.viewAdjustRequestDetails = async function (docId) {
     try {
-        // Thử tìm trong collection 'adjustment_requests' trước
-        let docSnap = await getDoc(doc(db, 'adjustment_requests', docId));
-        let data;
-        let isRequest = true;
+        // Thử tìm trong collection 'adjustment_requests' trước (cho các phiếu đang chờ/bị từ chối)
+        let docRef = doc(db, 'adjustment_requests', docId);
+        let docSnap = await getDoc(docRef);
+        let data, isRequest;
 
-        if (!docSnap.exists()) {
-            // Nếu không tìm thấy, thử tìm trong 'transactions'
-            docSnap = await getDoc(doc(db, 'transactions', docId));
+        if (docSnap.exists()) {
+            data = { id: docSnap.id, ...docSnap.data(), dataType: 'request' };
+        } else {
+            // Nếu không tìm thấy, thử tìm trong 'transactions' (cho các phiếu đã duyệt)
+            docRef = doc(db, 'transactions', docId);
+            docSnap = await getDoc(docRef);
             if (!docSnap.exists()) {
                 showToast('Không tìm thấy phiếu chỉnh số hoặc yêu cầu.', 'danger');
                 return;
             }
-            isRequest = false;
+            data = { id: docSnap.id, ...docSnap.data(), dataType: 'transaction' };
         }
 
-        data = docSnap.data();
-
-        // Chuẩn bị dữ liệu để hiển thị một cách thống nhất
-        const displayData = {
-            reason: data.reason,
-            status: isRequest ? data.status : 'approved', // Giao dịch luôn là 'approved'
-            items: data.items,
-            requestedByName: data.requestedByName,
-            requestDate: data.requestDate,
-            approvedByName: isRequest ? data.approvedByName : data.performedByName,
-            approvedDate: isRequest ? data.approvedDate : data.timestamp,
-            rejectedByName: data.rejectedByName,
-            rejectedDate: data.rejectedDate,
-            rejectionReason: data.rejectionReason,
-            timestamp: data.timestamp
-        };
-        
-        // Tạo modal với dữ liệu đã được chuẩn hóa
-        const modal = createAdjustRequestDetailsModal(displayData);
+        const modal = createAdjustRequestDetailsModal(data);
         document.body.appendChild(modal);
         const bsModal = new bootstrap.Modal(modal);
         bsModal.show();
@@ -3185,49 +2853,50 @@ window.viewAdjustRequestDetails = async function (docId) {
     }
 };
 
-
-// Thay thế hàm này trong warehouse.js
 function createAdjustRequestDetailsModal(data) {
     const modal = document.createElement('div');
     modal.className = 'modal fade';
 
+    // Xác định trạng thái thực tế để hiển thị
+    const displayStatus = data.dataType === 'transaction' ? 'approved' : data.status;
+
     // --- Chuẩn bị dữ liệu ---
-    const requestDate = data.requestDate ? (data.requestDate.toDate ? data.requestDate.toDate().toLocaleString('vi-VN') : data.requestDate) : 'N/A';
-    const approvedDate = data.approvedDate ? (data.approvedDate.toDate ? data.approvedDate.toDate().toLocaleString('vi-VN') : 'N/A') : (data.timestamp ? data.timestamp.toDate().toLocaleString('vi-VN') : 'N/A');
-    const rejectedDate = data.rejectedDate ? (data.rejectedDate.toDate ? data.rejectedDate.toDate().toLocaleString('vi-VN') : 'N/A') : 'N/A';
+    const requestDate = data.requestDate?.toDate().toLocaleString('vi-VN') || 'N/A';
+    const approvedDate = data.approvedDate?.toDate().toLocaleString('vi-VN') || data.timestamp?.toDate().toLocaleString('vi-VN') || 'N/A';
+    const rejectedDate = data.rejectedDate?.toDate().toLocaleString('vi-VN') || 'N/A';
 
     const statusConfig = {
         'pending': { class: 'bg-warning text-dark', text: 'Chờ duyệt', icon: 'fas fa-clock' },
         'approved': { class: 'bg-success', text: 'Đã duyệt', icon: 'fas fa-check-circle' },
         'rejected': { class: 'bg-danger', text: 'Từ chối', icon: 'fas fa-times-circle' }
     };
-    const status = statusConfig[data.status] || { class: 'bg-secondary', text: data.status, icon: 'fas fa-question-circle' };
-    
+    const status = statusConfig[displayStatus] || { class: 'bg-secondary', text: displayStatus, icon: 'fas fa-question-circle' };
+
     // --- Logic hiển thị động ---
     let infoHtml = '';
     let headerClass = 'modal-header';
     let headerTitle = 'Chi tiết Yêu cầu Chỉnh số';
     let alertHtml = '';
 
-    if (data.status === 'approved') {
+    if (displayStatus === 'approved') {
         headerClass = 'modal-header bg-success text-white';
         alertHtml = `<div class="alert alert-success d-flex align-items-center mb-4"><i class="fas fa-check-circle fa-2x me-3"></i><div><strong>Đã thực hiện thành công</strong><br><small>Tồn kho đã được cập nhật theo các thay đổi trong phiếu.</small></div></div>`;
-        if (data.requestId) { // Từ yêu cầu
+        if (data.requestedByName) { // Từ yêu cầu
             headerTitle = 'Chi tiết Chỉnh số (từ yêu cầu đã duyệt)';
             infoHtml = `
-                <div class="col-md-6"><strong>Người yêu cầu:</strong> ${data.requestedByName || 'N/A'}</div>
+                <div class="col-md-6"><strong>Người yêu cầu:</strong> ${data.requestedByName}</div>
                 <div class="col-md-6"><strong>Ngày yêu cầu:</strong> ${requestDate}</div>
-                <div class="col-md-6"><strong>Người duyệt:</strong> ${data.approvedByName}</div>
+                <div class="col-md-6"><strong>Người duyệt:</strong> ${data.performedByName || data.approvedByName}</div>
                 <div class="col-md-6"><strong>Ngày duyệt:</strong> ${approvedDate}</div>
             `;
         } else { // Chỉnh số trực tiếp
             headerTitle = 'Chi tiết Chỉnh số (trực tiếp)';
-             infoHtml = `
-                <div class="col-md-6"><strong>Người chỉnh số:</strong> ${data.approvedByName}</div>
+            infoHtml = `
+                <div class="col-md-6"><strong>Người chỉnh số:</strong> ${data.performedByName}</div>
                 <div class="col-md-6"><strong>Ngày chỉnh số:</strong> ${approvedDate}</div>
             `;
         }
-    } else if (data.status === 'rejected') {
+    } else if (displayStatus === 'rejected') {
         headerClass = 'modal-header bg-danger text-white';
         headerTitle = 'Chi tiết Yêu cầu (đã từ chối)';
         alertHtml = `<div class="alert alert-danger d-flex align-items-center mb-4"><i class="fas fa-exclamation-triangle fa-2x me-3"></i><div><strong>Yêu cầu đã bị từ chối</strong><br><small>Không có thay đổi nào được thực hiện trên tồn kho.</small></div></div>`;
@@ -3239,29 +2908,30 @@ function createAdjustRequestDetailsModal(data) {
             <div class="col-12 mt-2"><strong>Lý do từ chối:</strong><p class="ms-2 mt-1 mb-0 fst-italic bg-danger bg-opacity-10 p-2 rounded text-danger">${data.rejectionReason || 'Không có lý do cụ thể'}</p></div>
         `;
     } else { // pending
-         alertHtml = `<div class="alert alert-warning d-flex align-items-center mb-4"><i class="fas fa-clock me-2"></i><small>Yêu cầu đang chờ được xem xét bởi Super Admin.</small></div>`;
-         infoHtml = `
+        headerTitle = 'Chi tiết Yêu cầu Chỉnh số';
+        alertHtml = `<div class="alert alert-warning d-flex align-items-center mb-4"><i class="fas fa-clock me-2"></i><small>Yêu cầu đang chờ được xem xét bởi Super Admin.</small></div>`;
+        infoHtml = `
             <div class="col-md-6"><strong>Người yêu cầu:</strong> ${data.requestedByName}</div>
             <div class="col-md-6"><strong>Ngày yêu cầu:</strong> ${requestDate}</div>
         `;
     }
 
-    // --- Tạo bảng danh sách các mặt hàng ---
+    // --- Tạo bảng danh sách các mã hàng ---
     const itemsHtml = data.items?.map(item => {
-        const diff = item.adjustment;
+        const previousQty = item.previousQuantity !== undefined ? item.previousQuantity : item.currentQuantity;
+        const newQty = item.newQuantity !== undefined ? item.newQuantity : item.requestedQuantity;
+        const diff = item.adjustment !== undefined ? item.adjustment : (newQty - previousQty);
         const diffClass = diff > 0 ? 'text-success' : diff < 0 ? 'text-danger' : 'text-muted';
         const diffSymbol = diff > 0 ? '+' : '';
         return `<tr>
-                    <td class="text-center align-middle">
-                        <strong>${item.itemCode || item.code}</strong>
-                    </td>
+                    <td class="text-center align-middle"><strong>${item.itemCode || item.code}</strong></td>
                     <td class="text-center align-middle">${item.itemName || item.name}</td>
                     <td class="text-center align-middle">${item.location}</td>
-                    <td class="text-center align-middle">${item.currentQuantity !== undefined ? item.currentQuantity : item.previousQuantity}</td>
-                    <td class="text-center align-middle">${item.requestedQuantity !== undefined ? item.requestedQuantity : item.newQuantity}</td>
+                    <td class="text-center align-middle">${previousQty}</td>
+                    <td class="text-center align-middle">${newQty}</td>
                     <td class="text-center align-middle ${diffClass}">${diffSymbol}${diff}</td>
                 </tr>`;
-    }).join('') || '<tr><td colspan="5" class="text-center text-muted">Không có thông tin chi tiết mặt hàng.</td></tr>';
+    }).join('') || '<tr><td colspan="6" class="text-center text-muted">Không có thông tin chi tiết mã hàng.</td></tr>';
 
     // --- Ghép lại thành HTML cuối cùng ---
     modal.innerHTML = `
@@ -3278,7 +2948,7 @@ function createAdjustRequestDetailsModal(data) {
                         <div class="col-md-6"><strong>Trạng thái:</strong> <span class="badge ${status.class}">${status.text}</span></div>
                         ${infoHtml}
                     </div>
-                    <h6 class="text-muted mb-3"><i class="fas fa-list me-2"></i>Chi tiết các mặt hàng thay đổi</h6>
+                    <h6 class="text-muted mb-3"><i class="fas fa-list me-2"></i>Chi tiết các mã hàng thay đổi</h6>
                     <div class="table-responsive">
                         <table class="table table-bordered table-compact">
                             <thead class="table-light">
@@ -3303,7 +2973,7 @@ function createAdjustRequestDetailsModal(data) {
 }
 
 export function loadTransferSection() {
-    loadTransferHistory();
+    initializeRealtimeHistoryTable('transfer');
 }
 
 function showTransferModal() {
@@ -3327,11 +2997,24 @@ function showTransferModal() {
     bsModal.show();
 }
 
+// warehouse.js
+
 function createTransferModal() {
     const modal = document.createElement('div');
     modal.className = 'modal fade';
     modal.id = 'transferModal';
     modal.setAttribute('tabindex', '-1');
+
+    // THÊM MỚI: Tạo các option cho Dãy, Kệ, Tầng từ layoutConfig
+    const aisleOptions = layoutConfig.aisles.map(a => `<option value="${a}">${a}</option>`).join('');
+    let bayOptions = '';
+    for (let i = 1; i <= layoutConfig.maxBay; i++) {
+        bayOptions += `<option value="${i}">Kệ ${i}</option>`;
+    }
+    let levelOptions = '';
+    for (let i = 1; i <= layoutConfig.maxLevel; i++) {
+        levelOptions += `<option value="${i}">Tầng ${i}</option>`;
+    }
 
     modal.innerHTML = `
         <div class="modal-dialog modal-xl">
@@ -3370,14 +3053,31 @@ function createTransferModal() {
                                 </div>
                             </div>
                             <div class="row quick-add-row mt-3">
-                                <div class="col-md-4">
+                                <div class="col-md-3">
                                     <label class="form-label-compact"><i class="fas fa-sort-numeric-up text-info"></i> Số lượng chuyển *</label>
                                     <input type="number" class="form-control-compact" id="transferQuantity" required min="1" placeholder="0">
                                 </div>
-                                <div class="col-md-4">
+
+                                <!-- === THAY ĐỔI VỊ TRÍ MỚI === -->
+                                <div class="col-md-5">
                                     <label class="form-label-compact"><i class="fas fa-map-marker-alt text-success"></i> Đến vị trí mới *</label>
-                                    <input type="text" class="form-control-compact" id="transferNewLocation" required placeholder="VD: B2-05">
+                                    <div class="row">
+                                        <div class="col-md-4">
+                                        <small class="form-label">Chọn dãy</small>
+                                            <select class="form-select-compact" id="transferNewAisle">${aisleOptions}</select>
+                                        </div>
+                                        <div class="col-md-4">
+                                        <small class="form-label">Chọn kệ</small>
+                                            <select class="form-select-compact" id="transferNewBay">${bayOptions}</select>
+                                        </div>
+                                        <div class="col-md-4">
+                                        <small class="form-label">Chọn tầng</small>
+                                            <select class="form-select-compact" id="transferNewLevel">${levelOptions}</select>
+                                        </div>    
+                                    </div>
                                 </div>
+                                <!-- === KẾT THÚC THAY ĐỔI VỊ TRÍ MỚI === -->
+                                
                                 <div class="col-md-4">
                                     <label class="form-label-compact"><i class="fas fa-sticky-note text-info"></i> Ghi chú</label>
                                     <input type="text" class="form-control-compact" id="transferNote" placeholder="Lý do chuyển...">
@@ -3406,20 +3106,22 @@ function createTransferModal() {
     return modal;
 }
 
-
-// Thay thế hàm này trong warehouse.js
 function setupTransferModalEventListeners() {
     const itemSearchInput = document.getElementById('transferItemSearch');
     if (itemSearchInput) {
         itemSearchInput.addEventListener('input', debounce(handleTransferItemSearch, 300));
         itemSearchInput.addEventListener('blur', () => setTimeout(() => hideSuggestions('transferItemSuggestions'), 200));
     }
-    
+
+    // SỬA LẠI: Gán sự kiện cho các ô mới
     document.getElementById('transferQuantity')?.addEventListener('input', updateTransferSaveButtonState);
-    document.getElementById('transferNewLocation')?.addEventListener('input', updateTransferSaveButtonState);
+    document.getElementById('transferNewAisle')?.addEventListener('change', updateTransferSaveButtonState);
+    document.getElementById('transferNewBay')?.addEventListener('change', updateTransferSaveButtonState);
+    document.getElementById('transferNewLevel')?.addEventListener('change', updateTransferSaveButtonState);
 }
 
-// Thêm hàm MỚI này vào warehouse.js
+// warehouse.js
+
 async function handleTransferItemSearch(event) {
     const searchTerm = event.target.value.trim();
     const suggestionsContainer = document.getElementById('transferItemSuggestions');
@@ -3428,25 +3130,28 @@ async function handleTransferItemSearch(event) {
     if (searchTerm.length < 2) return;
 
     try {
+        // BỎ ĐIỀU KIỆN LỌC 'status' KHỎI CÂU TRUY VẤN
         const baseConstraints = [where('quantity', '>', 0)];
-        const codeQuery = query(collection(db, 'inventory'), ...baseConstraints, orderBy('code'), where('code', '>=', searchTerm.toUpperCase()), where('code', '<=', searchTerm.toUpperCase() + '\uf8ff'), limit(5));
-        const nameQuery = query(collection(db, 'inventory'), ...baseConstraints, orderBy('name'), where('name', '>=', searchTerm), where('name', '<=', searchTerm + '\uf8ff'), limit(5));
-        
+        const codeQuery = query(collection(db, 'inventory'), ...baseConstraints, orderBy('code'), where('code', '>=', searchTerm.toUpperCase()), where('code', '<=', searchTerm.toUpperCase() + '\uf8ff'), limit(10));
+        const nameQuery = query(collection(db, 'inventory'), ...baseConstraints, orderBy('name'), where('name', '>=', searchTerm), where('name', '<=', searchTerm + '\uf8ff'), limit(10));
+
         const [codeSnapshot, nameSnapshot] = await Promise.all([getDocs(codeQuery), getDocs(nameQuery)]);
         const resultsMap = new Map();
-        
+
         codeSnapshot.forEach(doc => resultsMap.set(doc.id, { id: doc.id, ...doc.data() }));
         nameSnapshot.forEach(doc => resultsMap.set(doc.id, { id: doc.id, ...doc.data() }));
 
-        const finalResults = Array.from(resultsMap.values());
-        if (finalResults.length === 0) {
+        // THÊM: Lọc kết quả trên client để loại bỏ mã hàng đã xóa
+        const activeResults = Array.from(resultsMap.values())
+            .filter(item => item.status !== 'archived');
+
+        if (activeResults.length === 0) {
             suggestionsContainer.style.display = 'none';
             return;
         }
 
-        suggestionsContainer.innerHTML = finalResults.map(item => {
+        suggestionsContainer.innerHTML = activeResults.map(item => {
             const itemJsonString = JSON.stringify(item).replace(/'/g, "\\'");
-            // SỬA ĐỔI: Gọi hàm selectItemForTransfer
             return `<div class="suggestion-item-compact" onclick='selectItemForTransfer(${itemJsonString})'>
                         <strong>${item.code}</strong> - ${item.name} (Vị trí: ${item.location} | Tồn: ${item.quantity})
                     </div>`;
@@ -3457,8 +3162,9 @@ async function handleTransferItemSearch(event) {
     }
 }
 
+
 // Thêm hàm MỚI này vào warehouse.js
-window.selectItemForTransfer = function(item) {
+window.selectItemForTransfer = function (item) {
     // Điền thông tin vào các trường của form
     document.getElementById('sourceInventoryId').value = item.id;
     document.getElementById('transferItemSearch').value = `${item.code} - ${item.name}`;
@@ -3467,10 +3173,10 @@ window.selectItemForTransfer = function(item) {
     document.getElementById('transferItemUnit').value = item.unit;
     document.getElementById('transferCurrentLocation').value = item.location;
     document.getElementById('transferCurrentStock').value = item.quantity;
-    
+
     const quantityInput = document.getElementById('transferQuantity');
     quantityInput.max = item.quantity;
-    
+
     hideSuggestions('transferItemSuggestions');
     quantityInput.focus();
 };
@@ -3498,7 +3204,7 @@ async function handleTransferItemCodeInput(event) {
     const locationSection = document.getElementById('transferLocationSection');
     const locationList = document.getElementById('transferLocationList');
     const detailsSection = document.getElementById('transferDetailsSection');
-    
+
     // Reset giao diện
     locationSection.style.display = 'none';
     detailsSection.style.display = 'none';
@@ -3518,7 +3224,7 @@ async function handleTransferItemCodeInput(event) {
         const snapshot = await getDocs(inventoryQuery);
 
         if (snapshot.empty) {
-            locationList.innerHTML = '<div class="col-12"><p class="text-danger p-2">Không tìm thấy sản phẩm hoặc đã hết hàng.</p></div>';
+            locationList.innerHTML = '<div class="col-12"><p class="text-danger p-2">Không tìm thấy mã hàng hoặc đã hết hàng.</p></div>';
             locationSection.style.display = 'block';
         } else if (snapshot.docs.length === 1) {
             // Nếu chỉ có 1 vị trí, tự động chọn luôn cho người dùng
@@ -3539,7 +3245,7 @@ async function handleTransferItemCodeInput(event) {
     }
 }
 
-window.selectLocationForTransfer = function(docId, data) {
+window.selectLocationForTransfer = function (docId, data) {
     // Đánh dấu thẻ được chọn
     document.querySelectorAll('.location-card').forEach(card => {
         card.classList.remove('selected');
@@ -3548,44 +3254,54 @@ window.selectLocationForTransfer = function(docId, data) {
     if (clickedCard) {
         clickedCard.classList.add('selected');
     }
-    
+
     // Điền thông tin vào form chi tiết
     document.getElementById('transferItemName').value = data.name;
     document.getElementById('transferCurrentLocation').value = data.location;
     document.getElementById('sourceInventoryId').value = docId;
-    
+
     const quantityInput = document.getElementById('transferQuantity');
     quantityInput.max = data.quantity;
-    
+
     // Hiển thị form chi tiết và ẩn danh sách chọn
     document.getElementById('transferDetailsSection').style.display = 'block';
     document.getElementById('transferLocationSection').style.display = 'none';
     updateWorkflowStep('transferSelectStep', true);
     updateWorkflowStep('transferDetailsStep', true);
-    
+
     quantityInput.focus();
 }
+
+// warehouse.js
 
 window.saveTransfer = async function () {
     try {
         const sourceInventoryId = document.getElementById('sourceInventoryId').value;
         const transferQuantity = parseInt(document.getElementById('transferQuantity').value);
-        const newLocation = document.getElementById('transferNewLocation').value.trim().toUpperCase();
-        const currentLocation = document.getElementById('transferCurrentLocation').value;
         const note = document.getElementById('transferNote').value;
+        const currentLocation = document.getElementById('transferCurrentLocation').value;
         const currentStock = parseInt(document.getElementById('transferCurrentStock').value);
 
-        // Validation
+        // SỬA LẠI: Lấy giá trị từ 3 ô chọn vị trí mới
+        const aisle = document.getElementById('transferNewAisle').value;
+        const bay = document.getElementById('transferNewBay').value;
+        const level = document.getElementById('transferNewLevel').value;
+
+        // SỬA LẠI: Validation cho vị trí mới
+        if (!aisle || !bay || !level) {
+            return showToast('Vui lòng chọn đầy đủ thông tin vị trí mới.', 'warning');
+        }
+
+        // SỬA LẠI: Tạo chuỗi vị trí mới
+        const newLocation = `${aisle}${bay}-${level.toString().padStart(2, '0')}`;
+
+        // Validation (phần còn lại giữ nguyên)
         if (!sourceInventoryId) {
-            showToast('Vui lòng chọn một sản phẩm hợp lệ từ danh sách gợi ý.', 'warning');
+            showToast('Vui lòng chọn một mã hàng hợp lệ từ danh sách gợi ý.', 'warning');
             return;
         }
         if (isNaN(transferQuantity) || transferQuantity <= 0) {
             showToast('Vui lòng nhập số lượng chuyển hợp lệ.', 'warning');
-            return;
-        }
-        if (!newLocation) {
-            showToast('Vui lòng nhập vị trí mới.', 'warning');
             return;
         }
         if (newLocation === currentLocation) {
@@ -3599,12 +3315,11 @@ window.saveTransfer = async function () {
 
         const confirmed = await showConfirmation(
             'Xác nhận chuyển kho',
-            `Bạn có chắc muốn chuyển ${transferQuantity} sản phẩm từ <strong>${currentLocation}</strong> đến <strong>${newLocation}</strong>?`,
+            `Bạn có chắc muốn chuyển ${transferQuantity} mã hàng từ <strong>${currentLocation}</strong> đến <strong>${newLocation}</strong>?`,
             'Chuyển kho', 'Hủy', 'info'
         );
         if (!confirmed) return;
 
-        // Logic xử lý batch write vẫn giữ nguyên...
         const sourceDocRef = doc(db, 'inventory', sourceInventoryId);
         const sourceDocSnap = await getDoc(sourceDocRef);
         if (!sourceDocSnap.exists()) {
@@ -3656,63 +3371,10 @@ window.saveTransfer = async function () {
     }
 };
 
-async function loadTransferHistory(useFilter = false) {
-    if (unsubscribeTransferHistory) {
-        unsubscribeTransferHistory();
-    }
-
-    try {
-        let constraints = [where('type', '==', 'transfer')];
-        if (useFilter) {
-            const fromDate = document.getElementById('transferFromDate')?.value;
-            const toDate = document.getElementById('transferToDate')?.value;
-            if (fromDate) constraints.push(where('timestamp', '>=', new Date(fromDate)));
-            if (toDate) {
-                const endDate = new Date(toDate);
-                endDate.setHours(23, 59, 59, 999);
-                constraints.push(where('timestamp', '<=', endDate));
-            }
-        }
-        constraints.push(orderBy('timestamp', 'desc'));
-        const transfersQuery = query(collection(db, 'transactions'), ...constraints);
-
-        unsubscribeTransferHistory = onSnapshot(transfersQuery, (snapshot) => {
-            let docs = snapshot.docs;
-            if (useFilter) {
-                const itemCodeFilter = document.getElementById('transferItemCodeFilter')?.value.toLowerCase();
-                if (itemCodeFilter) {
-                    docs = docs.filter(doc => doc.data().itemCode?.toLowerCase().includes(itemCodeFilter));
-                }
-            }
-
-            const content = document.getElementById('transferContent');
-            if (!content) return;
-            if (docs.length === 0) {
-                content.innerHTML = '<p class="text-muted">Không tìm thấy phiếu chuyển kho nào.</p>';
-                return;
-            }
-            createTransferPagination(docs, content);
-        }, (error) => {
-            console.error("Lỗi lắng nghe lịch sử chuyển kho:", error);
-        });
-
-    } catch (error) {
-        console.error('Lỗi thiết lập lắng nghe chuyển kho:', error);
-    }
-}
-
 
 function initializeDirectAdjustSection() {
     document.getElementById('addAdjustBtn')?.addEventListener('click', showDirectAdjustModal);
-    document.getElementById('filterAdjust')?.addEventListener('click', filterDirectAdjustHistory);
     document.getElementById('clearAdjustFilter')?.addEventListener('click', clearDirectAdjustFilter);
-}
-
-function clearDirectAdjustFilter() {
-    document.getElementById('adjustFromDate').value = '';
-    document.getElementById('adjustToDate').value = '';
-    document.getElementById('adjustItemCodeFilter').value = '';
-    loadDirectAdjustHistory();
 }
 
 // Thay thế hàm này trong warehouse.js
@@ -3800,7 +3462,7 @@ function setupDirectAdjustModalEventListeners() {
         itemSearchInput.addEventListener('input', debounce(handleDirectAdjustItemSearch, 300));
         itemSearchInput.addEventListener('blur', () => setTimeout(() => hideSuggestions('directAdjustItemSuggestions'), 200));
     }
-    
+
     document.getElementById('directAdjustNewQuantity')?.addEventListener('input', updateDirectAdjustSaveButtonState);
     document.getElementById('directAdjustReason')?.addEventListener('input', updateDirectAdjustSaveButtonState);
 }
@@ -3808,11 +3470,11 @@ function setupDirectAdjustModalEventListeners() {
 function updateDirectAdjustSaveButtonState() {
     const saveBtn = document.getElementById('confirmDirectAdjustBtn');
     if (!saveBtn) return;
-    
+
     const hasItem = document.getElementById('directAdjustInventoryId').value;
     const hasQuantity = document.getElementById('directAdjustNewQuantity').value;
     const hasReason = document.getElementById('directAdjustReason').value.trim();
-    
+
     saveBtn.disabled = !(hasItem && hasQuantity && hasReason);
 }
 
@@ -3878,7 +3540,7 @@ async function handleDirectAdjustItemCodeInput(event) {
         const snapshot = await getDocs(inventoryQuery);
 
         if (snapshot.empty) {
-            locationList.innerHTML = '<div class="col-12"><p class="text-danger p-2">Không tìm thấy sản phẩm với mã này.</p></div>';
+            locationList.innerHTML = '<div class="col-12"><p class="text-danger p-2">Không tìm thấy mã hàng với mã này.</p></div>';
             locationContainer.style.display = 'block';
         } else {
             snapshot.docs.forEach(doc => {
@@ -3903,14 +3565,15 @@ window.downloadAdjustTemplate = downloadAdjustTemplate;
 export function loadAdjustSection() {
     const content = document.getElementById('adjustContent');
     if (!content) return;
-
-    // Render the static UI (buttons, filters) only once.
-    renderAdjustUI(currentUser.role);
-
-    // Attach event listeners for the filters only once.
-    initializeAdjustFilters();
-
-    // Perform the initial data load.
+    
+    // Chỉ render giao diện tĩnh và gán sự kiện MỘT LẦN DUY NHẤT
+    if (!window.adjustUiInitialized) {
+        renderAdjustUI(currentUser.role);
+        initializeAdjustFilters();
+        window.adjustUiInitialized = true;
+    }
+    
+    // Luôn gọi hàm tải dữ liệu mỗi khi vào tab
     loadAdjustData(); 
 }
 
@@ -3941,22 +3604,26 @@ async function handleDirectAdjustItemSearch(event) {
     if (searchTerm.length < 2) return;
 
     try {
-        const codeQuery = query(collection(db, 'inventory'), orderBy('code'), where('code', '>=', searchTerm.toUpperCase()), where('code', '<=', searchTerm.toUpperCase() + '\uf8ff'), limit(5));
-        const nameQuery = query(collection(db, 'inventory'), orderBy('name'), where('name', '>=', searchTerm), where('name', '<=', searchTerm + '\uf8ff'), limit(5));
-        
+        // BỎ ĐIỀU KIỆN LỌC 'status' KHỎI CÂU TRUY VẤN
+        const codeQuery = query(collection(db, 'inventory'), orderBy('code'), where('code', '>=', searchTerm.toUpperCase()), where('code', '<=', searchTerm.toUpperCase() + '\uf8ff'), limit(10));
+        const nameQuery = query(collection(db, 'inventory'), orderBy('name'), where('name', '>=', searchTerm), where('name', '<=', searchTerm + '\uf8ff'), limit(10));
+
         const [codeSnapshot, nameSnapshot] = await Promise.all([getDocs(codeQuery), getDocs(nameQuery)]);
         const resultsMap = new Map();
-        
+
         codeSnapshot.forEach(doc => resultsMap.set(doc.id, { id: doc.id, ...doc.data() }));
         nameSnapshot.forEach(doc => resultsMap.set(doc.id, { id: doc.id, ...doc.data() }));
 
-        const finalResults = Array.from(resultsMap.values());
-        if (finalResults.length === 0) {
+        // THÊM: Lọc kết quả trên client để loại bỏ mã hàng đã xóa
+        const activeResults = Array.from(resultsMap.values())
+            .filter(item => item.status !== 'archived');
+
+        if (activeResults.length === 0) {
             suggestionsContainer.style.display = 'none';
             return;
         }
 
-        suggestionsContainer.innerHTML = finalResults.map(item => {
+        suggestionsContainer.innerHTML = activeResults.map(item => {
             const itemJsonString = JSON.stringify(item).replace(/'/g, "\\'");
             return `<div class="suggestion-item-compact" onclick='selectItemForDirectAdjust(${itemJsonString})'>
                         <strong>${item.code}</strong> - ${item.name} (Vị trí: ${item.location} | Tồn: ${item.quantity})
@@ -3968,18 +3635,17 @@ async function handleDirectAdjustItemSearch(event) {
     }
 }
 
-// Thêm hàm MỚI này vào warehouse.js
-window.selectItemForDirectAdjust = function(item) {
+window.selectItemForDirectAdjust = function (item) {
     // Điền thông tin vào các trường của form
     document.getElementById('directAdjustInventoryId').value = item.id;
     document.getElementById('directAdjustItemSearch').value = `${item.code} - ${item.name}`;
     document.getElementById('directAdjustItemName').value = item.name;
     document.getElementById('directAdjustCurrentLocation').value = item.location;
     document.getElementById('directAdjustCurrentStock').value = item.quantity;
-    
+
     const quantityInput = document.getElementById('directAdjustNewQuantity');
     quantityInput.value = item.quantity; // Tự điền số lượng hiện tại
-    
+
     hideSuggestions('directAdjustItemSuggestions');
     quantityInput.focus();
     quantityInput.select();
@@ -3996,58 +3662,45 @@ function initializeAdjustFilters() {
         if (element) {
             const eventType = id === 'adjustItemCodeFilter' ? 'input' : 'change';
             // The handler now ONLY calls loadAdjustData.
-            const handler = () => loadAdjustData(); 
+            const handler = () => loadAdjustData();
             element.addEventListener(eventType, eventType === 'input' ? debounce(handler, 500) : handler);
         }
     });
     window.adjustFiltersInitialized = true;
 }
 
-// Thay thế hàm này trong warehouse.js
+// File: js/warehouse.js
+
 async function loadAdjustData() {
     if (unsubscribeAdjust) unsubscribeAdjust();
 
     try {
-        // Get filter values directly from the DOM each time this function is called.
-        const fromDate = document.getElementById('adjustFromDate')?.value;
-        const toDate = document.getElementById('adjustToDate')?.value;
-        const statusFilter = document.getElementById('adjustStatusFilter')?.value;
-        const itemCodeFilter = document.getElementById('adjustItemCodeFilter')?.value.toLowerCase();
-        
-        // The query logic remains the same.
-        let requestsQuery = query(collection(db, 'adjustment_requests'), where('status', 'in', ['pending', 'rejected']));
-        const unsubscribeRequests = onSnapshot(requestsQuery, handleSnapshots);
+        // === SỬA LỖI QUAN TRỌNG: Chỉ lấy về các yêu cầu đang chờ hoặc đã từ chối ===
+        const requestsQuery = query(collection(db, 'adjustment_requests'), where('status', 'in', ['pending', 'rejected']));
+        const transactionsQuery = query(collection(db, 'transactions'), where('type', '==', 'adjust'));
 
-        let transactionsQuery = query(collection(db, 'transactions'), where('type', '==', 'adjust'));
-        const unsubscribeTransactions = onSnapshot(transactionsQuery, handleSnapshots);
-        
-        unsubscribeAdjust = () => {
-            unsubscribeRequests();
-            unsubscribeTransactions();
-        };
+        const handleDataUpdate = async () => {
+            try {
+                const [requestsSnapshot, transactionsSnapshot] = await Promise.all([
+                    getDocs(requestsQuery),
+                    getDocs(transactionsQuery)
+                ]);
 
-        function handleSnapshots() {
-            Promise.all([getDocs(requestsQuery), getDocs(transactionsQuery)]).then(([requestsSnapshot, transactionsSnapshot]) => {
+                // Lấy các giá trị bộ lọc từ giao diện
+                const fromDate = document.getElementById('adjustFromDate')?.value;
+                const toDate = document.getElementById('adjustToDate')?.value;
+                const statusFilter = document.getElementById('adjustStatusFilter')?.value;
+                const itemCodeFilter = document.getElementById('adjustItemCodeFilter')?.value.toLowerCase();
+
                 let requests = requestsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data(), dataType: 'request' }));
                 let transactions = transactionsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data(), dataType: 'transaction' }));
 
-                // --- THIS IS THE FIX ---
-                // We make the sort function "defensive" against null timestamps.
-                let allData = [...requests, ...transactions].sort((a, b) => {
-                    // Use optional chaining (?.) to safely access .toMillis()
-                    // Provide a default value of 0 if the timestamp is null.
-                    const timeA = a.timestamp?.toMillis() || 0;
-                    const timeB = b.timestamp?.toMillis() || 0;
-                    return timeB - timeA; // Sort descending (newest first)
-                });
-                // --- END OF FIX ---
+                let allData = [...requests, ...transactions];
 
-                // The filtering logic remains the same.
+                // Lọc dữ liệu phía client
                 if (fromDate || toDate || statusFilter || itemCodeFilter) {
                     allData = allData.filter(doc => {
-                        // Ensure timestamp exists before calling toDate()
-                        if (!doc.timestamp) return false; 
-                        
+                        if (!doc.timestamp) return false;
                         const docDate = doc.timestamp.toDate();
                         if (fromDate && docDate < new Date(fromDate)) return false;
                         if (toDate) {
@@ -4055,46 +3708,47 @@ async function loadAdjustData() {
                             endDate.setHours(23, 59, 59, 999);
                             if (docDate > endDate) return false;
                         }
+
+                        // Logic lọc trạng thái (giờ đã đơn giản hơn)
                         const docStatus = doc.dataType === 'transaction' ? 'approved' : doc.status;
                         if (statusFilter && docStatus !== statusFilter) return false;
+                        
                         if (itemCodeFilter) {
-                            return doc.items?.some(item => (item.itemCode || item.code)?.toLowerCase().includes(itemCodeFilter));
+                            const hasMatchingItem = doc.items?.some(item => (item.itemCode || item.code)?.toLowerCase().includes(itemCodeFilter));
+                            if (!hasMatchingItem) return false;
                         }
+                        
                         return true;
                     });
                 }
-                // Call the dedicated function to render the table.
-                renderAdjustTable(allData);
-            });
-        }
-        
+                
+                allData.sort((a, b) => (b.timestamp?.toMillis() || 0) - (a.timestamp?.toMillis() || 0));
+                
+                sectionState.adjust.data = allData;
+                renderPaginatedHistoryTable('adjust');
+
+            } catch (error) {
+                console.error("Lỗi khi xử lý dữ liệu chỉnh số:", error);
+            }
+        };
+
+        const unsubscribeRequests = onSnapshot(requestsQuery, handleDataUpdate);
+        const unsubscribeTransactions = onSnapshot(transactionsQuery, handleDataUpdate);
+
+        unsubscribeAdjust = () => {
+            unsubscribeRequests();
+            unsubscribeTransactions();
+        };
+
+        handleDataUpdate();
+
     } catch (error) {
         console.error('Lỗi thiết lập lắng nghe mục Chỉnh số:', error);
     }
 }
 
 
-function renderAdjustTable(data) {
-    const content = document.getElementById('adjustContent');
-    if (!content) return;
 
-    // Xóa bảng và phân trang cũ nếu có
-    const oldTableContainer = document.getElementById('adjustTableContainer');
-    if (oldTableContainer) oldTableContainer.remove();
-
-    const tableContainer = document.createElement('div');
-    tableContainer.id = 'adjustTableContainer';
-    
-    if (data.length === 0) {
-        tableContainer.innerHTML = '<p class="text-muted">Không tìm thấy dữ liệu phù hợp.</p>';
-    } else {
-        createAdjustPagination(data, tableContainer); // Gọi hàm tạo bảng và phân trang
-    }
-    
-    content.appendChild(tableContainer);
-}
-
-// Thay thế hàm này trong warehouse.js
 function renderAdjustUI(userRole) {
     const content = document.getElementById('adjustContent');
     if (!content) return;
@@ -4145,106 +3799,25 @@ function renderAdjustUI(userRole) {
                             <option value="rejected">Từ chối</option>
                         </select>
                     </div>
-                    <div class="col-md-3"><label class="form-label">Mã hàng</label><input type="text" class="form-control" id="adjustItemCodeFilter" placeholder="Mã hàng..."></div>
+                    <div class="col-md-3"><label class="form-label">Mã hàng</label><input type="text" class="form-control" id="adjustItemCodeFilter" placeholder="Tìm mã hàng..."></div>
                 </div>
             </div>
         </div>
     `;
 
     // Set the static content for the page.
-    content.innerHTML = buttonsHtml + filterHtml;
+    content.innerHTML = buttonsHtml + filterHtml + '<div id="adjustTableContainer"></div>';
 }
 
-// Thay thế hàm này trong warehouse.js
-function createAdjustPagination(allData, container) {
-    let currentPage = 1;
-    const itemsPerPage = 15;
-    const totalPages = Math.ceil(allData.length / itemsPerPage);
-
-    function renderPage(page) {
-        const startIndex = (page - 1) * itemsPerPage;
-        const endIndex = Math.min(startIndex + itemsPerPage, allData.length);
-        const pageData = allData.slice(startIndex, endIndex);
-
-        const table = document.createElement('table');
-        table.className = 'table table-striped table-compact';
-        table.innerHTML = `
-            <thead>
-                <tr>
-                    <th>Lý do / Nguồn gốc</th>
-                    <th class="text-center">Số mặt hàng</th>
-                    <th class="text-center">Trạng thái</th>
-                    <th>Người tạo / Xử lý</th>
-                    <th>Ngày tạo / Xử lý</th>
-                    <th class="text-center">Thao tác</th>
-                </tr>
-            </thead>
-            <tbody></tbody>
-        `;
-        const tbody = table.querySelector('tbody');
-
-        pageData.forEach(doc => {
-            const row = document.createElement('tr');
-            // SỬA LỖI: Thêm optional chaining (?.) để kiểm tra null an toàn
-            const date = doc.timestamp?.toDate().toLocaleDateString('vi-VN') || 'Đang xử lý...';
-            let statusBadge = '';
-            let actionButtons = `<button class="btn btn-info btn-sm" onclick="viewAdjustRequestDetails('${doc.id}')"><i class="fas fa-eye"></i> Xem</button>`;
-            
-            if (doc.dataType === 'request') {
-                const statusConfig = {
-                    'pending': { class: 'bg-warning text-dark', text: 'Chờ duyệt' },
-                    'rejected': { class: 'bg-danger', text: 'Từ chối' }
-                };
-                const status = statusConfig[doc.status] || { class: 'bg-secondary', text: doc.status };
-                statusBadge = `<span class="badge ${status.class}">${status.text}</span>`;
-                
-                // SỬA LỖI: Thêm optional chaining (?.) để kiểm tra null an toàn
-                const requestDate = doc.requestDate?.toDate().toLocaleDateString('vi-VN') || 'N/A';
-
-                row.innerHTML = `
-                    <td>${doc.reason}</td>
-                    <td class="text-center">${doc.items?.length || 0}</td>
-                    <td class="text-center">${statusBadge}</td>
-                    <td>${doc.requestedByName}</td>
-                    <td>${requestDate}</td>
-                    <td class="text-center">${actionButtons}</td>
-                `;
-                if (userRole === 'super_admin' && doc.status === 'pending') {
-                    actionButtons += `
-                        <button class="btn btn-success btn-sm ms-1" onclick="approveAdjustRequest('${doc.id}')"><i class="fas fa-check"></i> Duyệt</button>
-                        <button class="btn btn-danger btn-sm ms-1" onclick="rejectAdjustRequest('${doc.id}')"><i class="fas fa-times"></i> Từ chối</button>
-                    `;
-                }
-            } else { 
-                statusBadge = `<span class="badge bg-success">Đã duyệt</span>`;
-                 row.innerHTML = `
-                    <td>${doc.reason}</td>
-                    <td class="text-center">${doc.items?.length || 0}</td>
-                    <td class="text-center">${statusBadge}</td>
-                    <td>${doc.performedByName}</td>
-                    <td>${date}</td>
-                    <td class="text-center">${actionButtons}</td>
-                `;
-            }
-            row.querySelector('td:last-child').innerHTML = actionButtons;
-
-            tbody.appendChild(row);
-        });
-
-        const paginationContainer = document.createElement('div');
-        paginationContainer.className = 'd-flex justify-content-between align-items-center mt-3';
-        paginationContainer.innerHTML = `
-            <small class="text-muted">Hiển thị ${startIndex + 1} - ${endIndex} của ${allData.length} kết quả</small>
-            <nav><ul class="pagination pagination-sm mb-0" id="adjustPagination"></ul></nav>
-        `;
-
-        container.innerHTML = '';
-        container.appendChild(table);
-        container.appendChild(paginationContainer);
-
-        updatePaginationControls(page, totalPages, 'adjustPagination', renderPage);
+function renderAdjustTable(data) {
+    const tableContainer = document.getElementById('adjustTableContainer');
+    if (!tableContainer) return;
+    if (data.length === 0) {
+        tableContainer.innerHTML = '<p class="text-muted">Không tìm thấy dữ liệu phù hợp.</p>';
+    } else {
+        // Giao toàn bộ việc render cho hàm chung
+        renderPaginatedHistoryTable('adjust');
     }
-    renderPage(1);
 }
 
 export function loadHistorySection() {
@@ -4260,7 +3833,7 @@ export function loadHistorySection() {
         });
 
         document.getElementById('historyItemCodeFilter')?.addEventListener('input', debounce(() => loadAllHistory(getFiltersFromDOM()), 500));
-        
+
         const changeFilters = ['fromDate', 'toDate', 'historyFilter'];
         changeFilters.forEach(id => {
             document.getElementById(id)?.addEventListener('change', () => loadAllHistory(getFiltersFromDOM()));
@@ -4424,7 +3997,7 @@ async function loadInventoryForAdjust() {
         const snapshot = await getDocs(inventoryQuery);
 
         const select = document.getElementById('adjustInventorySelect');
-        select.innerHTML = '<option value="">-- Chọn mặt hàng --</option>';
+        select.innerHTML = '<option value="">-- Chọn mã hàng --</option>';
 
         snapshot.forEach(doc => {
             const data = doc.data();
@@ -4479,7 +4052,7 @@ function createHistoryPagination(allData, container) {
                     originalTransactionNumber = 'Lỗi';
                 }
             }
-            
+
             return {
                 id: docSnapshot.id,
                 data: { ...data, originalTransactionNumber: originalTransactionNumber }
@@ -4513,29 +4086,29 @@ function createHistoryPagination(allData, container) {
             let performedBy = data.performedByName || data.modifiedByName || data.deletedByName || 'N/A';
 
             const typeConfig = {
-            'import': { label: 'Nhập kho', badgeClass: 'bg-success', icon: 'fas fa-download' },
-            'import_edited': { label: 'Sửa Nhập', badgeClass: 'bg-warning text-dark', icon: 'fas fa-pencil-alt' },
-            'import_deleted': { label: 'Xóa Nhập', badgeClass: 'bg-danger', icon: 'fas fa-trash-alt' },
+                'import': { label: 'Nhập kho', badgeClass: 'bg-success', icon: 'fas fa-download' },
+                'import_edited': { label: 'Sửa Nhập', badgeClass: 'bg-warning text-dark', icon: 'fas fa-pencil-alt' },
+                'import_deleted': { label: 'Xóa Nhập', badgeClass: 'bg-danger', icon: 'fas fa-trash-alt' },
 
-            'export': { label: 'Xuất kho', badgeClass: 'bg-warning text-dark', icon: 'fas fa-upload' },
-            'export_edited': { label: 'Sửa Xuất', badgeClass: 'bg-warning text-dark', icon: 'fas fa-pencil-alt' },
-            'export_deleted': { label: 'Xóa Xuất', badgeClass: 'bg-danger', icon: 'fas fa-trash-alt' },
-            
-            'transfer': { label: 'Chuyển kho', badgeClass: 'bg-info', icon: 'fas fa-exchange-alt' },
-            'transfer_edited': { label: 'Sửa Chuyển', badgeClass: 'bg-warning text-dark', icon: 'fas fa-pencil-alt' },
-            'transfer_deleted': { label: 'Xóa Chuyển', badgeClass: 'bg-danger', icon: 'fas fa-trash-alt' },
+                'export': { label: 'Xuất kho', badgeClass: 'bg-warning text-dark', icon: 'fas fa-upload' },
+                'export_edited': { label: 'Sửa Xuất', badgeClass: 'bg-warning text-dark', icon: 'fas fa-pencil-alt' },
+                'export_deleted': { label: 'Xóa Xuất', badgeClass: 'bg-danger', icon: 'fas fa-trash-alt' },
 
-            'adjust': { label: 'Chỉnh số', badgeClass: 'bg-secondary', icon: 'fas fa-edit' },
-            'adjust_edited': { label: 'Sửa Chỉnh số', badgeClass: 'bg-warning text-dark', icon: 'fas fa-pencil-alt' },
-            'adjust_deleted': { label: 'Xóa Chỉnh số', badgeClass: 'bg-danger', icon: 'fas fa-trash-alt' },
-            'adjust_rejected': { label: 'Từ chối CS', badgeClass: 'bg-secondary', icon: 'fas fa-times-circle' },
+                'transfer': { label: 'Chuyển kho', badgeClass: 'bg-info', icon: 'fas fa-exchange-alt' },
+                'transfer_edited': { label: 'Sửa Chuyển', badgeClass: 'bg-warning text-dark', icon: 'fas fa-pencil-alt' },
+                'transfer_deleted': { label: 'Xóa Chuyển', badgeClass: 'bg-danger', icon: 'fas fa-trash-alt' },
 
-            'user_approval': { label: 'Duyệt User', badgeClass: 'bg-primary', icon: 'fas fa-user-check' },
-            'user_management': { label: 'Quản lý User', badgeClass: 'bg-primary', icon: 'fas fa-users-cog' },
+                'adjust': { label: 'Chỉnh số', badgeClass: 'bg-secondary', icon: 'fas fa-edit' },
+                'adjust_edited': { label: 'Sửa Chỉnh số', badgeClass: 'bg-warning text-dark', icon: 'fas fa-pencil-alt' },
+                'adjust_deleted': { label: 'Xóa Chỉnh số', badgeClass: 'bg-danger', icon: 'fas fa-trash-alt' },
+                'adjust_rejected': { label: 'Từ chối CS', badgeClass: 'bg-secondary', icon: 'fas fa-times-circle' },
 
-            'inventory_edited': { label: 'Sửa Mã hàng', badgeClass: 'bg-warning text-dark', icon: 'fas fa-pencil-alt' },
-            'inventory_archived': { label: 'Xóa Mã hàng', badgeClass: 'bg-danger', icon: 'fas fa-archive' },
-        };
+                'user_approval': { label: 'Duyệt User', badgeClass: 'bg-primary', icon: 'fas fa-user-check' },
+                'user_management': { label: 'Quản lý User', badgeClass: 'bg-primary', icon: 'fas fa-users-cog' },
+
+                'inventory_edited': { label: 'Sửa Mã hàng', badgeClass: 'bg-warning text-dark', icon: 'fas fa-pencil-alt' },
+                'inventory_archived': { label: 'Xóa Mã hàng', badgeClass: 'bg-danger', icon: 'fas fa-archive' },
+            };
             const config = typeConfig[data.type] || { label: data.type, badgeClass: 'bg-dark', icon: 'fas fa-question' };
 
             let details = '';
@@ -4564,14 +4137,34 @@ function createHistoryPagination(allData, container) {
                     break;
 
                 case 'adjust':
-                    details = `
-                        <div class="d-flex align-items-center">
-                            <span>Điều chỉnh ${data.itemCode || 'N/A'} (${data.previousQuantity || 0} → ${data.newQuantity || 0})</span>
-                           
-                        </div>
-                    `;
+                    const items = data.items || [];
+                    
+                    if (items.length === 1) {
+                        const item = items[0];
+                        
+                        // === SỬA LỖI Ở ĐÂY: Kiểm tra cả hai bộ tên trường ===
+                        const previousQty = item.previousQuantity !== undefined ? item.previousQuantity : item.currentQuantity;
+                        const newQty = item.newQuantity !== undefined ? item.newQuantity : item.requestedQuantity;
+                        // ====================================================
 
-                    viewButton = `<button class="btn btn-info btn-sm" onclick="viewAdjustDetails('${docId}')">
+                        details = `
+                            <span>
+                                Điều chỉnh ${item.itemCode || 'N/A'} 
+                                <span class="text-muted">(${(previousQty !== undefined ? previousQty : 0)} → ${(newQty !== undefined ? newQty : 0)})</span>
+                            </span>
+                        `;
+                    } else if (items.length > 1) {
+                        details = `
+                            <span>
+                                Điều chỉnh ${items[0].itemCode || 'N/A'} 
+                                <span class="text-muted">(và ${items.length - 1} mã khác)</span>
+                            </span>
+                        `;
+                    } else {
+                        details = `<span>Phiếu chỉnh số không có chi tiết</span>`;
+                    }
+
+                    viewButton = `<button class="btn btn-info btn-sm" onclick="viewAdjustRequestDetails('${docId}')">
                         <i class="fas fa-eye"></i> Xem
                     </button>`;
                     break;
@@ -4655,7 +4248,7 @@ function createHistoryPagination(allData, container) {
                     break;
                 case 'inventory_archived':
                     details = `Xóa mã hàng: ${data.itemCode}`;
-                     // Chúng ta sẽ cần tạo hàm xem chi tiết này
+                    // Chúng ta sẽ cần tạo hàm xem chi tiết này
                     viewButton = `<button class="btn btn-info btn-sm" onclick="viewDeletionDetails('${docId}')"><i class="fas fa-eye"></i>Xem</button>`;
                     break;
 
@@ -4697,7 +4290,7 @@ function createHistoryPagination(allData, container) {
     renderPage(1);
 }
 
-window.viewDeletionDetails = async function(transactionId) {
+window.viewDeletionDetails = async function (transactionId) {
     try {
         const transSnap = await getDoc(doc(db, 'transactions', transactionId));
         if (!transSnap.exists()) {
@@ -4706,7 +4299,7 @@ window.viewDeletionDetails = async function(transactionId) {
 
         const data = transSnap.data();
         const modal = createDeletionDetailsModal(data); // Gọi hàm tạo modal chung
-        
+
         document.body.appendChild(modal);
         const bsModal = new bootstrap.Modal(modal);
         bsModal.show();
@@ -4719,7 +4312,7 @@ window.viewDeletionDetails = async function(transactionId) {
 }
 // THÊM VÀO CUỐI FILE WAREHOUSE.JS
 
-window.viewEditDetails = async function(transactionId) {
+window.viewEditDetails = async function (transactionId) {
     try {
         const transSnap = await getDoc(doc(db, 'transactions', transactionId));
         if (!transSnap.exists()) {
@@ -4728,7 +4321,7 @@ window.viewEditDetails = async function(transactionId) {
 
         const data = transSnap.data();
         const modal = createEditDetailsModal(data); // Gọi hàm tạo modal chung
-        
+
         document.body.appendChild(modal);
         const bsModal = new bootstrap.Modal(modal);
         bsModal.show();
@@ -4752,7 +4345,7 @@ function createDeletionDetailsModal(data) {
     modal.className = 'modal fade';
 
     const date = data.timestamp ? data.timestamp.toDate().toLocaleString('vi-VN') : 'N/A';
-    
+
     // --- Logic thông minh để chuẩn bị nội dung động ---
     let modalTitle = 'Chi tiết Hành động Xóa';
     let alertMainText = 'Một mục đã được xóa';
@@ -4763,7 +4356,7 @@ function createDeletionDetailsModal(data) {
     let reasonHtml = '';
     let impactHtml = '';
 
-    switch(data.type) {
+    switch (data.type) {
         case 'adjust_deleted':
             modalTitle = 'Chi tiết Xóa Phiếu Chỉnh Số';
             alertMainText = 'Phiếu chỉnh số đã bị xóa';
@@ -4782,7 +4375,7 @@ function createDeletionDetailsModal(data) {
             reasonHtml = `<p class="ms-2 mt-1 mb-0 fst-italic theme-aware-inset-box p-2 rounded">${data.deletedReason}</p>`;
             impactHtml = `<strong>Tác động:</strong> Tồn kho đã được khôi phục về ${data.revertedTo}.`;
             break;
-        
+
         case 'import_deleted':
             const deletedImportItems = data.deletedItems || [];
             modalTitle = 'Chi tiết Xóa Phiếu Nhập';
@@ -4793,7 +4386,7 @@ function createDeletionDetailsModal(data) {
                 <div class="col-md-6"><strong>Nhà cung cấp gốc:</strong> ${data.deletedSupplier || 'N/A'}</div>
                 <div class="col-md-6"><strong>Người xóa:</strong> ${data.performedByName}</div>
             `;
-            detailsTitle = 'Các mặt hàng đã được TRỪ khỏi tồn kho';
+            detailsTitle = 'Các mã hàng đã được TRỪ khỏi tồn kho';
             detailsContentHtml = `
                 <div class="table-responsive" style="max-height: 200px;">
                     <table class="table table-sm table-bordered">
@@ -4815,7 +4408,7 @@ function createDeletionDetailsModal(data) {
                 <div class="col-md-6"><strong>Người nhận gốc:</strong> ${data.deletedRecipient || 'N/A'}</div>
                 <div class="col-md-6"><strong>Người xóa:</strong> ${data.performedByName}</div>
             `;
-            detailsTitle = 'Các mặt hàng đã được HOÀN LẠI vào tồn kho';
+            detailsTitle = 'Các mã hàng đã được HOÀN LẠI vào tồn kho';
             detailsContentHtml = `
                 <div class="table-responsive" style="max-height: 200px;">
                     <table class="table table-sm table-bordered">
@@ -4865,19 +4458,19 @@ function createDeletionDetailsModal(data) {
                 </div>`;
             impactHtml = `<strong>Tác động:</strong> Số lượng đã được hoàn trả về vị trí <strong>${data.deletedFromLocation}</strong> và thu hồi từ vị trí <strong>${data.deletedToLocation}</strong>.`;
             break;
-            
+
         case 'inventory_archived':
-            modalTitle = 'Chi tiết Xóa (Lưu trữ) Sản phẩm';
-            alertMainText = 'Sản phẩm đã được lưu trữ';
-            alertSubText = 'Sản phẩm này đã bị ẩn khỏi các danh sách và tìm kiếm thông thường.';
+            modalTitle = 'Chi tiết Xóa (Lưu trữ) mã hàng';
+            alertMainText = 'Mã hàng đã được lưu trữ';
+            alertSubText = 'Mã hàng này đã bị ẩn khỏi các danh sách và tìm kiếm thông thường.';
             generalInfoHtml = `
-                <div class="col-md-6"><strong>Mã sản phẩm:</strong> ${data.itemCode}</div>
+                <div class="col-md-6"><strong>Mã hàng:</strong> ${data.itemCode}</div>
                 <div class="col-md-6"><strong>Người xóa:</strong> ${data.performedByName}</div>
                 <div class="col-md-6"><strong>Thời gian xóa:</strong> ${date}</div>
             `;
             detailsTitle = 'Thông tin chi tiết';
             detailsContentHtml = `<p class="p-3 theme-aware-inset-box rounded border">${data.details}</p>`;
-            impactHtml = '<strong>Tác động:</strong> Sản phẩm này không còn hiển thị trong danh sách tồn kho chính.';
+            impactHtml = '<strong>Tác động:</strong> mã hàng này không còn hiển thị trong danh sách tồn kho chính.';
             break;
     }
 
@@ -4914,7 +4507,7 @@ function createDeletionDetailsModal(data) {
                             <strong>Lý do ban đầu:</strong>
                             ${reasonHtml}
                         </div>` : ''
-                    }
+        }
 
                     <!-- THÔNG TIN TÁC ĐỘNG -->
                     <div class="alert alert-info">
@@ -4937,14 +4530,14 @@ function createEditDetailsModal(data) {
     modal.className = 'modal fade';
 
     const date = data.timestamp ? data.timestamp.toDate().toLocaleString('vi-VN') : 'N/A';
-    
+
     // --- BỘ DỊCH TÊN TRƯỜNG THÔNG TIN (Rất quan trọng) ---
     const fieldNames = {
         importNumber: 'Số phiếu nhập',
         supplier: 'Nhà cung cấp',
         exportNumber: 'Số phiếu xuất',
         recipient: 'Người nhận',
-        items_changed: 'Số lượng mặt hàng',
+        items_changed: 'Số lượng mã hàng',
         name: 'Tên mô tả',
         unit: 'Đơn vị tính',
         category: 'Danh mục',
@@ -4952,7 +4545,7 @@ function createEditDetailsModal(data) {
         quantity: 'Số lượng',
         note: 'Ghi chú'
     };
-    
+
     // --- Logic thông minh để xây dựng nội dung ---
     let modalTitle = 'Chi tiết Sửa đổi Giao dịch';
     const transactionType = data.type.replace('_edited', '').toUpperCase();
@@ -5033,13 +4626,13 @@ function createEditDetailsModal(data) {
     return modal;
 }
 
-window.viewOriginalTransaction = function(transactionId, type) {
+window.viewOriginalTransaction = function (transactionId, type) {
     // Đóng modal hiện tại trước khi mở modal mới
     const currentModal = document.getElementById('editDetailsModal');
     if (currentModal) {
         bootstrap.Modal.getInstance(currentModal).hide();
     }
-    
+
     // Gọi hàm xem chi tiết tương ứng
     if (type.includes('import')) viewImportDetails(transactionId);
     else if (type.includes('export')) viewExportDetails(transactionId);
@@ -5469,7 +5062,7 @@ async function loadAllHistory(filters = {}) {
             'export': ['export', 'export_edited', 'export_deleted'],
             'transfer': ['transfer', 'transfer_edited', 'transfer_deleted'],
             'adjust': ['adjust', 'adjust_edited', 'adjust_deleted', 'adjust_rejected'],
-            'user_management': ['user_approval', 'user_management'] 
+            'user_management': ['user_approval', 'user_management']
         };
 
         let historyQuery;
@@ -5501,11 +5094,13 @@ async function loadAllHistory(filters = {}) {
 
             const content = document.getElementById('historyContent');
             if (!content) return;
-            if (docs.length === 0) {
-                content.innerHTML = '<p class="text-muted">Không có dữ liệu phù hợp.</p>';
-                return;
-            }
+             if (docs.length === 0) {
+            // Luôn sử dụng mẫu chung
+            content.innerHTML = '<p class="text-muted">Không tìm thấy dữ liệu phù hợp.</p>';
+        } else {
+            // Nếu có dữ liệu thì mới gọi hàm tạo bảng
             createHistoryPagination(docs, content);
+        }
         }, (error) => {
             console.error("Lỗi lắng nghe lịch sử chung:", error);
         });
@@ -5523,39 +5118,6 @@ document.addEventListener('DOMContentLoaded', function () {
         document.getElementById('toDate').value = today;
     }
 });
-
-function initializeFilters() {
-    const setupLiveFilter = (config) => {
-        config.textInputs?.forEach(id => {
-            document.getElementById(id)?.addEventListener('input', debounce(() => config.loader(true), 500));
-        });
-        config.selectInputs?.forEach(id => {
-            document.getElementById(id)?.addEventListener('change', () => config.loader(true));
-        });
-    };
-
-    // --- Khu vực Nhập kho ---
-    setupLiveFilter({
-        textInputs: ['importItemCodeFilter'],
-        selectInputs: ['importFromDate', 'importToDate', 'importStatusFilter'],
-        loader: loadImportHistory
-    });
-
-    // --- Khu vực Xuất kho ---
-    setupLiveFilter({
-        textInputs: ['exportItemCodeFilter'],
-        selectInputs: ['exportFromDate', 'exportToDate'],
-        loader: loadExportHistory
-    });
-
-    // --- Khu vực Chuyển kho ---
-    setupLiveFilter({
-        textInputs: ['transferItemCodeFilter'],
-        selectInputs: ['transferFromDate', 'transferToDate'],
-        loader: loadTransferHistory
-    });
-}
-
 
 // Transfer Details View Function
 window.viewTransferDetails = async function (transactionId) {
@@ -5744,8 +5306,324 @@ window.viewAdjustDetails = async function (transactionId) {
     }
 };
 
+function initializeRealtimeHistoryTable(sectionName) {
+    if (historyListeners[sectionName]) historyListeners[sectionName]();
 
-// Thay thế hàm này trong warehouse.js
+    const config = historyConfig[sectionName];
+    if (!config) return;
+
+    // Tạo cấu trúc bảng một lần (trừ mục adjust đã có UI riêng)
+    if (sectionName !== 'adjust') {
+        const content = document.getElementById(config.contentId);
+        if (content) {
+            content.innerHTML = `
+                <table class="table table-striped table-compact">
+                    ${config.tableHeader}
+                    <tbody id="${config.tableBodyId}"></tbody>
+                </table>
+                <div id="${config.paginationContainerId}"></div>`;
+        }
+    }
+
+    const renderCallback = (docs) => {
+        sectionState[sectionName].data = docs;
+        renderPaginatedHistoryTable(sectionName);
+    };
+
+    if (config.isComplex) {
+        historyListeners[sectionName] = initializeAdjustDataListener(renderCallback);
+    } else {
+        const finalConstraints = [...config.baseConstraints, orderBy('timestamp', 'desc')];
+        const historyQuery = query(collection(db, config.collection), ...finalConstraints);
+        historyListeners[sectionName] = onSnapshot(historyQuery, (snapshot) => {
+            renderCallback(snapshot.docs);
+        }, (error) => console.error(`Lỗi listener cho ${sectionName}:`, error));
+    }
+}
+
+// Hàm lắng nghe riêng cho mục Chỉnh số
+function initializeAdjustDataListener(callback) {
+    const requestsQuery = query(collection(db, 'adjustment_requests'), where('status', 'in', ['pending', 'rejected']));
+    const transactionsQuery = query(collection(db, 'transactions'), where('type', '==', 'adjust'));
+
+    const unsubscribeRequests = onSnapshot(requestsQuery, handleSnapshots);
+    const unsubscribeTransactions = onSnapshot(transactionsQuery, handleSnapshots);
+    
+    function handleSnapshots() {
+        Promise.all([getDocs(requestsQuery), getDocs(transactionsQuery)]).then(([requestsSnapshot, transactionsSnapshot]) => {
+            let requests = requestsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data(), dataType: 'request' }));
+            let transactions = transactionsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data(), dataType: 'transaction' }));
+            let allData = [...requests, ...transactions].sort((a, b) => (b.timestamp?.toMillis() || 0) - (a.timestamp?.toMillis() || 0));
+            callback(allData);
+        });
+    }
+
+    return () => {
+        unsubscribeRequests();
+        unsubscribeTransactions();
+    };
+}
+
+function renderPaginatedHistoryTable(sectionName) {
+    const config = historyConfig[sectionName];
+    if (!config) return;
+
+    const state = sectionState[sectionName];
+    const itemsPerPage = 15;
+    
+    // Lấy giá trị filter từ DOM một cách an toàn
+    const getFilterValue = (id) => document.getElementById(id)?.value || '';
+    const fromDateFilter = getFilterValue(`${sectionName}FromDate`);
+    const toDateFilter = getFilterValue(`${sectionName}ToDate`);
+    const itemCodeFilter = getFilterValue(`${sectionName}ItemCodeFilter`).toLowerCase();
+    const statusFilter = getFilterValue(`${sectionName}StatusFilter`);
+    
+    // Lọc dữ liệu phía client dựa trên filter
+    let filteredData = state.data.filter(docSnapshot => {
+        const data = docSnapshot.data ? docSnapshot.data() : docSnapshot;
+        let codeMatch = true, dateMatch = true, statusMatch = true;
+
+        // Lọc theo ngày (chung cho tất cả)
+        if (data.timestamp) {
+            const docDate = data.timestamp.toDate();
+            if (fromDateFilter && docDate < new Date(fromDateFilter)) dateMatch = false;
+            if (toDateFilter) {
+                const endDate = new Date(toDateFilter);
+                endDate.setHours(23, 59, 59, 999);
+                if (docDate > endDate) dateMatch = false;
+            }
+        }
+        
+        // SỬA LỖI: Logic lọc theo Mã hàng được tách riêng cho từng section
+        if (itemCodeFilter) {
+            switch (sectionName) {
+                case 'import':
+                case 'export':
+                case 'adjust': // Chỉnh số cũng dùng cấu trúc 'items'
+                    codeMatch = data.items?.some(item => (item.itemCode || item.code)?.toLowerCase().includes(itemCodeFilter));
+                    break;
+                case 'transfer':
+                    codeMatch = data.itemCode?.toLowerCase().includes(itemCodeFilter);
+                    break;
+            }
+        }
+
+        // SỬA LỖI: Logic lọc theo Trạng thái được tách riêng cho từng section
+        if (statusFilter) {
+            switch (sectionName) {
+                case 'import':
+                    const hasFailed = data.items?.some(item => item.qc_status === 'failed');
+                    const hasPending = data.items?.some(item => item.qc_status === 'pending');
+                    if (statusFilter === 'failed') statusMatch = hasFailed;
+                    else if (statusFilter === 'pending') statusMatch = hasPending && !hasFailed;
+                    else if (statusFilter === 'completed') statusMatch = !hasPending && !hasFailed;
+                    break;
+                case 'adjust':
+                    const docStatus = data.dataType === 'transaction' ? 'approved' : data.status;
+                    statusMatch = (docStatus === statusFilter);
+                    break;
+            }
+        }
+        
+        return codeMatch && dateMatch && statusMatch;
+    });
+
+    const targetContainerId = (sectionName === 'adjust') ? 'adjustTableContainer' : config.contentId;
+    const contentContainer = document.getElementById(targetContainerId);
+    if (!contentContainer) return;
+
+    if (filteredData.length === 0) {
+        // Nếu không có dữ liệu, hiển thị thông báo chung
+        contentContainer.innerHTML = '<p class="text-muted">Không tìm thấy dữ liệu phù hợp.</p>';
+        return;
+    }
+
+    // Nếu có dữ liệu, vẽ lại bảng và phân trang
+    contentContainer.innerHTML = `
+        <table class="table table-striped table-compact">
+            ${config.tableHeader}
+            <tbody id="${config.tableBodyId}"></tbody>
+        </table>
+        <div id="${config.paginationContainerId}"></div>`;
+    // === KẾT THÚC SỬA LỖI CHÍNH ===
+
+    const totalPages = Math.ceil(filteredData.length / itemsPerPage);
+    state.page = Math.min(state.page, totalPages) || 1; 
+
+    const startIndex = (state.page - 1) * itemsPerPage;
+    const endIndex = Math.min(startIndex + itemsPerPage, filteredData.length);
+    const pageData = filteredData.slice(startIndex, endIndex);
+    
+    const rows = pageData.map(doc => config.createRowFunc(doc));
+
+    const tableBody = document.getElementById(config.tableBodyId);
+    if(tableBody) {
+        tableBody.innerHTML = '';
+        rows.forEach(row => tableBody.appendChild(row));
+    }
+
+    renderPaginationControls(sectionName, state.page, totalPages, filteredData.length, startIndex, endIndex);
+}
+
+function renderPaginationControls(sectionName, currentPage, totalPages, totalItems, startIndex, endIndex) {
+    const config = historyConfig[sectionName];
+    if (!config) return;
+    
+    const container = document.getElementById(config.paginationContainerId);
+    if (!container) return;
+    
+    const renderPageCallback = (newPage) => {
+        sectionState[sectionName].page = newPage;
+        renderPaginatedHistoryTable(sectionName);
+    };
+
+    let paginationHTML = '';
+    paginationHTML += `<li class="page-item ${currentPage === 1 ? 'disabled' : ''}"><a class="page-link" href="#" data-page="${currentPage - 1}">Trước</a></li>`;
+    const maxVisiblePages = 5;
+    let startPage = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2));
+    let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
+    if (endPage - startPage + 1 < maxVisiblePages) {
+        startPage = Math.max(1, endPage - maxVisiblePages + 1);
+    }
+    for (let i = startPage; i <= endPage; i++) {
+        paginationHTML += `<li class="page-item ${i === currentPage ? 'active' : ''}"><a class="page-link" href="#" data-page="${i}">${i}</a></li>`;
+    }
+    paginationHTML += `<li class="page-item ${currentPage === totalPages || totalPages === 0 ? 'disabled' : ''}"><a class="page-link" href="#" data-page="${currentPage + 1}">Sau</a></li>`;
+
+    container.innerHTML = `
+        <div class="d-flex justify-content-between align-items-center mt-3">
+            <small class="text-muted">Hiển thị ${startIndex + 1} - ${endIndex} của ${totalItems} kết quả</small>
+            <nav><ul class="pagination pagination-sm mb-0">${paginationHTML}</ul></nav>
+        </div>
+    `;
+
+    container.querySelectorAll('.page-link[data-page]').forEach(link => {
+        link.addEventListener('click', function(e) {
+            e.preventDefault();
+            const pageNum = parseInt(this.dataset.page);
+            if (pageNum >= 1 && !this.parentElement.classList.contains('disabled')) {
+                renderPageCallback(pageNum);
+            }
+        });
+    });
+}
+
+function createImportRow(doc) {
+    const data = doc.id ? doc.data() : doc; // Hỗ trợ cả snapshot và object thường
+    const docId = doc.id || data.id;
+    const row = document.createElement('tr');
+    
+    const hasFailed = data.items?.some(item => item.qc_status === 'failed');
+    const hasPending = data.items?.some(item => item.qc_status === 'pending');
+    if (hasFailed) row.classList.add('table-danger');
+    else if (hasPending) row.classList.add('table-warning');
+
+    const date = data.timestamp ? data.timestamp.toDate().toLocaleDateString('vi-VN') : 'N/A';
+    let actionButtons = `<button class="btn btn-info btn-sm me-1" onclick="viewImportDetails('${docId}')"><i class="fas fa-eye"></i> Xem</button>`;
+    if (userRole === 'super_admin') {
+        actionButtons += `
+            <button class="btn btn-warning btn-sm me-1" onclick="editImportTransaction('${docId}')"><i class="fas fa-edit"></i> Sửa</button>
+            <button class="btn btn-danger btn-sm" onclick="deleteImportTransaction('${docId}')"><i class="fas fa-trash"></i> Xóa</button>`;
+    }
+
+    row.innerHTML = `
+        <td class="text-center">${data.importNumber}</td>
+        <td class="text-center">${data.supplier}</td>
+        <td class="text-center">${data.items?.length || 0}</td>
+        <td class="text-center">${data.performedByName}</td>
+        <td class="text-center">${date}</td>
+        <td class="text-center">${actionButtons}</td>`;
+    return row;
+}
+
+function createExportRow(doc) {
+    const data = doc.id ? doc.data() : doc;
+    const docId = doc.id || data.id;
+    const row = document.createElement('tr');
+    
+    // Logic tương tự cho phiếu xuất (nếu có yêu cầu)
+    if(data.dataType === 'pending') row.classList.add('table-warning');
+    
+    const date = data.timestamp ? data.timestamp.toDate().toLocaleDateString('vi-VN') : 'N/A';
+    let actionButtons = `<button class="btn btn-info btn-sm me-1" onclick="viewExportDetails('${docId}')"><i class="fas fa-eye"></i> Xem</button>`;
+    if (userRole === 'super_admin') {
+        actionButtons += `
+            <button class="btn btn-warning btn-sm me-1" onclick="editExportTransaction('${docId}')"><i class="fas fa-edit"></i> Sửa</button>
+            <button class="btn btn-danger btn-sm" onclick="deleteExportTransaction('${docId}')"><i class="fas fa-trash"></i> Xóa</button>`;
+    }
+
+    row.innerHTML = `
+        <td class="text-center">${data.exportNumber}</td>
+        <td class="text-center">${data.recipient}</td>
+        <td class="text-center">${data.items?.length || 0}</td>
+        <td class="text-center">${data.performedByName}</td>
+        <td class="text-center">${date}</td>
+        <td class="text-center">${actionButtons}</td>`;
+    return row;
+}
+
+function createTransferRow(doc) {
+    const data = doc.id ? doc.data() : doc;
+    const docId = doc.id || data.id;
+    const row = document.createElement('tr');
+    const date = data.timestamp ? data.timestamp.toDate().toLocaleDateString('vi-VN') : 'N/A';
+    let actionButtons = `<button class="btn btn-info btn-sm me-1" onclick="viewTransferDetails('${docId}')"><i class="fas fa-eye"></i> Xem</button>`;
+    if (userRole === 'super_admin') {
+        actionButtons += `<button class="btn btn-warning btn-sm me-1" onclick="editTransferTransaction('${docId}')"><i class="fas fa-edit"></i> Sửa</button><button class="btn btn-danger btn-sm" onclick="deleteTransferTransaction('${docId}')"><i class="fas fa-trash"></i> Xóa</button>`;
+    }
+    row.innerHTML = `<td class="text-center">${data.itemCode}</td><td class="text-center">${data.quantity}</td><td class="text-center">${data.fromLocation}</td><td class="text-center">${data.toLocation}</td><td class="text-center">${data.performedByName}</td><td class="text-center">${date}</td><td class="text-center">${actionButtons}</td>`;
+    return row;
+}
+
+// File: js/warehouse.js
+
+function createAdjustRow(doc) {
+    const data = doc;
+    const docId = data.id;
+    const row = document.createElement('tr');
+    
+    let statusBadge = '';
+    let handlerDisplay = '';
+    let displayReason = data.reason || 'N/A';
+    let actionButtons = `<button class="btn btn-info btn-sm" onclick="viewAdjustRequestDetails('${docId}')"><i class="fas fa-eye"></i> Xem</button>`;
+    
+    if (data.dataType === 'request') {
+        if (data.status === 'pending') {
+            statusBadge = `<span class="badge bg-warning text-dark">Chờ duyệt</span>`;
+            handlerDisplay = `Y/c bởi: <strong>${data.requestedByName}</strong>`;
+            if (userRole === 'super_admin') {
+                actionButtons += `
+                    <button class="btn btn-success btn-sm ms-1" onclick="approveAdjustRequest('${docId}')"><i class="fas fa-check"></i> Duyệt</button>
+                    <button class="btn btn-danger btn-sm ms-1" onclick="rejectAdjustRequest('${docId}')"><i class="fas fa-times"></i> Từ chối</button>
+                `;
+            }
+        } else { // status === 'rejected'
+            statusBadge = `<span class="badge bg-danger">Đã từ chối</span>`;
+            handlerDisplay = `Từ chối bởi: <strong>${data.rejectedByName}</strong>`;
+        }
+    } else { // dataType === 'transaction'
+        statusBadge = `<span class="badge bg-success">Đã duyệt</span>`;
+        if (data.requestedByName) { // Giao dịch được tạo từ một yêu cầu
+            handlerDisplay = `
+                <div>Y/c bởi: <strong>${data.requestedByName}</strong></div>
+                <div class="mt-1">Duyệt bởi: <strong>${data.performedByName}</strong></div>
+            `;
+        } else { // Giao dịch được tạo trực tiếp
+            handlerDisplay = `Thực hiện: <strong>${data.performedByName}</strong>`;
+        }
+    }
+
+    const date = data.timestamp?.toDate().toLocaleDateString('vi-VN') || 'N/A';
+
+    row.innerHTML = `
+        <td>${displayReason}</td>
+        <td class="text-center">${data.items?.length || 0}</td>
+        <td class="text-center">${statusBadge}</td>
+        <td>${handlerDisplay}</td>
+        <td class="text-center">${date}</td>
+        <td class="text-center">${actionButtons}</td>`;
+    return row;
+}
 
 function createAdjustDetailsModal(data) {
     const modal = document.createElement('div');
@@ -5846,117 +5724,18 @@ function createAdjustDetailsModal(data) {
     return modal;
 }
 
-function createExportPagination(allData, container) {
-    let currentPage = 1;
-    const itemsPerPage = 15;
-    const totalPages = Math.ceil(allData.length / itemsPerPage);
 
-    function renderPage(page) {
-        const startIndex = (page - 1) * itemsPerPage;
-        const endIndex = Math.min(startIndex + itemsPerPage, allData.length);
-        const pageData = allData.slice(startIndex, endIndex);
-
-        const table = document.createElement('table');
-        table.className = 'table table-striped table-compact';
-        table.innerHTML = `
-            <thead>
-                <tr class="text-center">
-                    <th>Số phiếu / Người yêu cầu</th>
-                    <th>Người nhận / Trạng thái</th>
-                    <th>Số mặt hàng</th>
-                    <th>Người thực hiện</th>
-                    <th>Ngày tạo</th>
-                    <th class="text-center">Thao tác</th>
-                </tr>
-            </thead>
-            <tbody></tbody>
-        `;
-        const tbody = table.querySelector('tbody');
-
-        pageData.forEach(data => {
-            const row = document.createElement('tr');
-            const date = data.timestamp ? data.timestamp.toDate().toLocaleDateString('vi-VN') : 'N/A';
-            let actionButtons = '';
-
-            if (data.dataType === 'pending') {
-                // --- HIỂN THỊ CHO YÊU CẦU CHỜ DUYỆT ---
-                row.classList.add('table-warning'); // Tô màu vàng cho yêu cầu
-
-                // Chỉ admin và super_admin mới thấy các nút này
-                if (userRole !== 'staff') {
-                    actionButtons = `
-                        <button class="btn btn-info btn-sm me-1" onclick="viewExportRequestDetails('${data.docId}')"><i class="fas fa-eye"></i>Xem</button>
-                        <button class="btn btn-success btn-sm me-1" onclick="approveExportRequest('${data.docId}')"><i class="fas fa-check"></i>Duyệt</button>
-                        <button class="btn btn-danger btn-sm" onclick="rejectExportRequest('${data.docId}')"><i class="fas fa-times"></i>Từ chối</button>
-                    `;
-                }
-                
-                row.innerHTML = `
-                    <td class="text-center">Yêu cầu từ: <strong>${data.requestedByName}</strong></td>
-                    <td class="text-center"><span class="badge bg-warning text-dark">Chờ duyệt</span></td>
-                    <td class="text-center">${data.items?.length || 0}</td>
-                    <td class="text-center">Chưa có</td>
-                    <td class="text-center">${date}</td>
-                    <td class="text-center">${actionButtons}</td>
-                `;
-
-            } else {
-                // --- HIỂN THỊ CHO PHIẾU ĐÃ HOÀN THÀNH ---
-                actionButtons = `<button class="btn btn-info btn-sm me-1" onclick="viewExportDetails('${data.docId}')"><i class="fas fa-eye"></i>Xem</button>`;
-                
-                // Chỉ Super Admin mới có quyền Sửa/Xóa
-                if (userRole === 'super_admin') {
-                    actionButtons += `
-                        <button class="btn btn-warning btn-sm me-1" onclick="editExportTransaction('${data.docId}')"><i class="fas fa-edit"></i>Sửa</button>
-                        <button class="btn btn-danger btn-sm" onclick="deleteExportTransaction('${data.docId}')"><i class="fas fa-trash"></i>Xóa</button>
-                    `;
-                }
-                
-                row.innerHTML = `
-                    <td class="text-center">${data.exportNumber}</td>
-                    <td class="text-center">${data.recipient}</td>
-                    <td class="text-center">${data.items?.length || 0}</td>
-                    <td class="text-center">${data.performedByName}</td>
-                    <td class="text-center">${date}</td>
-                    <td class="text-center">${actionButtons}</td>
-                `;
-            }
-            tbody.appendChild(row);
-        });
-
-        // Create pagination
-        const paginationContainer = document.createElement('div');
-        paginationContainer.className = 'd-flex justify-content-between align-items-center mt-3';
-        paginationContainer.innerHTML = `
-            <small class="text-muted">Hiển thị ${startIndex + 1} - ${endIndex} của ${allData.length} kết quả</small>
-            <nav aria-label="Export pagination">
-                <ul class="pagination pagination-sm mb-0" id="exportPagination">
-                </ul>
-            </nav>
-        `;
-
-        container.innerHTML = '';
-        container.appendChild(table);
-        container.appendChild(paginationContainer);
-
-        updatePaginationControls(page, totalPages, 'exportPagination', renderPage);
-    }
-
-    renderPage(1);
-}
-
-
-window.viewExportRequestDetails = async function(requestId) {
+window.viewExportRequestDetails = async function (requestId) {
     try {
         const requestDoc = await getDoc(doc(db, 'export_requests', requestId));
         if (!requestDoc.exists()) {
             return showToast('Không tìm thấy yêu cầu xuất kho.', 'danger');
         }
-        
+
         const req = requestDoc.data();
         const date = req.timestamp.toDate().toLocaleString('vi-VN');
-        
-        // Tạo bảng HTML cho các mặt hàng
+
+        // Tạo bảng HTML cho các mã hàng
         let itemsHtml = req.items.map(item => `
             <tr>
                 <td>${item.code}</td>
@@ -6024,10 +5803,10 @@ window.viewExportRequestDetails = async function(requestId) {
     }
 }
 
-window.approveExportRequest = async function(requestId) {
+window.approveExportRequest = async function (requestId) {
     const confirmed = await showConfirmation(
-        'Duyệt Yêu cầu Xuất kho', 
-        'Bạn có chắc muốn duyệt yêu cầu này? Tồn kho sẽ bị trừ ngay lập tức và không thể hoàn tác.', 
+        'Duyệt Yêu cầu Xuất kho',
+        'Bạn có chắc muốn duyệt yêu cầu này? Tồn kho sẽ bị trừ ngay lập tức và không thể hoàn tác.',
         'Duyệt và Xuất kho', 'Hủy', 'success'
     );
     if (!confirmed) return;
@@ -6038,7 +5817,7 @@ window.approveExportRequest = async function(requestId) {
         if (!requestSnap.exists() || requestSnap.data().status !== 'pending') {
             return showToast('Yêu cầu không còn tồn tại hoặc đã được xử lý.', 'warning');
         }
-        
+
         const reqData = requestSnap.data();
         const batch = writeBatch(db);
 
@@ -6062,15 +5841,15 @@ window.approveExportRequest = async function(requestId) {
             source: 'request'
         });
 
-        // 2. Trừ tồn kho cho từng mặt hàng
+        // 2. Trừ tồn kho cho từng mã hàng
         for (const item of reqData.items) {
             const invRef = doc(db, 'inventory', item.inventoryId);
             // Kiểm tra lại tồn kho trước khi trừ để đảm bảo an toàn
             const invSnap = await getDoc(invRef);
             if (!invSnap.exists() || invSnap.data().quantity < item.requestedQuantity) {
-                throw new Error(`Không đủ tồn kho cho sản phẩm ${item.code}.`);
+                throw new Error(`Không đủ tồn kho cho mã hàng ${item.code}.`);
             }
-             batch.update(invRef, { quantity: increment(-item.quantity) }); 
+            batch.update(invRef, { quantity: increment(-item.quantity) });
         }
 
         // 3. Cập nhật trạng thái của yêu cầu thành 'approved'
@@ -6080,7 +5859,7 @@ window.approveExportRequest = async function(requestId) {
             approvedByName: currentUser.name,
             approvedAt: serverTimestamp()
         });
-        
+
         await batch.commit();
         showToast('Duyệt yêu cầu xuất kho thành công!', 'success');
         loadExportHistory(); // Tải lại danh sách để cập nhật giao diện
@@ -6091,7 +5870,7 @@ window.approveExportRequest = async function(requestId) {
     }
 }
 
-window.rejectExportRequest = async function(requestId) {
+window.rejectExportRequest = async function (requestId) {
     const reason = await showInputModal('Lý do từ chối', 'Vui lòng nhập lý do từ chối yêu cầu xuất kho này:', 'VD: Hàng đã được đặt cho đơn khác...');
     if (reason === null) return; // Người dùng đã nhấn hủy
     if (!reason) {
@@ -6953,10 +6732,29 @@ window.editTransferTransaction = async function (transactionId) {
     }
 };
 
+// REPLACE THIS FUNCTION in warehouse.js
 function createEditTransferModal(transactionId, data) {
     const modal = document.createElement('div');
     modal.className = 'modal fade';
     modal.id = 'editTransferModal';
+
+    // --- NEW: Logic to parse the destination location and create selector options ---
+    const locationRegex = /^([A-Z])(\d+)-(\d+)$/;
+    const match = data.toLocation.match(locationRegex);
+    const currentAisle = match ? match[1] : '';
+    const currentBay = match ? parseInt(match[2], 10) : '';
+    const currentLevel = match ? parseInt(match[3], 10) : '';
+
+    const aisleOptions = layoutConfig.aisles.map(a => `<option value="${a}" ${currentAisle === a ? 'selected' : ''}>Dãy ${a}</option>`).join('');
+    let bayOptions = '';
+    for (let i = 1; i <= layoutConfig.maxBay; i++) {
+        bayOptions += `<option value="${i}" ${currentBay === i ? 'selected' : ''}>Kệ ${i}</option>`;
+    }
+    let levelOptions = '';
+    for (let i = 1; i <= layoutConfig.maxLevel; i++) {
+        levelOptions += `<option value="${i}" ${currentLevel === i ? 'selected' : ''}>Tầng ${i}</option>`;
+    }
+    // --- END NEW LOGIC ---
 
     modal.innerHTML = `
         <div class="modal-dialog modal-xl">
@@ -6985,24 +6783,35 @@ function createEditTransferModal(transactionId, data) {
                             </div>
                         </div>
                         
+                        <div class="row mb-3 align-items-end">
+                            <div class="col-md-6">
+                                <label class="form-label">Từ vị trí (Không đổi)</label>
+                                <input type="text" class="form-control" id="editFromLocation" value="${data.fromLocation}" readonly>
+                            </div>                           
+                            <div class="col-md-6">
+                                <label class="form-label">Đến vị trí mới</label>
+                                <div class="row g-2">
+                                    <div class="col">
+                                        <select class="form-select" id="editToAisle">${aisleOptions}</select>
+                                    </div>
+                                    <div class="col">
+                                        <select class="form-select" id="editToBay">${bayOptions}</select>
+                                    </div>
+                                    <div class="col">
+                                        <select class="form-select" id="editToLevel">${levelOptions}</select>
+                                    </div>
+                                </div>
+                            </div>                                                  
+                        </div>
                         <div class="row mb-3">
-                            <div class="col-md-4">
-                                <label class="form-label">Từ vị trí</label>
-                                <input type="text" class="form-control" id="editFromLocation" value="${data.fromLocation}" required>
-                            </div>
-                            <div class="col-md-4">
-                                <label class="form-label">Đến vị trí</label>
-                                <input type="text" class="form-control" id="editToLocation" value="${data.toLocation}" required>
-                            </div>
-                            <div class="col-md-4">
+                            <div class="col-md-6">
                                 <label class="form-label">Số lượng chuyển</label>
                                 <input type="number" class="form-control" id="editTransferQuantity" value="${data.quantity}" min="1" required data-original="${data.quantity}">
                             </div>
-                        </div>
-                        
-                        <div class="mb-3">
-                            <label class="form-label">Ghi chú</label>
-                            <textarea class="form-control" id="editTransferNote" rows="2">${data.note || ''}</textarea>
+                            <div class="col-md-6">
+                                <label class="form-label">Ghi chú</label>
+                                <input type="text" class="form-control" id="editTransferNote" value="${data.note || ''}">
+                            </div>
                         </div>
                         
                         <input type="hidden" id="editTransferTransactionId" value="${transactionId}">
@@ -7022,11 +6831,19 @@ function createEditTransferModal(transactionId, data) {
     return modal;
 }
 
+// REPLACE THIS FUNCTION in warehouse.js
 window.saveEditTransfer = async function () {
     const transactionId = document.getElementById('editTransferTransactionId').value;
     const itemCode = document.getElementById('editTransferItemCode').value;
     const fromLocation = document.getElementById('editFromLocation').value;
-    const toLocation = document.getElementById('editToLocation').value;
+
+    // --- UPDATED: Read destination from new selectors ---
+    const newAisle = document.getElementById('editToAisle').value;
+    const newBay = document.getElementById('editToBay').value;
+    const newLevel = document.getElementById('editToLevel').value;
+    const toLocation = `${newAisle}${newBay}-${newLevel.toString().padStart(2, '0')}`;
+    // --- END UPDATE ---
+
     const newQuantity = parseInt(document.getElementById('editTransferQuantity').value);
     const originalQuantity = parseInt(document.getElementById('editTransferQuantity').dataset.original);
     const note = document.getElementById('editTransferNote').value;
@@ -7057,9 +6874,9 @@ window.saveEditTransfer = async function () {
 
         const batch = writeBatch(db);
 
-        // Update transaction
+        // Update transaction with the newly constructed `toLocation`
         batch.update(doc(db, 'transactions', transactionId), {
-            fromLocation: fromLocation,
+            fromLocation: fromLocation, // fromLocation is readonly, but we include it for clarity
             toLocation: toLocation,
             quantity: newQuantity,
             note: note,
@@ -7117,7 +6934,7 @@ window.saveEditTransfer = async function () {
                 quantity: increment(newQuantity)
             });
         } else {
-            // Create new inventory record if doesn't exist
+            // Create new inventory record if destination doesn't exist
             const inventoryRef = doc(collection(db, 'inventory'));
             const sourceData = originalFromSnapshot.empty ? {} : originalFromSnapshot.docs[0].data();
             batch.set(inventoryRef, {
@@ -7140,7 +6957,7 @@ window.saveEditTransfer = async function () {
                 fromLocation: { from: originalData.fromLocation, to: fromLocation },
                 toLocation: { from: originalData.toLocation, to: toLocation },
                 quantity: { from: originalData.quantity, to: newQuantity },
-                note: { from: originalData.note, to: note }
+                note: { from: originalData.note || '', to: note }
             },
             performedBy: currentUser.uid,
             performedByName: currentUser.name,
@@ -7536,7 +7353,7 @@ async function loadExportItemDetails(items) {
 
     for (const item of items) {
         const row = document.createElement('tr');
-        
+
         try {
             // THAY ĐỔI: Tìm kiếm theo cả code VÀ location để xác định duy nhất
             const inventoryQuery = query(
@@ -7562,7 +7379,7 @@ async function loadExportItemDetails(items) {
             } else {
                 const doc = snapshot.docs[0];
                 const data = doc.data();
-                
+
                 if (item.quantity > data.quantity) {
                     row.className = 'table-warning';
                     allValid = false;
@@ -7612,7 +7429,7 @@ async function loadExportItemDetails(items) {
             `;
             allValid = false;
         }
-        
+
         tbody.appendChild(row);
     }
 
@@ -7620,7 +7437,7 @@ async function loadExportItemDetails(items) {
     window.validExportItems = validItems; // Store for saving
 }
 
-window.saveExcelExport = async function() {
+window.saveExcelExport = async function () {
     const exportNumber = document.getElementById('excelExportNumber').value.trim();
     const recipient = document.getElementById('excelRecipient').value.trim();
 
@@ -7630,7 +7447,7 @@ window.saveExcelExport = async function() {
     }
 
     if (!window.validExportItems || window.validExportItems.length === 0) {
-        showToast('Không có mặt hàng hợp lệ để xuất', 'warning');
+        showToast('Không có mã hàng hợp lệ để xuất', 'warning');
         return;
     }
 
@@ -7785,7 +7602,7 @@ async function loadTransferItemDetails(transfers) {
 
     for (const transfer of transfers) {
         const row = document.createElement('tr');
-        
+
         try {
             // Check if item exists at source location
             const sourceQuery = query(
@@ -7812,7 +7629,7 @@ async function loadTransferItemDetails(transfers) {
             } else {
                 const sourceDoc = sourceSnapshot.docs[0];
                 const sourceData = sourceDoc.data();
-                
+
                 if (transfer.fromLocation === transfer.toLocation) {
                     row.className = 'table-warning';
                     allValid = false;
@@ -7879,7 +7696,7 @@ async function loadTransferItemDetails(transfers) {
             `;
             allValid = false;
         }
-        
+
         tbody.appendChild(row);
     }
 
@@ -7887,7 +7704,7 @@ async function loadTransferItemDetails(transfers) {
     window.validTransfers = validTransfers;
 }
 
-window.saveExcelTransfers = async function() {
+window.saveExcelTransfers = async function () {
     if (!window.validTransfers || window.validTransfers.length === 0) {
         showToast('Không có chuyển kho hợp lệ', 'warning');
         return;
@@ -8119,7 +7936,7 @@ async function validateAndDisplayAdjustItems(adjustments) {
                     } else {
                         statusBadge = `<span class="badge bg-success">Hợp lệ</span>`;
                     }
-                    
+
                     row.innerHTML = `
                         <td class="text-center" style="width: 16%">${item.code}</td>
                         <td class="text-center" style="width: 16%">${item.location}</td>
@@ -8127,7 +7944,7 @@ async function validateAndDisplayAdjustItems(adjustments) {
                         <td class="text-center" style="width: 16%">${item.newQuantity}</td>
                         <td class="${diffClass}" class="text-center" style="width: 16%">${difference >= 0 ? '+' : ''}${difference}</td>
                         <td class="text-center" style="width: 16%">${statusBadge}</td>`;
-                    
+
                     if (itemIsValid) {
                         validatedItems.push({
                             inventoryId: doc.id,
@@ -8147,9 +7964,9 @@ async function validateAndDisplayAdjustItems(adjustments) {
                 row.innerHTML = `<td>${item.code}</td><td>${item.location}</td><td>-</td><td>${item.newQuantity}</td><td>-</td><td>${statusBadge}</td>`;
             }
         } else {
-             row.innerHTML = `<td>${item.code}</td><td>${item.location}</td><td>-</td><td>${item.newQuantity}</td><td>-</td><td>${statusBadge}</td>`;
+            row.innerHTML = `<td>${item.code}</td><td>${item.location}</td><td>-</td><td>${item.newQuantity}</td><td>-</td><td>${statusBadge}</td>`;
         }
-        
+
         tbody.appendChild(row);
         if (!itemIsValid) {
             allValid = false;
@@ -8157,7 +7974,7 @@ async function validateAndDisplayAdjustItems(adjustments) {
     }
 
     saveBtn.disabled = !allValid || validatedItems.length === 0;
-    window.validatedAdjustments = validatedItems; 
+    window.validatedAdjustments = validatedItems;
 }
 
 
@@ -8227,7 +8044,7 @@ async function loadAdjustItemDetails(adjustments) {
 
     for (const adjustment of adjustments) {
         const row = document.createElement('tr');
-        
+
         try {
             // Find item at specific location
             const inventoryQuery = query(
@@ -8255,7 +8072,7 @@ async function loadAdjustItemDetails(adjustments) {
                 const doc = snapshot.docs[0];
                 const data = doc.data();
                 const difference = adjustment.newQuantity - data.quantity;
-                
+
                 if (adjustment.newQuantity < 0) {
                     row.className = 'table-warning';
                     allValid = false;
@@ -8321,7 +8138,7 @@ async function loadAdjustItemDetails(adjustments) {
             `;
             allValid = false;
         }
-        
+
         tbody.appendChild(row);
     }
 
@@ -8330,7 +8147,7 @@ async function loadAdjustItemDetails(adjustments) {
 }
 
 // Thay thế hàm này trong warehouse.js
-window.saveExcelAdjustments = async function() {
+window.saveExcelAdjustments = async function () {
     if (userRole !== 'super_admin') {
         return showToast('Chỉ Super Admin mới có quyền thực hiện thao tác này', 'danger');
     }
@@ -8363,14 +8180,14 @@ window.saveExcelAdjustments = async function() {
             type: 'adjust',
             subtype: 'direct_excel', // Đánh dấu nguồn
             reason: generalReason, // Lý do chung
-            items: adjustmentsToProcess, // Mảng chứa tất cả các mặt hàng
+            items: adjustmentsToProcess, // Mảng chứa tất cả các mã hàng
             performedBy: currentUser.uid,
             performedByName: currentUser.name,
             date: serverTimestamp(),
             timestamp: serverTimestamp()
         });
-        
-        // 2. Cập nhật tồn kho cho từng mặt hàng trong batch
+
+        // 2. Cập nhật tồn kho cho từng mã hàng trong batch
         for (const adjustment of adjustmentsToProcess) {
             if (adjustment.adjustment !== 0) { // Chỉ cập nhật nếu có chênh lệch
                 const inventoryRef = doc(db, 'inventory', adjustment.inventoryId);
@@ -8549,13 +8366,13 @@ async function loadRequestAdjustItemDetails(requests) {
                     } else {
                         statusBadge = `<span class="badge bg-success">Hợp lệ</span>`;
                     }
-                    
+
                     row.innerHTML = `
                         <td>${request.code}</td><td>${request.location}</td>
                         <td>${data.quantity}</td><td>${request.requestedQuantity}</td>
                         <td class="${diffClass}">${difference >= 0 ? '+' : ''}${difference}</td>
                         <td>${statusBadge}</td>`;
-                    
+
                     if (itemIsValid) {
                         validRequests.push({
                             inventoryId: doc.id,
@@ -8575,7 +8392,7 @@ async function loadRequestAdjustItemDetails(requests) {
                 row.innerHTML = `<td>${request.code}</td><td>${request.location}</td><td>-</td><td>${request.requestedQuantity}</td><td>-</td><td>${statusBadge}</td>`;
             }
         }
-        
+
         tbody.appendChild(row);
         if (!itemIsValid) {
             allValid = false;
@@ -8587,7 +8404,7 @@ async function loadRequestAdjustItemDetails(requests) {
 }
 
 // Thêm hàm MỚI này vào warehouse.js
-window.saveExcelRequestAdjustments = async function() {
+window.saveExcelRequestAdjustments = async function () {
     const generalReason = document.getElementById('excelRequestGeneralReason')?.value.trim();
     if (!generalReason) {
         return showToast('Vui lòng nhập lý do chung cho phiếu yêu cầu.', 'warning');
@@ -8629,7 +8446,7 @@ function initializeExcelFunctions() {
     const contentArea = document.querySelector('main.col-md-9');
     if (!contentArea) return;
 
-    contentArea.addEventListener('click', function(event) {
+    contentArea.addEventListener('click', function (event) {
         const button = event.target.closest('button[id]');
         if (!button) return;
 
@@ -8669,29 +8486,40 @@ let barcodeElementsLayout = {};
 let savedTemplates = []; // Biến lưu các template
 const INCH_TO_PX = 96;
 
-// Thay thế hàm này trong warehouse.js
+// warehouse.js
+
 export function loadPrintBarcodeSection() {
-    // Gán sự kiện cho các control cũ
+    // THÊM CỜ KIỂM TRA: Nếu đã gán sự kiện rồi thì chỉ cập nhật và thoát
+    if (printBarcodeListenersInitialized) {
+        updateBarcodeCanvasSize(); // Vẫn cập nhật kích thước canvas mỗi khi vào lại
+        return;
+    }
+
+    // Gán tất cả các sự kiện chỉ một lần duy nhất
     document.getElementById('barcodeItemSearch').addEventListener('input', debounce(searchItemsForBarcode, 300));
     document.getElementById('paperSizeSelector').addEventListener('change', updateBarcodeCanvasSize);
     document.getElementById('printBarcodeBtn').addEventListener('click', () => window.print());
-
-    // Gán sự kiện cho các control Template
     document.getElementById('saveTemplateBtn').addEventListener('click', saveCurrentTemplate);
     document.getElementById('templateLoader').addEventListener('change', applySelectedTemplate);
     document.getElementById('deleteTemplateBtn').addEventListener('click', deleteSelectedTemplate);
-
-    // THÊM MỚI: Gán sự kiện cho các ô nhập liệu tùy chỉnh
     document.getElementById('customWidthInput')?.addEventListener('input', debounce(updateBarcodeCanvasSize, 300));
     document.getElementById('customHeightInput')?.addEventListener('input', debounce(updateBarcodeCanvasSize, 300));
+    document.getElementById('downloadQuickPrintTemplateLink').addEventListener('click', (e) => {
+        e.preventDefault();
+        downloadQuickPrintTemplate();
+    });
+    document.getElementById('quickPrintExcelBtn').addEventListener('click', () => {
+        document.getElementById('quickPrintExcelInput').click();
+    });
+    document.getElementById('quickPrintExcelInput').addEventListener('change', handleQuickPrintExcel);
 
-    // Tải các template đã lưu khi khởi tạo
+    // ĐÁNH DẤU LÀ ĐÃ KHỞI TẠO để không chạy lại khối lệnh trên
+    printBarcodeListenersInitialized = true;
+
+    // Các tác vụ này vẫn cần chạy mỗi khi vào mục
     loadBarcodeTemplates();
-
-    // Cập nhật kích thước canvas ban đầu
     updateBarcodeCanvasSize();
 }
-
 
 async function deleteSelectedTemplate() {
     const templateName = document.getElementById('templateLoader').value;
@@ -8713,7 +8541,7 @@ async function deleteSelectedTemplate() {
         try {
             await deleteDoc(doc(db, "barcode_templates", templateToDelete.id));
             showToast(`Đã xóa mẫu "${templateName}".`, "success");
-            
+
             // Tải lại danh sách từ đầu
             loadBarcodeTemplates();
 
@@ -8737,7 +8565,7 @@ function applySelectedTemplate() {
             document.getElementById('customHeightInput').value = template.customHeight || 3;
         }
         updateBarcodeCanvasSize();
-        
+
         // --- LOGIC MỚI: Định vị lại các phần tử hiện có ---
         if (template.layout) {
             document.querySelectorAll('.barcode-element').forEach(el => {
@@ -8749,12 +8577,13 @@ function applySelectedTemplate() {
                 }
             });
         }
-        
+
         showToast(`Đã áp dụng mẫu "${templateName}".`, "info");
     }
 }
 
-// Thay thế hàm này trong warehouse.js
+// warehouse.js
+
 async function saveCurrentTemplate() {
     const templateName = document.getElementById('templateName').value.trim();
     if (!templateName) {
@@ -8767,24 +8596,44 @@ async function saveCurrentTemplate() {
         return;
     }
 
-    const currentLayout = {};
+    // --- LOGIC MỚI ĐỂ LƯU TEMPLATE CHUẨN HÓA ---
+    const layoutToSave = {};
+
+    // Định nghĩa nội dung gốc (với placeholder) cho từng phần tử
+    const originalTexts = {
+        itemInfo: '{code} - {name}',
+        stockInfo: 'SL: {quantity} - Vị trí: {location}',
+    };
+
     document.querySelectorAll('.barcode-element').forEach(el => {
-        currentLayout[el.dataset.key] = {
-            top: el.offsetTop,
-            left: el.offsetLeft
-        };
+        const key = el.dataset.key;
+
+        if (key === 'barcode') {
+            layoutToSave[key] = {
+                type: 'barcode',
+                top: el.offsetTop,
+                left: el.offsetLeft,
+                width: 2, // Lấy giá trị mặc định, có thể nâng cấp sau
+                height: 40 // Lấy giá trị mặc định, có thể nâng cấp sau
+            };
+        } else {
+            layoutToSave[key] = {
+                type: 'text',
+                text: originalTexts[key] || '', // Lưu lại văn bản gốc với placeholder
+                top: el.offsetTop,
+                left: el.offsetLeft
+            };
+        }
     });
 
-    // Tạo đối tượng template cơ bản
     const newTemplate = {
         name: templateName,
         paperSize: document.getElementById('paperSizeSelector').value,
-        layout: currentLayout,
+        layout: layoutToSave, // Lưu layout đã được chuẩn hóa
         userId: currentUser.uid,
         createdAt: serverTimestamp()
     };
-    
-    // THÊM MỚI: Nếu là kích thước tùy chỉnh, lưu lại giá trị width và height
+
     if (newTemplate.paperSize === 'custom') {
         newTemplate.customWidth = parseFloat(document.getElementById('customWidthInput').value) || 4;
         newTemplate.customHeight = parseFloat(document.getElementById('customHeightInput').value) || 3;
@@ -8793,7 +8642,7 @@ async function saveCurrentTemplate() {
     try {
         const docRef = await addDoc(collection(db, "barcode_templates"), newTemplate);
         showToast(`Đã lưu mẫu "${templateName}" thành công!`, "success");
-        
+
         newTemplate.id = docRef.id;
         savedTemplates.push(newTemplate);
         populateTemplateSelector();
@@ -8813,12 +8662,12 @@ async function loadBarcodeTemplates() {
     try {
         const q = query(collection(db, "barcode_templates"), where("userId", "==", currentUser.uid));
         const querySnapshot = await getDocs(q);
-        
+
         savedTemplates = []; // Reset
         querySnapshot.forEach((doc) => {
             savedTemplates.push({ id: doc.id, ...doc.data() });
         });
-        
+
         populateTemplateSelector();
 
     } catch (error) {
@@ -8830,8 +8679,8 @@ async function loadBarcodeTemplates() {
 
 function populateTemplateSelector() {
     const loader = document.getElementById('templateLoader');
-    loader.innerHTML = '<option value="">-- Chọn một mẫu --</option>'; 
-    
+    loader.innerHTML = '<option value="">-- Chọn một mẫu --</option>';
+
     savedTemplates.forEach(template => {
         const option = document.createElement('option');
         option.value = template.name;
@@ -8839,7 +8688,9 @@ function populateTemplateSelector() {
         loader.appendChild(option);
     });
 }
-// Thay thế hoàn toàn hàm searchItemsForBarcode() cũ bằng hàm này
+
+// warehouse.js
+
 async function searchItemsForBarcode(event) {
     const searchTerm = event.target.value.trim();
     const resultsContainer = document.getElementById('barcodeSearchResults');
@@ -8851,41 +8702,33 @@ async function searchItemsForBarcode(event) {
 
     try {
         const upperCaseTerm = searchTerm.toUpperCase();
-        
-        // --- TẠO HAI TRUY VẤN SONG SONG ---
 
-        // 1. Truy vấn theo MÃ HÀNG (rất hiệu quả và chính xác)
         const codeQuery = query(
             collection(db, 'inventory'),
-            orderBy('code'), // Bắt buộc phải orderBy theo trường đang lọc phạm vi
+            orderBy('code'),
             where('code', '>=', upperCaseTerm),
-            where('code', '<=', upperCaseTerm + '\uf8ff'), // \uf8ff là ký tự Unicode cao để tạo giới hạn trên
-            limit(5)
+            where('code', '<=', upperCaseTerm + '\uf8ff'),
+            limit(10)
         );
 
-        // 2. Truy vấn theo TÊN SẢN PHẨM (hiệu quả tương đối)
-        // Lưu ý: Firestore không hỗ trợ tìm kiếm "contains" hoặc không phân biệt chữ hoa/thường một cách tự nhiên.
-        // Cách này sẽ tìm các tên bắt đầu bằng chuỗi tìm kiếm.
         const nameQuery = query(
             collection(db, 'inventory'),
             orderBy('name'),
             where('name', '>=', searchTerm),
             where('name', '<=', searchTerm + '\uf8ff'),
-            limit(5)
+            limit(10)
         );
 
-        // --- THỰC THI CẢ HAI TRUY VẤN CÙNG LÚC ---
+        // SỬA LỖI TẠI ĐÂY: getDocs(nameQuery) thay vì getDocs(nameSnapshot)
         const [codeSnapshot, nameSnapshot] = await Promise.all([
             getDocs(codeQuery),
             getDocs(nameQuery)
         ]);
 
-        // --- GỘP KẾT QUẢ VÀ LOẠI BỎ TRÙNG LẶP ---
         const resultsMap = new Map();
-        
+
         const processSnapshot = (snapshot) => {
             snapshot.forEach(doc => {
-                // Dùng doc.id làm key để đảm bảo mỗi sản phẩm chỉ xuất hiện một lần
                 if (!resultsMap.has(doc.id)) {
                     resultsMap.set(doc.id, { id: doc.id, ...doc.data() });
                 }
@@ -8895,15 +8738,15 @@ async function searchItemsForBarcode(event) {
         processSnapshot(codeSnapshot);
         processSnapshot(nameSnapshot);
 
-        const finalResults = Array.from(resultsMap.values());
+        const activeResults = Array.from(resultsMap.values())
+            .filter(item => item.status !== 'archived');
 
-        // --- HIỂN THỊ KẾT QUẢ ---
-        if (finalResults.length === 0) {
-            resultsContainer.innerHTML = '<div class="list-group-item text-muted">Không tìm thấy sản phẩm phù hợp.</div>';
+        if (activeResults.length === 0) {
+            resultsContainer.innerHTML = '<div class="list-group-item text-muted">Không tìm thấy mã hàng phù hợp.</div>';
             return;
         }
 
-        const resultsHtml = finalResults.map(item => {
+        const resultsHtml = activeResults.map(item => {
             const itemJsonString = JSON.stringify(item).replace(/'/g, "\\'");
             return `<button type="button" class="list-group-item list-group-item-action" 
                     onclick='selectItemForBarcode(${itemJsonString})'>
@@ -8914,23 +8757,24 @@ async function searchItemsForBarcode(event) {
         resultsContainer.innerHTML = `<div class="list-group mt-2">${resultsHtml}</div>`;
 
     } catch (error) {
-        console.error("Lỗi tìm kiếm sản phẩm cho barcode:", error);
+        console.error("Lỗi tìm kiếm mã hàng cho barcode:", error);
         resultsContainer.innerHTML = '<div class="list-group-item text-danger">Lỗi khi tìm kiếm. Vui lòng kiểm tra lại cấu hình Firestore.</div>';
     }
 }
 
 
-window.selectItemForBarcode = function(item) {
+
+window.selectItemForBarcode = function (item) {
     currentBarcodeItem = item;
-    
+
     // Dọn dẹp kết quả tìm kiếm sau khi đã chọn
     const resultsContainer = document.getElementById('barcodeSearchResults');
-    if(resultsContainer) {
+    if (resultsContainer) {
         resultsContainer.innerHTML = '';
     }
-    
+
     document.getElementById('barcodeItemSearch').value = `${item.code} - ${item.name}`;
-    
+
     const printBtn = document.getElementById('printBarcodeBtn');
     printBtn.disabled = false;
 
@@ -8938,7 +8782,7 @@ window.selectItemForBarcode = function(item) {
         printBtn.disabled = true;
         printBtn.title = 'Chỉ Admin trở lên mới có thể in tem';
     }
-    
+
     renderBarcodeLabel();
 }
 
@@ -8994,64 +8838,69 @@ function createScannedItemDetailsModal(item) {
     modal.addEventListener('hidden.bs.modal', () => modal.remove());
 }
 
-function renderBarcodeLabel() { // Đã xóa tham số 'layout'
+// warehouse.js
+
+function renderBarcodeLabel() {
     const canvas = document.getElementById('barcode-canvas');
-    canvas.innerHTML = ''; 
+    canvas.innerHTML = ''; // Xóa tem cũ trước khi vẽ tem mới
 
     if (!currentBarcodeItem) return;
 
-    // Bố cục bây giờ là một cấu trúc mặc định, cố định.
-    // Kéo-và-thả sẽ sửa đổi trực tiếp style của phần tử.
-    const defaultElements = {
-        itemInfo: { 
-            text: `${currentBarcodeItem.code} - ${currentBarcodeItem.name}`, 
-            top: 5, 
-            left: 5 
-        },
-        stockInfo: { 
-            text: `SL: ${currentBarcodeItem.quantity} - Vị trí: ${currentBarcodeItem.location}`, 
-            top: 30, 
-            left: 5 
-        },
-        barcode: { 
-            type: 'barcode', 
-            value: currentBarcodeItem.code, 
-            top: 55, 
-            left: 5, 
-            width: 2, 
-            height: 40 
-        },
-    };
-    
-    for (const key in defaultElements) {
-        const defaultData = defaultElements[key];
-        
+    // --- LOGIC MỚI ĐỂ CHỌN LAYOUT ---
+    const selectedTemplateName = document.getElementById('templateLoader').value;
+    let layoutToUse = null;
+
+    // 1. Kiểm tra xem có template nào được chọn không
+    if (selectedTemplateName) {
+        const template = savedTemplates.find(t => t.name === selectedTemplateName);
+        if (template && template.layout) {
+            layoutToUse = template.layout;
+        }
+    }
+
+    // 2. Nếu không có template nào được chọn, sử dụng layout mặc định
+    if (!layoutToUse) {
+        layoutToUse = {
+            itemInfo: { text: '{code} - {name}', top: 5, left: 5, type: 'text' },
+            stockInfo: { text: 'SL: {quantity} - Vị trí: {location}', top: 30, left: 5, type: 'text' },
+            barcode: { type: 'barcode', top: 55, left: 5, width: 2, height: 40 }
+        };
+    }
+
+    // --- LOGIC VẼ TEM DỰA TRÊN LAYOUT ĐÃ CHỌN ---
+    for (const key in layoutToUse) {
+        const elementData = layoutToUse[key];
         const div = document.createElement('div');
-        
-        if (defaultData.type === 'barcode') {
+        div.className = 'barcode-element';
+        div.dataset.key = key; // Rất quan trọng để lưu lại layout
+
+        if (elementData.type === 'barcode') {
             const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
             svg.id = 'barcode-svg';
             div.appendChild(svg);
-             JsBarcode(svg, defaultData.value, {
-                width: defaultData.width,
-                height: defaultData.height,
-                displayValue: true // Đổi thành false để tránh lặp lại văn bản
+            JsBarcode(svg, currentBarcodeItem.code, { // Luôn dùng mã của mã hàng hiện tại
+                width: elementData.width,
+                height: elementData.height,
+                displayValue: true
             });
-        } else {
-             div.textContent = defaultData.text;
+        } else { // Mặc định là 'text'
+            // Thay thế các placeholder bằng thông tin mã hàng thực tế
+            let text = elementData.text || '';
+            text = text.replace(/{code}/g, currentBarcodeItem.code);
+            text = text.replace(/{name}/g, currentBarcodeItem.name);
+            text = text.replace(/{quantity}/g, currentBarcodeItem.quantity);
+            text = text.replace(/{location}/g, currentBarcodeItem.location);
+            text = text.replace(/{unit}/g, currentBarcodeItem.unit);
+            div.textContent = text;
         }
-       
-        div.className = 'barcode-element';
-        // Đặt vị trí ban đầu từ cấu trúc mặc định của chúng ta
-        div.style.top = `${defaultData.top}px`;
-        div.style.left = `${defaultData.left}px`;
-        div.dataset.key = key;
+
+        div.style.top = `${elementData.top}px`;
+        div.style.left = `${elementData.left}px`;
 
         makeElementDraggable(div);
         canvas.appendChild(div);
     }
 }
-
 
 function makeElementDraggable(element) {
     let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
@@ -9109,7 +8958,7 @@ function updateBarcodeCanvasSize() {
     canvas.style.width = `${widthInInches * INCH_TO_PX}px`;
     canvas.style.height = `${heightInInches * INCH_TO_PX}px`;
 
-    // Vẽ lại barcode nếu có sản phẩm được chọn
+    // Vẽ lại barcode nếu có mã hàng được chọn
     if (currentBarcodeItem) {
         renderBarcodeLabel();
     }
@@ -9118,7 +8967,7 @@ function updateBarcodeCanvasSize() {
 // Thêm vào file warehouse.js
 let html5QrcodeScanner = null;
 let audioContext = null;
-
+let printBarcodeListenersInitialized = false;
 
 export function loadScanBarcodeSection() {
     document.getElementById('startScanBtn').onclick = startScanner;
@@ -9133,7 +8982,7 @@ function initializeUsbScannerListener() {
     let barcode = '';
     let timerId = null;
 
-    input.addEventListener('keydown', function(e) {
+    input.addEventListener('keydown', function (e) {
         // Nếu là phím Enter và có dữ liệu trong bộ đệm -> xử lý
         if (e.key === 'Enter') {
             e.preventDefault(); // Ngăn hành vi mặc định (ví dụ: submit form)
@@ -9147,7 +8996,7 @@ function initializeUsbScannerListener() {
 
         // Nếu là phím khác, thêm vào bộ đệm
         if (e.key.length === 1) { // Chỉ thêm các ký tự đơn
-             barcode += e.key;
+            barcode += e.key;
         }
 
         // Đặt lại timer sau mỗi lần nhấn phím
@@ -9159,7 +9008,7 @@ function initializeUsbScannerListener() {
     });
 
     // Xử lý khi người dùng dán (paste) mã vạch vào
-    input.addEventListener('paste', function(e) {
+    input.addEventListener('paste', function (e) {
         e.preventDefault();
         const pastedText = (e.clipboardData || window.clipboardData).getData('text');
         if (pastedText.length > 2) {
@@ -9205,7 +9054,7 @@ async function processUsbScan(decodedText) {
 
     } catch (error) {
         console.error("Lỗi xử lý mã quét:", error);
-        showToast('Lỗi truy vấn dữ liệu sản phẩm.', 'danger');
+        showToast('Lỗi truy vấn dữ liệu mã hàng.', 'danger');
     }
 }
 
@@ -9218,17 +9067,17 @@ function startScanner() {
         audioContext.resume();
     }
     // ---------------------------------------------
-    
+
     const scannerContainer = document.getElementById('barcode-scanner-container');
     scannerContainer.innerHTML = '';
-    
+
     html5QrcodeScanner = new Html5Qrcode("barcode-scanner-container");
 
     const config = {
         fps: 10,
         qrbox: { width: 250, height: 250 }
     };
-    
+
     html5QrcodeScanner.start(
         { facingMode: "environment" },
         config,
@@ -9244,7 +9093,7 @@ function startScanner() {
 
 function showQcScanResult(items) {
     const resultContainer = document.getElementById('scanResultContainer');
-    
+
     // Create a header for the results, clearly indicating the read-only permission
     let html = `
         <div class="d-flex justify-content-between align-items-center mb-2">
@@ -9281,17 +9130,17 @@ async function onScanSuccess(decodedText, decodedResult) {
 
 function startNewScanExportSession(items) {
     // Reset danh sách mỗi khi bắt đầu phiên mới
-    exportItemsList = []; 
+    exportItemsList = [];
     const scanResultContainer = document.getElementById('scanResultContainer');
 
-    // Lấy sản phẩm ở vị trí có tồn kho nhiều nhất để thêm vào đầu tiên
+    // Lấy mã hàng ở vị trí có tồn kho nhiều nhất để thêm vào đầu tiên
     const itemToAdd = items.sort((a, b) => b.quantity - a.quantity)[0];
     if (itemToAdd.quantity <= 0) {
-        showToast(`Sản phẩm "${itemToAdd.code}" đã hết hàng.`, 'warning');
+        showToast(`Mã hàng "${itemToAdd.code}" đã hết hàng.`, 'warning');
         return;
     }
 
-    // Thêm sản phẩm đầu tiên vào danh sách
+    // Thêm mã hàng đầu tiên vào danh sách
     exportItemsList.push({
         inventoryId: itemToAdd.id,
         code: itemToAdd.code,
@@ -9299,9 +9148,9 @@ function startNewScanExportSession(items) {
         unit: itemToAdd.unit,
         location: itemToAdd.location,
         availableQuantity: itemToAdd.quantity,
-        requestedQuantity: 1 
+        requestedQuantity: 1
     });
-    
+
     // Tạo và hiển thị form xuất kho
     renderScanExportForm();
     showToast(`Đã bắt đầu phiên xuất kho cho: ${itemToAdd.code}`, 'success');
@@ -9310,7 +9159,7 @@ function startNewScanExportSession(items) {
 // Thay thế hoàn toàn hàm renderScanExportForm() cũ bằng hàm này
 function renderScanExportForm() {
     const scanResultContainer = document.getElementById('scanResultContainer');
-    
+
     // Nút hành động dựa trên vai trò người dùng
     const actionButtonHtml = userRole === 'staff'
         ? `<button class="btn btn-primary w-100" onclick="finalizeExport()"><i class="fas fa-paper-plane"></i> Gửi yêu cầu xuất kho</button>`
@@ -9338,24 +9187,24 @@ function renderScanExportForm() {
                 </div>
             </div>
 
-            <!-- DANH SÁCH SẢN PHẨM -->
+            <!-- DANH SÁCH mã hàng -->
             <div class="form-section-compact mt-3 p-3">
                 <div class="form-section-header-compact mb-2">
                     <i class="fas fa-list-ul"></i>
-                    Danh sách sản phẩm
-                    <span class="badge bg-warning text-dark ms-auto" id="scan-item-count-badge">0 mặt hàng</span>
+                    Danh sách mã hàng
+                    <span class="badge bg-warning text-dark ms-auto" id="scan-item-count-badge">0 mã hàng</span>
                 </div>
                 <div class="table-responsive" style="max-height: 300px;">
                     <table class="table table-sm table-bordered table-hover table-compact">
                         <thead class="table-light">
                             <tr>
-                                <th>Sản phẩm</th>
+                                <th>Mã hàng</th>
                                 <th style="width:120px;">SL Xuất</th>
                                 <th style="width:50px;" class="text-center"><i class="fas fa-cog"></i></th>
                             </tr>
                         </thead>
                         <tbody id="scan-export-table-body">
-                            <!-- Các dòng sản phẩm sẽ được thêm vào đây -->
+                            <!-- Các dòng mã hàng sẽ được thêm vào đây -->
                         </tbody>
                     </table>
                 </div>
@@ -9371,17 +9220,17 @@ function renderScanExportForm() {
         </div>
     `;
 
-    // Vẽ danh sách sản phẩm và cập nhật bộ đếm
+    // Vẽ danh sách mã hàng và cập nhật bộ đếm
     renderScanExportTableBody();
 }
 
 function updateScanItemCount() {
     const badge = document.getElementById('scan-item-count-badge');
     if (badge) {
-        badge.textContent = `${exportItemsList.length} mặt hàng`;
+        badge.textContent = `${exportItemsList.length} mã hàng`;
     }
 }
-window.cancelScanExportSession = function() {
+window.cancelScanExportSession = function () {
     exportItemsList = [];
     const scanResultContainer = document.getElementById('scanResultContainer');
     scanResultContainer.innerHTML = '<p class="text-muted">Chưa có kết quả. Vui lòng hướng camera vào mã vạch.</p>';
@@ -9391,11 +9240,11 @@ window.cancelScanExportSession = function() {
 function addItemToScanExportSession(items) {
     const itemToAdd = items.sort((a, b) => b.quantity - a.quantity)[0];
     if (itemToAdd.quantity <= 0) {
-        showToast(`Sản phẩm "${itemToAdd.code}" đã hết hàng.`, 'warning');
+        showToast(`Mã hàng "${itemToAdd.code}" đã hết hàng.`, 'warning');
         return;
     }
 
-    // Kiểm tra xem sản phẩm đã có trong danh sách chưa
+    // Kiểm tra xem mã hàng đã có trong danh sách chưa
     const existingItemIndex = exportItemsList.findIndex(item => item.inventoryId === itemToAdd.id);
 
     if (existingItemIndex > -1) {
@@ -9421,7 +9270,7 @@ function addItemToScanExportSession(items) {
         showToast(`Đã thêm: ${itemToAdd.code}`, 'success');
     }
 
-    // Cập nhật lại bảng danh sách sản phẩm
+    // Cập nhật lại bảng danh sách mã hàng
     renderScanExportTableBody();
 }
 
@@ -9431,7 +9280,7 @@ function renderScanExportTableBody() {
     if (!tbody) return;
 
     if (exportItemsList.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="3" class="text-center text-muted p-3">Chưa có sản phẩm nào.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="3" class="text-center text-muted p-3">Chưa có mã hàng nào.</td></tr>';
     } else {
         const tableHtml = exportItemsList.map((item, index) => `
             <tr>
@@ -9503,7 +9352,7 @@ function playScannerSound() {
 }
 
 // Biến toàn cục để quản lý modal xuất kho
-let currentExportModal = null; 
+let currentExportModal = null;
 let exportItemsList = [];
 
 window.updateExportItemQuantity = (index, newQty) => {
@@ -9518,24 +9367,24 @@ window.updateExportItemQuantity = (index, newQty) => {
         // được reset về giá trị cũ trong mảng (item.requestedQuantity)
         showToast('Số lượng không hợp lệ!', 'warning');
     }
-    
+
     // Luôn vẽ lại bảng để cập nhật giao diện
-    renderScanExportTableBody(); 
+    renderScanExportTableBody();
 };
 
 window.removeExportItemFromList = (index) => {
     exportItemsList.splice(index, 1);
     // Vẽ lại bảng và cập nhật bộ đếm
-    renderScanExportTableBody(); 
+    renderScanExportTableBody();
 };
 
 // THAY THẾ TOÀN BỘ HÀM NÀY BẰNG PHIÊN BẢN MỚI
-window.finalizeExport = async function() {
+window.finalizeExport = async function () {
     if (exportItemsList.length === 0) {
         showToast('Danh sách xuất kho đang trống.', 'warning');
         return;
     }
-    
+
     const exportNumber = document.getElementById('scanExportNumber')?.value.trim();
     const recipient = document.getElementById('scanExportRecipient')?.value.trim();
 
@@ -9549,7 +9398,7 @@ window.finalizeExport = async function() {
     const confirmType = userRole === 'staff' ? 'info' : 'warning';
 
     const confirmed = await showConfirmation(
-        confirmTitle, `Bạn có chắc muốn ${actionText.toLowerCase()} cho <strong>${exportItemsList.length}</strong> mặt hàng?`,
+        confirmTitle, `Bạn có chắc muốn ${actionText.toLowerCase()} cho <strong>${exportItemsList.length}</strong> mã hàng?`,
         actionText, 'Hủy', confirmType
     );
     if (!confirmed) return;
@@ -9611,7 +9460,7 @@ window.finalizeExport = async function() {
     }
 };
 
-window.viewItemHistoryFromScan = async function(itemCode) {
+window.viewItemHistoryFromScan = async function (itemCode) {
     try {
         // Đóng modal chi tiết nếu có
         const modal = document.getElementById('scannedItemDetailsModal');
@@ -9642,7 +9491,7 @@ window.viewItemHistoryFromScan = async function(itemCode) {
         // 3. CHUYỂN TAB SAU KHI DỮ LIỆU ĐÃ SẴN SÀNG
         // Kích hoạt sự kiện nhấn vào tab "Lịch sử" để điều hướng
         document.querySelector('a[data-section="history"]').click();
-        
+
     } catch (error) {
         console.error("Lỗi khi xem lịch sử từ mã quét:", error);
         showToast("Không thể tải lịch sử cho mã hàng này.", "danger");
@@ -9654,17 +9503,17 @@ function onScanFailure(error) {
     // Không làm gì để tránh log liên tục
 }
 
-window.viewInventoryDetailsFromScan = async function(inventoryId) {
+window.viewInventoryDetailsFromScan = async function (inventoryId) {
     const docSnap = await getDoc(doc(db, 'inventory', inventoryId));
-    if(docSnap.exists()){
+    if (docSnap.exists()) {
         createScannedItemDetailsModal(docSnap.data());
     }
 }
 
-window.showImportFromScan = function(itemJson) {
+window.showImportFromScan = function (itemJson) {
     const item = JSON.parse(itemJson);
     showImportModal(); // Mở modal nhập kho
-    
+
     // Đợi modal được tạo rồi điền thông tin
     setTimeout(() => {
         document.getElementById('newItemCode').value = item.code;
@@ -9676,13 +9525,13 @@ window.showImportFromScan = function(itemJson) {
     }, 500);
 }
 
-window.showExportFromScan = function(inventoryId, currentStock) {
+window.showExportFromScan = function (inventoryId, currentStock) {
     showExportModal(); // Mở modal xuất kho
-    
+
     // Đợi modal được tạo rồi điền thông tin
     setTimeout(async () => {
         const docSnap = await getDoc(doc(db, 'inventory', inventoryId));
-         if(docSnap.exists()){
+        if (docSnap.exists()) {
             const item = docSnap.data();
             document.getElementById('exportItemCodeInput').value = item.code;
             document.getElementById('selectedExportInventoryId').value = inventoryId;
@@ -9691,11 +9540,11 @@ window.showExportFromScan = function(inventoryId, currentStock) {
             document.getElementById('exportCurrentStock').value = currentStock;
             document.getElementById('exportQuantity').max = currentStock;
             document.getElementById('exportQuantity').focus();
-         }
+        }
     }, 500);
 }
 
-window.editInventoryItem = function(item) {
+window.editInventoryItem = function (item) {
     // Không cho phép sửa nếu không phải Super Admin
     if (userRole !== 'super_admin') {
         showToast('Bạn không có quyền thực hiện thao tác này.', 'danger');
@@ -9712,22 +9561,49 @@ window.editInventoryItem = function(item) {
     });
 };
 
-/**
- * Tạo HTML cho modal sửa thông tin sản phẩm.
- * @param {object} item - Đối tượng sản phẩm.
- * @returns {HTMLElement} - Phần tử DOM của modal.
- */
 function createEditInventoryModal(item) {
     const modal = document.createElement('div');
     modal.className = 'modal fade';
     modal.id = 'editInventoryModal';
     modal.setAttribute('tabindex', '-1');
 
+    // --- CHUẨN BỊ DỮ LIỆU CHO CÁC Ô CHỌN ---
+
+    // 1. Đơn vị tính
+    const unitOptions = Array.from(unitCache).sort().map(u =>
+        `<option value="${u}" ${item.unit === u ? 'selected' : ''}>${u}</option>`
+    ).join('');
+
+    // 2. Vị trí
+    // Phân tích vị trí hiện tại (ví dụ: "A1-02")
+    const locationRegex = /^([A-Z])(\d+)-(\d+)$/;
+    const match = item.location.match(locationRegex);
+    const currentAisle = match ? match[1] : '';
+    const currentBay = match ? parseInt(match[2], 10) : '';
+    const currentLevel = match ? parseInt(match[3], 10) : '';
+
+    // Tạo options cho Dãy
+    const aisleOptions = layoutConfig.aisles.map(a =>
+        `<option value="${a}" ${currentAisle === a ? 'selected' : ''}>${a}</option>`
+    ).join('');
+
+    // Tạo options cho Kệ
+    let bayOptions = '';
+    for (let i = 1; i <= layoutConfig.maxBay; i++) {
+        bayOptions += `<option value="${i}" ${currentBay === i ? 'selected' : ''}>Kệ ${i}</option>`;
+    }
+
+    // Tạo options cho Tầng
+    let levelOptions = '';
+    for (let i = 1; i <= layoutConfig.maxLevel; i++) {
+        levelOptions += `<option value="${i}" ${currentLevel === i ? 'selected' : ''}>Tầng ${i}</option>`;
+    }
+
     modal.innerHTML = `
         <div class="modal-dialog modal-xl">
             <div class="modal-content">
                 <div class="modal-header bg-warning text-dark">
-                    <h5 class="modal-title"><i class="fas fa-edit"></i> Sửa thông tin sản phẩm</h5>
+                    <h5 class="modal-title"><i class="fas fa-edit"></i> Sửa thông tin mã hàng</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
@@ -9745,18 +9621,38 @@ function createEditInventoryModal(item) {
                             <input type="text" class="form-control" id="editItemName" value="${item.name}">
                         </div>
                         <div class="row">
-                            <div class="col-md-4">
+                            <!-- === THAY ĐỔI ĐƠN VỊ TÍNH === -->
+                            <div class="col-md-6">
                                 <label for="editItemUnit" class="form-label">Đơn vị tính</label>
-                                <input type="text" class="form-control" id="editItemUnit" value="${item.unit}">
+                                <select class="form-select" id="editItemUnit">${unitOptions}</select>
                             </div>
-                            <div class="col-md-4">
+                            <!-- === KẾT THÚC THAY ĐỔI ĐƠN VỊ TÍNH === -->
+
+                            <div class="col-md-6">
                                 <label for="editItemCategory" class="form-label">Danh mục</label>
                                 <input type="text" class="form-control" id="editItemCategory" value="${item.category}">
                             </div>
-                            <div class="col-md-4">
-                                <label for="editItemLocation" class="form-label">Vị trí</label>
-                                <input type="text" class="form-control" id="editItemLocation" value="${item.location}">
+                        </div>
+                        <div class="row mt-3">
+                            <!-- === THAY ĐỔI VỊ TRÍ === -->
+                            <div class="col-md-12">
+                                <label class="form-label">Vị trí</label>
+                                <div class="row">
+                                    <div class="col-md-4">
+                                    <small class="form-label">Chọn dãy</small>
+                                    <select class="form-select" id="editAisle">${aisleOptions}</select>
+                                    </div>
+                                    <div class="col-md-4">
+                                    <small class="form-label">Chọn kệ</small>
+                                    <select class="form-select" id="editBay">${bayOptions}</select>
+                                    </div>
+                                    <div class="col-md-4">
+                                    <small class="form-label">Chọn tầng</small>
+                                    <select class="form-select" id="editLevel">${levelOptions}</select>
+                                    </div>
+                                </div>
                             </div>
+                            <!-- === KẾT THÚC THAY ĐỔI VỊ TRÍ === -->
                         </div>
                     </form>
                 </div>
@@ -9770,14 +9666,24 @@ function createEditInventoryModal(item) {
     return modal;
 }
 
-// THAY THẾ HÀM NÀY BẰNG PHIÊN BẢN MỚI
+window.saveInventoryChanges = async function (itemId) {
+    // Lấy giá trị từ các ô chọn vị trí mới
+    const aisle = document.getElementById('editAisle').value;
+    const bay = document.getElementById('editBay').value;
+    const level = document.getElementById('editLevel').value;
 
-window.saveInventoryChanges = async function(itemId) {
+    if (!aisle || !bay || !level) {
+        return showToast('Vui lòng chọn đầy đủ thông tin vị trí.', 'warning');
+    }
+
+    // Tạo chuỗi vị trí mới
+    const newLocationString = `${aisle}${bay}-${level.toString().padStart(2, '0')}`;
+
     const newUpdateData = {
         name: document.getElementById('editItemName').value.trim(),
-        unit: document.getElementById('editItemUnit').value.trim(),
+        unit: document.getElementById('editItemUnit').value, // Lấy từ select
         category: document.getElementById('editItemCategory').value.trim(),
-        location: document.getElementById('editItemLocation').value.trim(),
+        location: newLocationString, // Sử dụng chuỗi vị trí mới
     };
 
     if (!newUpdateData.name) {
@@ -9787,74 +9693,63 @@ window.saveInventoryChanges = async function(itemId) {
 
     try {
         const itemRef = doc(db, 'inventory', itemId);
-        
-        // Lấy dữ liệu gốc TRƯỚC KHI cập nhật để so sánh
         const originalDoc = await getDoc(itemRef);
         const originalData = originalDoc.data();
 
-        // Xây dựng đối tượng chỉ chứa những thay đổi thực sự
         const changes = {};
         if (originalData.name !== newUpdateData.name) changes.name = { from: originalData.name, to: newUpdateData.name };
         if (originalData.unit !== newUpdateData.unit) changes.unit = { from: originalData.unit, to: newUpdateData.unit };
         if (originalData.category !== newUpdateData.category) changes.category = { from: originalData.category, to: newUpdateData.category };
         if (originalData.location !== newUpdateData.location) changes.location = { from: originalData.location, to: newUpdateData.location };
 
-        // Nếu không có gì thay đổi thì không làm gì cả
         if (Object.keys(changes).length === 0) {
             showToast('Không có thay đổi nào để lưu.', 'info');
             return;
         }
 
-        // Sử dụng batch để đảm bảo cả hai hành động cùng thành công
         const batch = writeBatch(db);
-
-        // 1. Cập nhật thông tin sản phẩm
         batch.update(itemRef, newUpdateData);
 
-        // 2. Ghi lại lịch sử hành động
         const logRef = doc(collection(db, 'transactions'));
         batch.set(logRef, {
-            type: 'inventory_edited', // Loại giao dịch mới
+            type: 'inventory_edited',
             inventoryId: itemId,
             itemCode: originalData.code,
-            changes: changes, // Chỉ lưu những gì đã thay đổi
+            changes: changes,
             performedBy: currentUser.uid,
             performedByName: currentUser.name,
             timestamp: serverTimestamp()
         });
 
         await batch.commit();
-        
-        showToast('Cập nhật thông tin sản phẩm thành công!', 'success');
+
+        showToast('Cập nhật thông tin mã hàng thành công!', 'success');
         bootstrap.Modal.getInstance(document.getElementById('editInventoryModal')).hide();
-        
+
         if (window.loadInventoryTable) {
             window.loadInventoryTable(true, 1);
         }
 
     } catch (error) {
-        console.error("Lỗi cập nhật sản phẩm:", error);
+        console.error("Lỗi cập nhật mã hàng:", error);
         showToast('Đã xảy ra lỗi khi cập nhật.', 'danger');
     }
 };
 
-
-// THAY THẾ HÀM NÀY BẰNG PHIÊN BẢN MỚI
-
-window.deleteInventoryItem = async function(itemId, itemCode, quantity) {
+window.deleteInventoryItem = async function (itemId, itemCode, quantity) {
     if (userRole !== 'super_admin') {
         showToast('Bạn không có quyền thực hiện thao tác này.', 'danger');
         return;
     }
 
     if (quantity > 0) {
-        showToast(`Không thể xóa sản phẩm "${itemCode}" vì vẫn còn ${quantity} tồn kho.`, 'danger');
+        showToast(`Không thể xóa mã hàng "${itemCode}" vì vẫn còn ${quantity} tồn kho.`, 'danger');
         return;
     }
 
     const confirmed = await showConfirmation(
-        'Xác nhận xóa sản phẩm',
-        `Bạn có chắc muốn XÓA (lưu trữ) sản phẩm <strong>${itemCode}</strong>? Sản phẩm sẽ bị ẩn khỏi danh sách tồn kho.`,
+        'Xác nhận xóa mã hàng',
+        `Bạn có chắc muốn XÓA (lưu trữ) mã hàng <strong>${itemCode}</strong>? mã hàng sẽ bị ẩn khỏi danh sách tồn kho.`,
         'Xóa (lưu trữ)', 'Hủy', 'danger'
     );
 
@@ -9864,21 +9759,21 @@ window.deleteInventoryItem = async function(itemId, itemCode, quantity) {
         const itemRef = doc(db, 'inventory', itemId);
         const batch = writeBatch(db);
 
-        // 1. Đánh dấu sản phẩm là đã lưu trữ
+        // 1. Đánh dấu mã hàng là đã lưu trữ
         batch.update(itemRef, {
             status: 'archived',
             deletedAt: serverTimestamp(),
             deletedBy: currentUser.uid,
             deletedByName: currentUser.name // Thêm thông tin người xóa
         });
-        
+
         // 2. Ghi lại lịch sử hành động
         const logRef = doc(collection(db, 'transactions'));
         batch.set(logRef, {
             type: 'inventory_archived', // Loại giao dịch mới
             inventoryId: itemId,
             itemCode: itemCode,
-            details: `Sản phẩm ${itemCode} đã được xóa (lưu trữ).`,
+            details: `Mã hàng ${itemCode} đã được xóa (lưu trữ).`,
             performedBy: currentUser.uid,
             performedByName: currentUser.name,
             timestamp: serverTimestamp()
@@ -9886,19 +9781,19 @@ window.deleteInventoryItem = async function(itemId, itemCode, quantity) {
 
         await batch.commit();
 
-        showToast(`Đã xóa (lưu trữ) sản phẩm "${itemCode}" thành công.`, 'success');
-        
+        showToast(`Đã xóa (lưu trữ) mã hàng "${itemCode}" thành công.`, 'success');
+
         if (window.loadInventoryTable) {
             window.loadInventoryTable(true, 1);
         }
 
     } catch (error) {
-        console.error("Lỗi xóa sản phẩm:", error);
-        showToast('Đã xảy ra lỗi khi xóa sản phẩm.', 'danger');
+        console.error("Lỗi xóa mã hàng:", error);
+        showToast('Đã xảy ra lỗi khi xóa mã hàng.', 'danger');
     }
 };
 
-window.viewInventoryArchiveDetails = async function(transactionId) {
+window.viewInventoryArchiveDetails = async function (transactionId) {
     const transSnap = await getDoc(doc(db, 'transactions', transactionId));
     if (!transSnap.exists()) return showToast('Không tìm thấy lịch sử.', 'danger');
 
@@ -9928,7 +9823,7 @@ window.viewInventoryArchiveDetails = async function(transactionId) {
 }
 
 /// Thay thế hàm này trong warehouse.js
-window.approveQcItem = async function(transactionId, itemIndex) {
+window.approveQcItem = async function (transactionId, itemIndex) {
     if (userRole !== 'qc') return;
 
     try {
@@ -9940,15 +9835,17 @@ window.approveQcItem = async function(transactionId, itemIndex) {
         const item = transactionData.items[itemIndex];
 
         if (item.qc_status !== 'pending') {
-            showToast('Mặt hàng này đã được xử lý.', 'info');
+            showToast('Mã hàng này đã được xử lý.', 'info');
             return;
         }
 
         const batch = writeBatch(db);
 
         transactionData.items[itemIndex].qc_status = 'passed';
+        transactionData.items[itemIndex].qc_by_id = currentUser.uid;
+        transactionData.items[itemIndex].qc_by_name = currentUser.name;
         batch.update(transRef, { items: transactionData.items });
-        
+
         const q = query(
             collection(db, 'inventory'),
             where('code', '==', item.code),
@@ -9970,12 +9867,16 @@ window.approveQcItem = async function(transactionId, itemIndex) {
 
         await batch.commit();
         showToast(`Đã duyệt "${item.code}" thành công. Hàng đã được nhập kho.`, 'success');
-        
+
         // *** FIX: Cập nhật giao diện tại chỗ (in-place) ***
         const rowToUpdate = document.querySelector(`tr[data-index="${itemIndex}"]`);
         if (rowToUpdate) {
             rowToUpdate.querySelector('.qc-location').innerHTML = `<span class="badge bg-success">${item.location}</span>`;
-            rowToUpdate.querySelector('.qc-status').innerHTML = `<span class="badge bg-success"><i class="fas fa-check-circle"></i> Đạt</span>`;
+            rowToUpdate.querySelector('.qc-status').innerHTML = `
+                <div>
+                    <span class="badge bg-success"><i class="fas fa-check-circle"></i> Đạt</span>
+                    <small class="text-muted d-block">bởi: ${currentUser.name}</small>
+                </div>`;
             const actionsCell = rowToUpdate.querySelector('.qc-actions');
             if (actionsCell) actionsCell.innerHTML = ''; // Xóa các nút bấm
         }
@@ -9987,12 +9888,12 @@ window.approveQcItem = async function(transactionId, itemIndex) {
 }
 
 // Thay thế hàm này trong warehouse.js
-window.rejectQcItem = async function(transactionId, itemIndex) {
+window.rejectQcItem = async function (transactionId, itemIndex) {
     if (userRole !== 'qc') return;
 
     const confirmed = await showConfirmation(
         'Xác nhận hàng không đạt',
-        'Bạn có chắc chắn mặt hàng này không đạt chất lượng? Hàng sẽ không được nhập kho.',
+        'Bạn có chắc chắn mã hàng này không đạt chất lượng? Hàng sẽ không được nhập kho.',
         'Xác nhận không đạt', 'Hủy', 'danger'
     );
     if (!confirmed) return;
@@ -10001,25 +9902,32 @@ window.rejectQcItem = async function(transactionId, itemIndex) {
         const transRef = doc(db, 'transactions', transactionId);
         const transSnap = await getDoc(transRef);
         if (!transSnap.exists()) throw new Error("Không tìm thấy phiếu nhập.");
-        
+
         const transactionData = transSnap.data();
         const item = transactionData.items[itemIndex];
 
         if (item.qc_status !== 'pending') {
-            showToast('Mặt hàng này đã được xử lý.', 'info');
+            showToast('Mã hàng này đã được xử lý.', 'info');
             return;
         }
 
         transactionData.items[itemIndex].qc_status = 'failed';
+        transactionData.items[itemIndex].qc_by_id = currentUser.uid;
+        transactionData.items[itemIndex].qc_by_name = currentUser.name;
+
         await updateDoc(transRef, { items: transactionData.items });
 
         showToast(`Đã đánh dấu "${item.code}" là không đạt.`, 'success');
-        
+
         // *** FIX: Cập nhật giao diện tại chỗ (in-place) ***
         const rowToUpdate = document.querySelector(`tr[data-index="${itemIndex}"]`);
         if (rowToUpdate) {
             rowToUpdate.querySelector('.qc-location').innerHTML = `<span class="badge bg-danger">Không đạt</span>`;
-            rowToUpdate.querySelector('.qc-status').innerHTML = `<span class="badge bg-danger"><i class="fas fa-times-circle"></i> Không đạt</span>`;
+            rowToUpdate.querySelector('.qc-status').innerHTML = `
+                <div>
+                    <span class="badge bg-danger"><i class="fas fa-times-circle"></i> Không đạt</span>
+                    <small class="text-muted d-block">bởi: ${currentUser.name}</small>
+                </div>`;
             const actionsCell = rowToUpdate.querySelector('.qc-actions');
             if (actionsCell) actionsCell.innerHTML = ''; // Xóa các nút bấm
         }
@@ -10037,7 +9945,7 @@ window.rejectQcItem = async function(transactionId, itemIndex) {
 }
 
 // Thay thế hàm này trong warehouse.js
-window.startReplacementProcess = async function(transactionId) {
+window.startReplacementProcess = async function (transactionId) {
     const replacementBtn = document.getElementById('replacementBtn');
     if (replacementBtn) {
         replacementBtn.disabled = true;
@@ -10051,7 +9959,7 @@ window.startReplacementProcess = async function(transactionId) {
         const transRef = doc(db, 'transactions', transactionId);
         const transSnap = await getDoc(transRef);
         if (!transSnap.exists()) throw new Error("Không tìm thấy phiếu nhập gốc.");
-        
+
         const originalData = transSnap.data();
         const failedItems = originalData.items.filter(item => item.qc_status === 'failed');
 
@@ -10060,9 +9968,9 @@ window.startReplacementProcess = async function(transactionId) {
                 replacementBtn.disabled = false;
                 replacementBtn.innerHTML = '<i class="fas fa-sync-alt"></i> Nhà cung cấp đã giao bù hàng';
             }
-            return showToast('Không có mặt hàng nào cần xử lý trong phiếu này.', 'info');
+            return showToast('Không có mã hàng nào cần xử lý trong phiếu này.', 'info');
         }
-        
+
         const updatedItems = originalData.items.map(item => {
             if (item.qc_status === 'failed') {
                 return { ...item, qc_status: 'replaced' };
@@ -10087,11 +9995,11 @@ window.startReplacementProcess = async function(transactionId) {
 
         // Mở modal nhập kho mới cho hàng bù
         showImportModal();
-        
+
         setTimeout(() => {
             document.getElementById('importNumber').value = `${originalData.importNumber}-BU`;
             document.getElementById('supplier').value = originalData.supplier;
-            currentImportItems = failedItems.map(item => ({...item, qc_status: 'pending'}));
+            currentImportItems = failedItems.map(item => ({ ...item, qc_status: 'pending' }));
             updateImportItemsTable();
             updateSaveButtonState();
             showToast('Đang tạo phiếu nhập cho hàng giao bù.', 'info');
@@ -10100,7 +10008,7 @@ window.startReplacementProcess = async function(transactionId) {
     } catch (error) {
         console.error("Lỗi khi bắt đầu quy trình hàng bù:", error);
         showToast('Lỗi khi xử lý hàng bù.', 'danger');
-        
+
         if (replacementBtn) {
             replacementBtn.disabled = false;
             replacementBtn.innerHTML = '<i class="fas fa-sync-alt"></i> Nhà cung cấp đã giao bù hàng';
@@ -10115,7 +10023,7 @@ window.startReplacementProcess = async function(transactionId) {
  * @param {HTMLInputElement} source - Checkbox "chọn tất cả".
  * @param {string} checkboxClassName - Lớp CSS của các checkbox con.
  */
-window.toggleSelectAll = function(source, checkboxClassName) {
+window.toggleSelectAll = function (source, checkboxClassName) {
     const checkboxes = document.getElementsByClassName(checkboxClassName);
     for (let i = 0; i < checkboxes.length; i++) {
         checkboxes[i].checked = source.checked;
@@ -10126,7 +10034,7 @@ window.toggleSelectAll = function(source, checkboxClassName) {
 /**
  * Cập nhật giao diện của khu vực hành động hàng loạt (hiện/ẩn và đếm số lượng).
  */
-window.updateBatchActionUI = function() {
+window.updateBatchActionUI = function () {
     const selectedCheckboxes = document.querySelectorAll('.adjustRequestCheckbox:checked');
     const container = document.querySelector('.batch-action-container');
     const countSpan = document.getElementById('batchActionCount');
@@ -10139,7 +10047,7 @@ window.updateBatchActionUI = function() {
             container.style.display = 'none';
         }
     }
-    
+
     // Bỏ check ô "chọn tất cả" nếu không phải tất cả đều được chọn
     const allCheckboxes = document.querySelectorAll('.adjustRequestCheckbox');
     const selectAllCheckbox = document.getElementById('selectAllAdjustRequests');
@@ -10152,7 +10060,7 @@ window.updateBatchActionUI = function() {
  * Xử lý logic duyệt hoặc từ chối hàng loạt các yêu cầu đã chọn.
  * @param {string} action - Hành động cần thực hiện ('approve' hoặc 'reject').
  */
-window.processBatchAdjustRequests = async function(action) {
+window.processBatchAdjustRequests = async function (action) {
     const selectedCheckboxes = document.querySelectorAll('.adjustRequestCheckbox:checked');
     if (selectedCheckboxes.length === 0) {
         return showToast('Vui lòng chọn ít nhất một yêu cầu để xử lý.', 'warning');
@@ -10195,7 +10103,7 @@ window.processBatchAdjustRequests = async function(action) {
                 console.warn(`Yêu cầu ${requestId} đã được xử lý hoặc không tồn tại.`);
                 continue;
             }
-            
+
             const requestData = requestSnap.data();
 
             if (action === 'approve') {
@@ -10203,7 +10111,7 @@ window.processBatchAdjustRequests = async function(action) {
                 const inventoryRef = doc(db, 'inventory', requestData.inventoryId);
                 batch.update(inventoryRef, { quantity: requestData.requestedQuantity });
                 batch.update(requestRef, { status: 'approved', approvedBy: currentUser.uid, approvedByName: currentUser.name, approvedDate: serverTimestamp() });
-                
+
                 const transactionRef = doc(collection(db, 'transactions'));
                 batch.set(transactionRef, {
                     type: 'adjust', inventoryId: requestData.inventoryId, itemCode: requestData.itemCode,
@@ -10229,3 +10137,186 @@ window.processBatchAdjustRequests = async function(action) {
         showToast(`Đã xảy ra lỗi khi ${actionText} hàng loạt.`, 'danger');
     }
 };
+
+function downloadQuickPrintTemplate() {
+    const data = [
+        ['Mã hàng', 'vị trí'], // Các tiêu đề cột
+        ['SP001', 'A1-01'],
+        ['SP002', 'B3-04']
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(data);
+    ws['!cols'] = [{ wch: 20 }, { wch: 20 }]; // Đặt độ rộng cho cột
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Mau_In_Nhanh');
+    XLSX.writeFile(wb, 'mau-in-nhanh-barcode.xlsx');
+    showToast('Đã tải xuống file mẫu.', 'success');
+}
+
+/**
+ * Xử lý file Excel sau khi người dùng chọn.
+ * @param {Event} event - Sự kiện từ file input.
+ */
+function handleQuickPrintExcel(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = function (e) {
+        try {
+            const workbook = XLSX.read(e.target.result, { type: 'binary' });
+            const sheetName = workbook.SheetNames[0];
+            const sheet = workbook.Sheets[sheetName];
+            // Đọc dữ liệu và bỏ qua dòng tiêu đề (slice(1))
+            const data = XLSX.utils.sheet_to_json(sheet, { header: 1 }).slice(1);
+
+            const itemsToPrint = data
+                .filter(row => row[0] && row[1]) // Chỉ lấy các dòng có cả mã hàng và vị trí
+                .map(row => ({
+                    code: row[0].toString().trim(),
+                    location: row[1].toString().trim()
+                }));
+
+            if (itemsToPrint.length === 0) {
+                showToast('File Excel không có dữ liệu hợp lệ.', 'warning');
+                return;
+            }
+
+            showToast(`Đang chuẩn bị ${itemsToPrint.length} tem để in...`, 'info');
+            generateBatchPrintPage(itemsToPrint);
+
+        } catch (error) {
+            console.error('Lỗi đọc file Excel:', error);
+            showToast('Đã xảy ra lỗi khi đọc file Excel.', 'danger');
+        } finally {
+            event.target.value = ''; // Reset file input để có thể chọn lại file cũ
+        }
+    };
+    reader.readAsBinaryString(file);
+}
+
+/**
+ * Lấy dữ liệu mã hàng và tạo ra một trang HTML để in hàng loạt.
+ * @param {Array<Object>} items - Mảng các đối tượng {code, location}.
+ */
+async function generateBatchPrintPage(items) {
+    // 1. Lấy dữ liệu đầy đủ của tất cả mã hàng từ Firestore
+    const dataPromises = items.map(item => {
+        const q = query(collection(db, 'inventory'),
+            where('code', '==', item.code),
+            where('location', '==', item.location),
+            limit(1)
+        );
+        return getDocs(q);
+    });
+
+    const snapshots = await Promise.all(dataPromises);
+    const productDataList = snapshots.map((snapshot, index) => {
+        if (snapshot.empty) {
+            console.warn(`Không tìm thấy mã hàng: Mã ${items[index].code} tại vị trí ${items[index].location}`);
+            return null; // Trả về null nếu không tìm thấy
+        }
+        return snapshot.docs[0].data();
+    }).filter(data => data !== null); // Lọc bỏ các mã hàng không tìm thấy
+
+    if (productDataList.length === 0) {
+        showToast('Không tìm thấy mã hàng nào hợp lệ từ file Excel.', 'danger');
+        return;
+    }
+
+    // 2. Lấy layout từ mẫu tem đang được chọn
+    const selectedTemplateName = document.getElementById('templateLoader').value;
+    let layoutToUse = null;
+    if (selectedTemplateName) {
+        const template = savedTemplates.find(t => t.name === selectedTemplateName);
+        if (template && template.layout) layoutToUse = template.layout;
+    }
+    if (!layoutToUse) { // Fallback về layout mặc định
+        layoutToUse = {
+            itemInfo: { text: '{code} - {name}', top: 5, left: 5, type: 'text' },
+            stockInfo: { text: 'SL: {quantity} - Vị trí: {location}', top: 30, left: 5, type: 'text' },
+            barcode: { type: 'barcode', top: 55, left: 5, width: 2, height: 40 }
+        };
+    }
+
+    // 3. Lấy kích thước giấy
+    const paperSizeValue = document.getElementById('paperSizeSelector').value;
+    let widthInches, heightInches;
+    if (paperSizeValue === 'custom') {
+        widthInches = parseFloat(document.getElementById('customWidthInput').value) || 4;
+        heightInches = parseFloat(document.getElementById('customHeightInput').value) || 3;
+    } else {
+        [widthInches, heightInches] = paperSizeValue.split('x').map(Number);
+    }
+    const labelWidth = widthInches * INCH_TO_PX;
+    const labelHeight = heightInches * INCH_TO_PX;
+
+    // 4. Tạo nội dung HTML cho trang in
+    let labelsHtml = '';
+    for (const productData of productDataList) {
+        let singleLabelContent = '';
+        for (const key in layoutToUse) {
+            const elementData = layoutToUse[key];
+            let content = '';
+            if (elementData.type === 'barcode') {
+                content = `<svg class="barcode-svg" data-value="${productData.code}" data-width="${elementData.width}" data-height="${elementData.height}"></svg>`;
+            } else {
+                let text = (elementData.text || '')
+                    .replace(/{code}/g, productData.code)
+                    .replace(/{name}/g, productData.name)
+                    .replace(/{quantity}/g, productData.quantity)
+                    .replace(/{location}/g, productData.location)
+                    .replace(/{unit}/g, productData.unit);
+                content = text;
+            }
+            singleLabelContent += `<div style="position: absolute; top: ${elementData.top}px; left: ${elementData.left}px;">${content}</div>`;
+        }
+        labelsHtml += `<div class="label-to-print" style="width: ${labelWidth}px; height: ${labelHeight}px;">${singleLabelContent}</div>`;
+    }
+
+    // 5. Mở cửa sổ mới và in
+    const printWindow = window.open('', '_blank');
+    printWindow.document.write(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>In tem hàng loạt</title>
+            <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"><\/script>
+            <style>
+                @media print {
+                    @page { margin: 0; }
+                    body { margin: 0; }
+                }
+                body { font-family: sans-serif; font-size: 10px; }
+                .label-to-print {
+                    position: relative;
+                    overflow: hidden;
+                    page-break-after: always; /* In mỗi tem trên một trang mới */
+                    border: 1px dashed #ccc; /* Thêm viền để xem trước */
+                    margin: 5px;
+                }
+                .barcode-svg { vertical-align: top; }
+            </style>
+        </head>
+        <body>
+            ${labelsHtml}
+            <script>
+                document.addEventListener('DOMContentLoaded', function() {
+                    document.querySelectorAll('.barcode-svg').forEach(svg => {
+                        JsBarcode(svg, svg.dataset.value, {
+                            width: parseFloat(svg.dataset.width),
+                            height: parseFloat(svg.dataset.height),
+                            displayValue: true
+                        });
+                    });
+                    // Đợi một chút để barcode vẽ xong rồi mới in
+                    setTimeout(() => {
+                        window.print();
+                        window.close();
+                    }, 500);
+                });
+            <\/script>
+        </body>
+        </html>
+    `);
+    printWindow.document.close();
+}

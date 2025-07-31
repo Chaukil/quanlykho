@@ -5,7 +5,7 @@
     // Nếu có theme đã lưu, áp dụng nó. Nếu không, mặc định là 'light'.
     const theme = savedTheme || 'light';
     const primaryColor = '#007bff'; // Màu mặc định cho trang login
-    const primaryRgb = '0, 123, 255'; 
+    const primaryRgb = '0, 123, 255';
 
     // Áp dụng lên trang
     document.documentElement.setAttribute('data-theme', theme);
@@ -15,17 +15,17 @@
 
 // auth.js - EXTREME VERSION
 import { auth, db } from './connect.js';
-import { 
-    createUserWithEmailAndPassword, 
+import {
+    createUserWithEmailAndPassword,
     signInWithEmailAndPassword,
-      sendPasswordResetEmail,
+    sendPasswordResetEmail,
     signOut
 } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
-import { 
-    doc, 
-    setDoc, 
-    getDoc, 
-    serverTimestamp 
+import {
+    doc,
+    setDoc,
+    getDoc,
+    serverTimestamp
 } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
 
 
@@ -33,11 +33,11 @@ import {
 function showToast(message, type = 'info') {
     const toast = document.getElementById('toast');
     const toastMessage = document.getElementById('toastMessage');
-    
+
     if (toast && toastMessage) {
         toastMessage.textContent = message;
         toast.className = `toast show bg-${type}`;
-        
+
         const bsToast = new bootstrap.Toast(toast);
         bsToast.show();
     }
@@ -46,7 +46,7 @@ function showToast(message, type = 'info') {
 // KHÔNG CÓ onAuthStateChanged CHO INDEX
 // CHỈ CÓ MANUAL LOGIN/REGISTER
 
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', function () {
     const loginForm = document.getElementById('loginForm');
     const registerForm = document.getElementById('registerForm');
     const forgotPasswordForm = document.getElementById('forgotPasswordForm');
@@ -94,20 +94,28 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Handle login
     const loginFormElement = document.getElementById('login-form');
+
     if (loginFormElement) {
-        loginFormElement.addEventListener('submit', async function(e) {
+        loginFormElement.addEventListener('submit', async function (e) {
             e.preventDefault();
-            
+
             const email = document.getElementById('loginEmail').value;
             const password = document.getElementById('loginPassword').value;
 
             try {
                 const userCredential = await signInWithEmailAndPassword(auth, email, password);
                 const user = userCredential.user;
-                
+
+                // CHECK MAINTENANCE MODE BEFORE PROCEEDING
+                const maintenanceDoc = await getDoc(doc(db, 'settings', 'maintenance'));
+                const maintenanceMode = maintenanceDoc.exists() && maintenanceDoc.data().enabled;
+
                 const userDoc = await getDoc(doc(db, 'users', user.uid));
+                let userRoleForCheck = 'staff'; // Default role
                 if (userDoc.exists()) {
                     const userData = userDoc.data();
+                    userRoleForCheck = userData.role;
+
                     if (userData.status === 'pending') {
                         showToast('Tài khoản của bạn đang chờ phê duyệt từ Admin', 'warning');
                         await signOut(auth);
@@ -118,26 +126,34 @@ document.addEventListener('DOMContentLoaded', function() {
                         return;
                     }
                 }
-                
+
+                if (maintenanceMode && userRoleForCheck !== 'super_admin') {
+                    // Chỉ hiển thị thông báo, đăng xuất người dùng và giữ họ ở lại trang đăng nhập.
+                    showToast('Hệ thống đang bảo trì. Chỉ Super Admin có thể đăng nhập.', 'warning');
+                    await signOut(auth); // <--- ĐÂY LÀ DÒNG LỆNH ĐĂNG XUẤT BẠN
+                    return; // Dừng hàm, không chuyển trang
+                }
+
                 showToast('Đăng nhập thành công!', 'success');
-                
+
                 // MANUAL REDIRECT
                 setTimeout(() => {
                     window.location.href = 'dashboard.html';
-                }, 500);
-                
+                }, 0);
+
             } catch (error) {
                 showToast(getErrorMessage(error.code), 'danger');
             }
         });
     }
 
+
     // Handle register
     const registerFormElement = document.getElementById('register-form');
     if (registerFormElement) {
-        registerFormElement.addEventListener('submit', async function(e) {
+        registerFormElement.addEventListener('submit', async function (e) {
             e.preventDefault();
-            
+
             const name = document.getElementById('registerName').value;
             const email = document.getElementById('registerEmail').value;
             const password = document.getElementById('registerPassword').value;
@@ -145,7 +161,7 @@ document.addEventListener('DOMContentLoaded', function() {
             try {
                 const userCredential = await createUserWithEmailAndPassword(auth, email, password);
                 const user = userCredential.user;
-                
+
                 await setDoc(doc(db, 'users', user.uid), {
                     name: name,
                     email: email,
@@ -155,12 +171,12 @@ document.addEventListener('DOMContentLoaded', function() {
                 });
 
                 showToast('Đăng ký thành công! Vui lòng chờ Admin phê duyệt tài khoản.', 'success');
-                
+
                 await signOut(auth);
-                
+
                 registerForm.style.display = 'none';
                 loginForm.style.display = 'block';
-                
+
             } catch (error) {
                 showToast(getErrorMessage(error.code), 'danger');
             }
@@ -169,7 +185,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     const forgotPasswordFormElement = document.getElementById('forgot-password-form');
     if (forgotPasswordFormElement) {
-        forgotPasswordFormElement.addEventListener('submit', async function(e) {
+        forgotPasswordFormElement.addEventListener('submit', async function (e) {
             e.preventDefault();
             const email = document.getElementById('forgotPasswordEmail').value;
 
@@ -195,7 +211,7 @@ function getErrorMessage(errorCode) {
         'auth/too-many-requests': 'Quá nhiều lần thử. Vui lòng thử lại sau.',
         'auth/invalid-credential': 'Thông tin đăng nhập không chính xác'
     };
-    
+
     return errorMessages[errorCode] || 'Có lỗi xảy ra. Vui lòng thử lại.';
 }
 

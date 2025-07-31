@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hệ thống đang bảo trì</title>
+    
+    <!-- Các liên kết đến thư viện và tệp CSS chung -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/css/bootstrap.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Arvo:wght@700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/styles.css">
+    <script>
+        (function applyThemeOnLoad() {
+            const savedTheme = localStorage.getItem('app_theme') || 'light';
+            document.documentElement.setAttribute('data-theme', savedTheme);
+        })();
+    </script>
+</head>
+<body>
+   <section class="page_404">
+       <div class="container">
+           <div class="row">
+               <div class="col-sm-12">
+                   <div class="col-sm-10 col-sm-offset-1 text-center">
+                       <div class="four_zero_four_bg">
+                       </div>
+                       <div class="content_box_404">
+                            <h3 class="h2">Hệ thống đang được nâng cấp</h3>
+                            <p>Chúng tôi đang thực hiện một vài cải tiến nhỏ để hệ thống hoạt động tốt hơn. <br>Vui lòng quay lại sau ít phút nhé!</p>
+                            <a href="index.html" class="maintenance-btn">Trở về trang Đăng nhập</a>
+                            <br><br><br><br>
+                        </div>
+                   </div>
+               </div>
+           </div>
+       </div>
+   </section>
+
+   <!-- Script này vẫn giữ nguyên để tự động chuyển hướng khi bảo trì kết thúc -->
+   <script type="module" src="js/maintenance.js"></script>
+</body>
+</html>

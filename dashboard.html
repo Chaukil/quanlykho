@@ -13,7 +13,12 @@
     <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.23/jspdf.plugin.autotable.min.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/intro.js/7.2.0/introjs.min.css" rel="stylesheet">
+    <script
+        src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
+    <script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
 </head>
 
 <body>
@@ -22,11 +27,30 @@
             <!-- Sidebar -->
             <nav id="sidebarMenu" class="col-md-3 col-lg-2 d-md-block sidebar">
                 <div class="position-sticky pt-3">
-                    <div class="d-flex flex-column align-items-center mb-4">
-                        <h7 id="userGreeting" class="mb-2">Hi, User</h7>
-                        <button class="btn btn-outline-danger btn-sm" id="logoutBtn">
-                            <i class="fas fa-sign-out-alt"></i> Đăng xuất
-                        </button>
+                    <div class="user-profile-section mb-4">
+                        <div class="dropdown">
+                            <a href="#" class="d-flex align-items-center text-decoration-none dropdown-toggle"
+                                id="userDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+                                <i class="fas fa-user-circle fa-2x me-2"></i>
+                                <h7 id="userGreeting" class="mb-0">Hi, User</h7>
+                            </a>
+                            <ul class="dropdown-menu dropdown-menu-dark text-small shadow"
+                                aria-labelledby="userDropdown">
+                                <li>
+                                    <a class="dropdown-item" href="#" id="profileBtn">
+                                        <i class="fas fa-id-card me-2"></i>Thông tin cá nhân
+                                    </a>
+                                </li>
+                                <li>
+                                    <hr class="dropdown-divider">
+                                </li>
+                                <li>
+                                    <a class="dropdown-item text-danger" href="#" id="logoutBtn">
+                                        <i class="fas fa-sign-out-alt me-2"></i>Đăng xuất
+                                    </a>
+                                </li>
+                            </ul>
+                        </div>
                     </div>
                     <ul class="nav flex-column">
                         <li class="nav-item">
@@ -34,9 +58,15 @@
                                 <i class="fas fa-tachometer-alt"></i> Dashboard
                             </a>
                         </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="#" data-section="inventory">
+                                <i class="fas fa-boxes"></i> Tồn kho
+                            </a>
+                        </li>
                         <li class="nav-item admin-only">
                             <a class="nav-link" href="#" data-section="import">
                                 <i class="fas fa-download"></i> Nhập kho
+                                <span class="badge bg-warning ms-auto" id="importRequestBadge" style="display: none;">0</span>
                             </a>
                         </li>
                         <li class="nav-item admin-only">
@@ -53,12 +83,18 @@
                         <li class="nav-item admin-access"> <!-- Sử dụng một class chung -->
                             <a class="nav-link" href="#" data-section="adjust">
                                 <i class="fas fa-cogs"></i> Chỉnh số
+                                <span class="badge bg-warning ms-auto" id="adjustRequestBadge" style="display: none;">0</span>
                             </a>
                         </li>
-                        <li class="nav-item super-admin-only" id="userManagementNav" style="display: none;">
+                        <li class="nav-item admin-only" id="userManagementNav" style="display: none;">
                             <a class="nav-link" href="#" data-section="user-management">
                                 <i class="fas fa-users-cog"></i>
                                 Quản lý user <span class="badge bg-warning" id="userCountBadge">0</span>
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="#" data-section="org-chart">
+                                <i class="fas fa-sitemap"></i> Biểu đồ tổ chức
                             </a>
                         </li>
                         <li class="nav-item">
@@ -113,7 +149,7 @@
                                             <i class="fas fa-boxes-stacked"></i>
                                         </div>
                                         <div class="stats-card-content">
-                                            <div class="stats-card-title">Tổng sản phẩm</div>
+                                            <div class="stats-card-title">Tổng mã hàng</div>
                                             <div class="stats-card-value" id="totalProducts">0</div>
                                         </div>
                                     </div>
@@ -166,7 +202,76 @@
                             </div>
                         </div>
 
-                        <!-- Filter cho Dashboard Inventory -->
+                        <!-- BẮT ĐẦU: SAO CHÉP VÀ THAY THẾ TOÀN BỘ KHỐI NÀY -->
+                        <div id="reports-section" class="mt-4">
+                            <div class="row">
+                                <div class="row">
+                                    <!-- BIỂU ĐỒ MỚI 1: Tổng quan Danh mục (Biểu đồ tròn) -->
+                                    <div class="col-lg-5 col-md-12 mb-4">
+                                        <div class="card h-100">
+                                            <div class="card-body">
+                                                <h5 class="card-title">Tồn kho theo Danh mục</h5>
+                                                <canvas id="categoryOverviewChart"></canvas>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- BIỂU ĐỒ MỚI 2: Top mã hàng chỉnh số (Biểu đồ cột ngang) -->
+                                    <div class="col-lg-7 col-md-12 mb-4">
+                                        <div class="card h-100">
+                                            <div class="card-body">
+                                                <h5 class="card-title">Top 5 Mã hàng Chỉnh số (6 tháng qua)
+                                                </h5>
+                                                <canvas id="topAdjustedProductsChart"></canvas>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- BIỂU ĐỒ 2: Top 5 Sản phẩm Giao dịch (Mới) -->
+                                <div class="col-lg-7 col-md-12 mb-4">
+                                    <div class="card h-100">
+                                        <div class="card-body">
+                                            <h5 class="card-title">Top 5 Mã hàng Nhập/Xuất (3 tháng gần nhất)</h5>
+                                            <canvas id="topProductsChart"></canvas>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- BIỂU ĐỒ 1: Tình trạng Tồn kho (Mới) -->
+                                <div class="col-lg-5 col-md-12 mb-4">
+                                    <div class="card h-100">
+                                        <div class="card-body">
+                                            <h5 class="card-title">Tình trạng Tồn kho Tổng thể</h5>
+                                            <canvas id="inventoryStatusChart"></canvas>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- BIỂU ĐỒ 3: Số lượng Mã hàng theo Dãy (Biểu đồ tròn cũ) -->
+                                <div class="col-lg-5 col-md-12 mb-4">
+                                    <div class="card h-100">
+                                        <div class="card-body">
+                                            <h5 class="card-title">Số lượng Mã hàng theo Dãy</h5>
+                                            <canvas id="aisleItemCountChart"></canvas>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- BIỂU ĐỒ 4: Hoạt động Nhập/Xuất Kho (Biểu đồ cột cũ) -->
+                                <div class="col-lg-7 col-md-12 mb-4">
+                                    <div class="card h-100">
+                                        <div class="card-body">
+                                            <h5 class="card-title">Hoạt động Nhập/Xuất Kho (6 tháng gần nhất)</h5>
+                                            <canvas id="activityChart"></canvas>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Filter cho Dashboard Inventory -->
+                    <div id="inventory-section" class="content-section" style="display: none;">
                         <div class="card mb-3 mt-4">
                             <div class="card-body">
                                 <h6 class="card-title">Bộ lọc</h6>
@@ -204,24 +309,10 @@
                                 </div>
                             </div>
                         </div>
-
                         <div class="mt-4">
                             <h4>Danh sách tồn kho</h4>
-                            <div class="table-responsive">
-                                <table class="table table-striped">
-                                    <thead id="inventoryTableHead"> <!-- THÊM ID VÀO ĐÂY -->
-                                        <!-- Để trống, JavaScript sẽ tự điền vào đây -->
-                                    </thead>
-                                    <tbody id="inventoryTable"></tbody>
-                                </table>
-                            </div>
-                            <div class="d-flex justify-content-between align-items-center mt-3">
-                                <small class="text-muted" id="dashboardPaginationInfo">Hiển thị 0 - 0 của 0 kết
-                                    quả</small>
-                                <nav aria-label="Dashboard pagination">
-                                    <ul class="pagination pagination-sm mb-0" id="dashboardPagination">
-                                    </ul>
-                                </nav>
+                            <div id="inventoryContent">
+                                <!-- Nội dung bảng và phân trang sẽ được JS chèn vào đây -->
                             </div>
                         </div>
                     </div>
@@ -391,13 +482,13 @@
                                             <option value="user_management">Quản lý user</option>
                                         </select>
                                     </div>
-
                                 </div>
                             </div>
                         </div>
                         <div id="historyContent"></div>
                     </div>
                 </div>
+
                 <div id="user-management-section" class="content-section" style="display: none;">
                     <!-- Filter cho User Management -->
                     <div class="card mb-3">
@@ -428,41 +519,72 @@
                                         <option value="disabled">Đã vô hiệu hóa</option>
                                     </select>
                                 </div>
-
                             </div>
                         </div>
                     </div>
                     <div id="userManagementContent"></div>
                 </div>
 
-                <div id="settings-section" class="content-section" style="display: none;">
-                    <div class="accordion" id="settingsAccordion">
-                        <div class="accordion-item">
-    <h2 class="accordion-header" id="headingGeneral">
-        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
-            data-bs-target="#collapseGeneral" aria-expanded="false" aria-controls="collapseGeneral">
-            <i class="fas fa-building me-2"></i> Cài đặt chung
-        </button>
-    </h2>
-    <div id="collapseGeneral" class="accordion-collapse collapse" aria-labelledby="headingGeneral"
-        data-bs-parent="#settingsAccordion">
-        <div class="accordion-body">
-            <h6 class="card-title">Thông tin Công ty</h6>
-            <p class="text-muted small">Thông tin này sẽ được hiển thị trên các phiếu in PDF.</p>
-            <div class="mb-3">
-                <label for="companyName" class="form-label">Tên công ty</label>
-                <input type="text" class="form-control" id="companyName" placeholder="Nhập tên công ty của bạn...">
+                <!-- THAY ĐỔI: Section cho Biểu đồ tổ chức với layout 2 cột -->
+<div id="org-chart-section" class="content-section" style="display: none;">
+    <div class="row">
+        <!-- Cột chính cho biểu đồ -->
+        <div class="col-lg-9">
+            <h4>Biểu đồ Tổ chức</h4>
+            <p class="text-muted">Di chuột để xem chi tiết và sử dụng scroll để phóng to/thu nhỏ.</p>
+            <div id="orgChartContainer">
+                <!-- Google Chart sẽ được vẽ vào đây -->
             </div>
-            <div class="mb-3">
-                <label for="companyAddress" class="form-label">Địa chỉ</label>
-                <input type="text" class="form-control" id="companyAddress" placeholder="Nhập địa chỉ công ty...">
+        </div>
+
+        <!-- Cột phụ cho người dùng chưa được phân công -->
+        <div class="col-lg-3">
+            <div class="card">
+                <div class="card-header fw-bold">
+                    <i class="fas fa-user-plus me-1"></i>
+                    Chưa phân quản lý
+                </div>
+                <div id="unassignedUsersContainer" class="list-group list-group-flush unassigned-list">
+                    <!-- Danh sách người dùng sẽ được thêm vào đây bằng JS -->
+                </div>
             </div>
-            <button type="button" class="btn btn-primary" id="saveCompanyInfoBtn">
-                <i class="fas fa-save me-1"></i> Lưu thông tin
-            </button>
         </div>
     </div>
 </div>
+
+
+                <div id="settings-section" class="content-section" style="display: none;">
+                    <div class="accordion" id="settingsAccordion">
+                        <div class="accordion-item">
+                            <h2 class="accordion-header" id="headingGeneral">
+                                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
+                                    data-bs-target="#collapseGeneral" aria-expanded="false"
+                                    aria-controls="collapseGeneral">
+                                    <i class="fas fa-building me-2"></i> Cài đặt chung
+                                </button>
+                            </h2>
+                            <div id="collapseGeneral" class="accordion-collapse collapse"
+                                aria-labelledby="headingGeneral" data-bs-parent="#settingsAccordion">
+                                <div class="accordion-body">
+                                    <h6 class="card-title">Thông tin Công ty</h6>
+                                    <p class="text-muted small">Thông tin này sẽ được hiển thị trên các phiếu in PDF.
+                                    </p>
+                                    <div class="mb-3">
+                                        <label for="companyName" class="form-label">Tên công ty</label>
+                                        <input type="text" class="form-control" id="companyName"
+                                            placeholder="Nhập tên công ty của bạn...">
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="companyAddress" class="form-label">Địa chỉ</label>
+                                        <input type="text" class="form-control" id="companyAddress"
+                                            placeholder="Nhập địa chỉ công ty...">
+                                    </div>
+                                    <button type="button" class="btn btn-primary" id="saveCompanyInfoBtn">
+                                        <i class="fas fa-save me-1"></i> Lưu thông tin
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
                         <!-- Mục Accordion 1: Tùy chỉnh Giao diện -->
                         <div class="accordion-item">
                             <h2 class="accordion-header" id="headingOne">
@@ -565,6 +687,33 @@
                                 </div>
                             </div>
                         </div>
+                        <!-- Mục Accordion: Bảo trì Máy chủ (CHỈ SUPER ADMIN) -->
+                        <div class="accordion-item super-admin-only">
+                            <h2 class="accordion-header" id="headingMaintenance">
+                                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
+                                    data-bs-target="#collapseMaintenance" aria-expanded="false"
+                                    aria-controls="collapseMaintenance">
+                                    <i class="fas fa-server me-2 text-danger"></i> Bảo trì Máy chủ
+                                </button>
+                            </h2>
+                            <div id="collapseMaintenance" class="accordion-collapse collapse"
+                                aria-labelledby="headingMaintenance" data-bs-parent="#settingsAccordion">
+                                <div class="accordion-body">
+                                    <div class="alert alert-danger">
+                                        <strong>Cảnh báo:</strong> Khi bật chế độ bảo trì, tất cả người dùng (ngoại trừ
+                                        Super Admin) sẽ không thể truy cập hệ thống.
+                                    </div>
+                                    <div class="d-flex justify-content-between align-items-center">
+                                        <label for="maintenanceModeSwitch" class="form-check-label">Bật chế độ bảo
+                                            trì</label>
+                                        <div class="form-check form-switch">
+                                            <input class="form-check-input" type="checkbox" role="switch"
+                                                id="maintenanceModeSwitch" style="font-size: 1.5rem;">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -626,8 +775,15 @@
                                     <hr>
                                     <h6 class="card-title">3. In</h6>
                                     <button class="btn btn-primary w-100" id="printBarcodeBtn" disabled>
-                                        <i class="fas fa-print"></i> In tem
+                                        <i class="fas fa-print"></i> In tem đã chọn
                                     </button>
+                                    <button class="btn btn-success w-100 mt-2" id="quickPrintExcelBtn">
+                                        <i class="fas fa-file-excel"></i> In nhanh từ Excel
+                                    </button>
+                                    <div class="text-center mt-2">
+                                        <a href="#" id="downloadQuickPrintTemplateLink" class="form-toggle-link"
+                                            style="font-size: 0.75rem;">Tải về file mẫu</a>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -683,8 +839,8 @@
                         </div>
                     </div>
                 </div>
-            </div>
         </div>
+    </div>
     </div>
     </main>
     </div>
@@ -696,6 +852,7 @@
     <input type="file" id="transferExcelFileInput" accept=".xlsx,.xls" style="display: none;">
     <input type="file" id="adjustExcelFileInput" accept=".xlsx,.xls" style="display: none;">
     <input type="file" id="requestAdjustExcelFileInput" accept=".xlsx,.xls" style="display: none;">
+    <input type="file" id="quickPrintExcelInput" accept=".xlsx,.xls" style="display: none;">
 
     <!-- Toast notifications -->
     <div class="toast-container position-fixed top-0 end-0 p-3" style="z-index: 1100">
@@ -836,6 +993,7 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/intro.js/7.2.0/intro.min.js"></script>
     <script type="module" src="js/connect.js"></script>
     <script type="module" src="js/auth.js"></script>
     <script type="module" src="js/dashboard.js"></script>
