@@ -34,6 +34,7 @@ let currentImportItems = [];
 let currentExportItems = [];
 let unsubscribeImportHistory = null;
 let unsubscribeExportHistory = null;
+let unsubscribeExport = null;
 let unsubscribeTransferHistory = null;
 let unsubscribeAdjustHistory = null;
 let unsubscribeAdjustRequests = null;
@@ -70,16 +71,18 @@ const historyConfig = {
         createRowFunc: createImportRow
     },
     export: {
-        collection: 'transactions',
-        baseConstraints: [where('type', '==', 'export')],
-        filterIds: ['exportFromDate', 'exportToDate', 'exportItemCodeFilter'],
-        contentId: 'exportContent',
-        tableHeader: '<thead><tr class="text-center"><th>Số phiếu</th><th>Người nhận</th><th>Số mã hàng</th><th>Người thực hiện</th><th>Ngày xuất</th><th>Thao tác</th></tr></thead>',
-        tableBodyId: 'exportTableBody',
-        paginationContainerId: 'exportPaginationContainer',
-        cols: 6,
-        createRowFunc: createExportRow
-    },
+    isComplex: true, // Đánh dấu đây là trường hợp đặc biệt
+    collection: 'transactions', // Vẫn giữ để tham khảo
+    baseConstraints: [where('type', '==', 'export')],
+    filterIds: ['exportFromDate', 'exportToDate', 'exportItemCodeFilter'],
+    contentId: 'exportContent',
+    // THÊM CỘT "TRẠNG THÁI" VÀO BẢNG
+    tableHeader: '<thead><tr class="text-center"><th>Số phiếu</th><th>Người nhận</th><th>Số mã hàng</th><th>Người tạo/duyệt</th><th>Ngày tạo/duyệt</th><th>Trạng thái</th><th>Thao tác</th></tr></thead>',
+    tableBodyId: 'exportTableBody',
+    paginationContainerId: 'exportPaginationContainer',
+    cols: 7, // Tăng số cột lên 7
+    createRowFunc: createExportRow
+},
     transfer: {
         collection: 'transactions',
         baseConstraints: [where('type', '==', 'transfer')],
@@ -1242,7 +1245,7 @@ async function generatePdfForTransaction(data, type) {
 
 // Export Section Functions
 export function loadExportSection() {
-    initializeRealtimeHistoryTable('export');
+    loadExportData();
 }
 
 function showExportModal() {
@@ -4087,6 +4090,7 @@ function createHistoryPagination(allData, container) {
                 'export': { label: 'Xuất kho', badgeClass: 'bg-warning text-dark', icon: 'fas fa-upload' },
                 'export_edited': { label: 'Sửa Xuất', badgeClass: 'bg-warning text-dark', icon: 'fas fa-pencil-alt' },
                 'export_deleted': { label: 'Xóa Xuất', badgeClass: 'bg-danger', icon: 'fas fa-trash-alt' },
+                'export_rejected': { label: 'Từ chối XK', badgeClass: 'bg-danger', icon: 'fas fa-times-circle' },
 
                 'transfer': { label: 'Chuyển kho', badgeClass: 'bg-info', icon: 'fas fa-exchange-alt' },
                 'transfer_edited': { label: 'Sửa Chuyển', badgeClass: 'bg-warning text-dark', icon: 'fas fa-pencil-alt' },
@@ -4122,6 +4126,14 @@ function createHistoryPagination(allData, container) {
                         <i class="fas fa-eye"></i> Xem
                     </button>`;
                     break;
+                case 'export_rejected':
+                details = `Từ chối phiếu YCXK: ${data.exportNumber || 'N/A'}`;
+                // Gọi hàm hợp nhất với tham số status là 'rejected'
+                // và truyền vào ID của yêu cầu gốc để tìm kiếm
+                viewButton = `<button class="btn btn-info btn-sm" onclick="viewExportRequestDetails('${data.originalRequestId}', 'rejected')">
+                                <i class="fas fa-eye"></i> Xem
+                              </button>`;
+                break;
 
                 case 'transfer':
                     details = `Chuyển ${data.quantity || 0} ${data.unit || ''} ${data.itemCode || 'N/A'} (${data.fromLocation || 'N/A'} → ${data.toLocation || 'N/A'})`;
@@ -5053,7 +5065,7 @@ async function loadAllHistory(filters = {}) {
 
         const transactionTypeMap = {
             'import': ['import', 'import_edited', 'import_deleted'],
-            'export': ['export', 'export_edited', 'export_deleted'],
+            'export': ['export', 'export_edited', 'export_deleted', 'export_rejected'],
             'transfer': ['transfer', 'transfer_edited', 'transfer_deleted'],
             'adjust': ['adjust', 'adjust_edited', 'adjust_deleted', 'adjust_rejected'],
             'user_management': ['user_approval', 'user_management']
@@ -5531,30 +5543,60 @@ function createImportRow(doc) {
 }
 
 function createExportRow(doc) {
-    const data = doc.id ? doc.data() : doc;
+     const data = doc.data ? doc.data() : doc;
     const docId = doc.id || data.id;
     const row = document.createElement('tr');
-    
-    // Logic tương tự cho phiếu xuất (nếu có yêu cầu)
-    if(data.dataType === 'pending') row.classList.add('table-warning');
-    
-    const date = data.timestamp ? data.timestamp.toDate().toLocaleDateString('vi-VN') : 'N/A';
-    let actionButtons = `<button class="btn btn-info btn-sm me-1" onclick="viewExportDetails('${docId}')"><i class="fas fa-eye"></i> Xem</button>`;
-    if (userRole === 'super_admin') {
-        actionButtons += `
-            <button class="btn btn-warning btn-sm me-1" onclick="editExportTransaction('${docId}')"><i class="fas fa-edit"></i> Sửa</button>
-            <button class="btn btn-danger btn-sm" onclick="deleteExportTransaction('${docId}')"><i class="fas fa-trash"></i> Xóa</button>`;
+
+    let statusBadge = '';
+    let actionButtons = '';
+    let handlerDisplay = '';
+    let dateDisplay = data.timestamp ? data.timestamp.toDate().toLocaleDateString('vi-VN') : 'N/A';
+    let slipNumber = data.exportNumber || 'N/A';
+
+    // Logic hiển thị dựa trên loại dữ liệu
+    if (data.dataType === 'request') { // Đây là một yêu cầu
+        handlerDisplay = data.requestedByName || 'N/A';
+
+        if (data.status === 'pending') {
+            row.classList.add('table-warning');
+            statusBadge = `<span class="badge bg-warning text-dark">Chờ duyệt</span>`;
+            // Admin có quyền duyệt/từ chối
+            if (userRole === 'admin' || userRole === 'super_admin') {
+                actionButtons = `
+                    <button class="btn btn-success btn-sm me-1" onclick="approveExportRequest('${docId}')" ><i class="fas fa-check"></i> Chấp nhận</button>
+                    <button class="btn btn-danger btn-sm" onclick="rejectExportRequest('${docId}')" ><i class="fas fa-times"></i> Từ chối</button>
+                `;
+            }
+            actionButtons += `<button class="btn btn-info btn-sm" onclick="viewExportRequestDetails('${docId}')" ><i class="fas fa-eye"></i> Xem</button>`;
+        } else { // status === 'rejected'
+             row.classList.add('table-danger', 'bg-opacity-10');
+             statusBadge = `<span class="badge bg-danger">Đã từ chối</span>`;
+              actionButtons = `<button class="btn btn-info btn-sm" onclick="viewExportRequestDetails('${docId}', 'rejected')" ><i class="fas fa-eye"></i> Xem</button>`;
+        }
+
+    } else { // Đây là một giao dịch đã hoàn thành
+        statusBadge = `<span class="badge bg-success">Đã hoàn thành</span>`;
+        handlerDisplay = data.performedByName || 'N/A';
+        actionButtons = `<button class="btn btn-info btn-sm me-1" onclick="viewExportDetails('${docId}')"><i class="fas fa-eye"></i> Xem</button>`;
+        if (userRole === 'super_admin') {
+            actionButtons += `
+                <button class="btn btn-warning btn-sm me-1" onclick="editExportTransaction('${docId}')"><i class="fas fa-edit"></i> Sửa</button>
+                <button class="btn btn-danger btn-sm" onclick="deleteExportTransaction('${docId}')"><i class="fas fa-trash"></i> Xóa</button>`;
+        }
     }
 
+    // Ghép các phần lại thành một hàng hoàn chỉnh
     row.innerHTML = `
-        <td class="text-center">${data.exportNumber}</td>
-        <td class="text-center">${data.recipient}</td>
+        <td class="text-center">${slipNumber}</td>
+        <td>${data.recipient}</td>
         <td class="text-center">${data.items?.length || 0}</td>
-        <td class="text-center">${data.performedByName}</td>
-        <td class="text-center">${date}</td>
+        <td>${handlerDisplay}</td>
+        <td class="text-center">${dateDisplay}</td>
+        <td class="text-center">${statusBadge}</td>
         <td class="text-center">${actionButtons}</td>`;
     return row;
 }
+
 
 function createTransferRow(doc) {
     const data = doc.id ? doc.data() : doc;
@@ -5719,83 +5761,127 @@ function createAdjustDetailsModal(data) {
 }
 
 
-window.viewExportRequestDetails = async function (requestId) {
+// Thay thế hàm viewExportRequestDetails cũ bằng hàm này
+window.viewExportRequestDetails = async function (requestId, status = 'pending') {
     try {
-        const requestDoc = await getDoc(doc(db, 'export_requests', requestId));
-        if (!requestDoc.exists()) {
+        let docSnap;
+        if (status === 'rejected') {
+            // Nếu là từ chối, tìm trong collection transactions
+            const q = query(collection(db, "transactions"), where("originalRequestId", "==", requestId), where("type", "==", "export_rejected"), limit(1));
+            const snapshot = await getDocs(q);
+            if (snapshot.empty) throw new Error("Không tìm thấy lịch sử từ chối.");
+            docSnap = snapshot.docs[0];
+        } else {
+            // Nếu đang chờ, tìm trong collection requests
+            docSnap = await getDoc(doc(db, 'export_requests', requestId));
+        }
+
+        if (!docSnap.exists()) {
             return showToast('Không tìm thấy yêu cầu xuất kho.', 'danger');
         }
 
-        const req = requestDoc.data();
-        const date = req.timestamp.toDate().toLocaleString('vi-VN');
-
-        // Tạo bảng HTML cho các mã hàng
-        let itemsHtml = req.items.map(item => `
-            <tr>
-                <td>${item.code}</td>
-                <td>${item.name}</td>
-                <td><strong>${item.quantity}</strong> / ${item.availableQuantityBefore}</td>
-                <td>${item.unit}</td>
-            </tr>
-        `).join('');
-
-        const modal = document.createElement('div');
-        modal.className = 'modal fade';
-        modal.innerHTML = `
-            <div class="modal-dialog modal-xl">
-                <div class="modal-content">
-                    <div class="modal-header bg-primary text-white">
-                        <h5 class="modal-title"><i class="fas fa-file-invoice"></i> Chi tiết Yêu cầu Xuất kho</h5>
-                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-                    </div>
-                    <div class="modal-body">
-                        <div class="alert alert-info d-flex align-items-center mb-4">
-                        <i class="fas fa-clock fa-2x me-3"></i>
-                        <div>
-                            <strong>Yêu cầu đang chờ phê duyệt</strong><br>
-                            <small>Thông tin này chưa được áp dụng vào tồn kho chính thức.</small>
-                        </div>
-                    </div>
-
-                    <!-- THÔNG TIN CHUNG - ĐÃ CẬP NHẬT -->
-                    <div class="row mb-3 theme-aware-info-box">
-                        <div class="col-md-6"><strong>Số phiếu yêu cầu:</strong> ${req.exportNumber || 'N/A'}</div>
-                        <div class="col-md-6"><strong>Người nhận (đề xuất):</strong> ${req.recipient || 'N/A'}</div>
-                        <div class="col-md-6"><strong>Người yêu cầu:</strong> ${req.requestedByName}</div>
-                        <div class="col-md-6"><strong>Thời gian yêu cầu:</strong> ${date}</div>
-                        <div class="col-md-6"><strong>Trạng thái:</strong> <span class="badge bg-warning text-dark">Chờ duyệt</span></div>
-                    </div>
-
-                        <h6>Danh sách hàng hóa yêu cầu:</h6>
-                        <div class="table-responsive">
-                            <table class="table table-sm table-bordered">
-                                <thead class="table-light">
-                                    <tr class="text-center">
-                                        <th>Mã hàng</th>
-                                        <th>Tên</th>
-                                        <th>SL Yêu cầu / Tồn kho</th>
-                                        <th>Đơn vị</th>
-                                    </tr>
-                                </thead>
-                                <tbody>${itemsHtml}</tbody>
-                            </table>
-                        </div>
-                    </div>
-                    <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Đóng</button>
-                    </div>
-                </div>
-            </div>
-        `;
+        // Truyền cả dữ liệu và trạng thái vào hàm tạo modal
+        const modal = createUnifiedExportRequestDetailsModal(docSnap.data(), status);
         document.body.appendChild(modal);
-        new bootstrap.Modal(modal).show();
+        const bsModal = new bootstrap.Modal(modal);
+        bsModal.show();
+        
         modal.addEventListener('hidden.bs.modal', () => modal.remove());
-
     } catch (e) {
         console.error("Lỗi khi xem chi tiết yêu cầu xuất kho:", e);
         showToast('Lỗi xem chi tiết yêu cầu.', 'danger');
     }
+};
+
+// Hàm tạo modal hợp nhất mới
+function createUnifiedExportRequestDetailsModal(data, status) {
+    const modal = document.createElement('div');
+    modal.className = 'modal fade';
+
+    // --- Logic hiển thị động dựa trên trạng thái ---
+    let headerClass, alertClass, alertIcon, alertTitle, alertText, statusBadge, handlerInfoHtml = '';
+    
+    if (status === 'rejected') {
+        headerClass = 'bg-danger text-white';
+        alertClass = 'alert-danger';
+        alertIcon = 'fas fa-exclamation-triangle';
+        alertTitle = 'Yêu cầu đã bị từ chối';
+        alertText = 'Hàng hóa trong yêu cầu này không được xuất khỏi kho.';
+        statusBadge = `<span class="badge bg-danger">Đã từ chối</span>`;
+        const rejectedDate = data.rejectedAt ? data.rejectedAt.toDate().toLocaleString('vi-VN') : (data.timestamp ? data.timestamp.toDate().toLocaleString('vi-VN') : 'N/A');
+        handlerInfoHtml = `
+            <div class="col-md-6"><strong>Người từ chối:</strong> ${data.rejectedByName || data.performedByName}</div>
+            <div class="col-md-6"><strong>Ngày từ chối:</strong> ${rejectedDate}</div>
+        `;
+    } else { // Mặc định là 'pending'
+        headerClass = 'bg-primary text-white';
+        alertClass = 'alert-info';
+        alertIcon = 'fas fa-clock';
+        alertTitle = 'Yêu cầu đang chờ phê duyệt';
+        alertText = 'Thông tin này chưa được áp dụng vào tồn kho chính thức.';
+        statusBadge = `<span class="badge bg-warning text-dark">Chờ duyệt</span>`;
+        handlerInfoHtml = `<div class="col-md-12"><strong>Trạng thái:</strong> ${statusBadge}</div>`;
+    }
+
+    const requestDate = (data.requestTimestamp || data.timestamp).toDate().toLocaleString('vi-VN');
+    const itemsHtml = data.items.map(item => `
+        <tr>
+            <td>${item.code}</td>
+            <td>${item.name}</td>
+            <td class="text-center"><strong>${item.quantity}</strong> / ${item.availableQuantityBefore || 'N/A'}</td>
+            <td class="text-center">${item.unit}</td>
+        </tr>
+    `).join('');
+
+    modal.innerHTML = `
+        <div class="modal-dialog modal-xl">
+            <div class="modal-content">
+                <div class="modal-header ${headerClass}">
+                    <h5 class="modal-title"><i class="fas fa-file-invoice"></i> Chi tiết Yêu cầu Xuất kho</h5>
+                    <button type="button" class="btn-close ${status === 'rejected' ? 'btn-close-white' : ''}" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="alert ${alertClass} d-flex align-items-center mb-4">
+                        <i class="${alertIcon} fa-2x me-3"></i>
+                        <div><strong>${alertTitle}</strong><br><small>${alertText}</small></div>
+                    </div>
+
+                    <!-- Thông tin chung -->
+                    <div class="row mb-3 theme-aware-info-box">
+                        <div class="col-md-6"><strong>Số phiếu yêu cầu:</strong> ${data.exportNumber || 'N/A'}</div>
+                        <div class="col-md-6"><strong>Người nhận (đề xuất):</strong> ${data.recipient || 'N/A'}</div>
+                        <div class="col-md-6"><strong>Người yêu cầu:</strong> ${data.requestedByName || 'Không rõ'}</div>
+                        <div class="col-md-6"><strong>Ngày yêu cầu:</strong> ${requestDate}</div>
+                        ${handlerInfoHtml}
+                    </div>
+
+                    <!-- Lý do từ chối (chỉ hiển thị nếu có) -->
+                    ${status === 'rejected' ? `
+                    <div class="mb-3">
+                        <strong class="text-danger">Lý do từ chối:</strong>
+                        <p class="ms-2 mt-1 mb-0 fst-italic bg-danger bg-opacity-10 p-2 rounded text-danger border border-danger">
+                            <i class="fas fa-comment-slash me-1"></i>${data.rejectionReason || 'Không có lý do cụ thể.'}
+                        </p>
+                    </div>` : ''}
+
+                    <!-- Danh sách hàng hóa -->
+                    <h6 class="text-muted mb-2">Danh sách hàng hóa đã yêu cầu:</h6>
+                    <div class="table-responsive">
+                        <table class="table table-sm table-bordered">
+                            <thead class="table-light"><tr class="text-center"><th>Mã hàng</th><th>Tên</th><th>SL Yêu cầu / Tồn kho</th><th>Đơn vị</th></tr></thead>
+                            <tbody>${itemsHtml}</tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Đóng</button>
+                </div>
+            </div>
+        </div>
+    `;
+    return modal;
 }
+
 
 window.approveExportRequest = async function (requestId) {
     const confirmed = await showConfirmation(
@@ -5865,7 +5951,7 @@ window.approveExportRequest = async function (requestId) {
 
 window.rejectExportRequest = async function (requestId) {
     const reason = await showInputModal('Lý do từ chối', 'Vui lòng nhập lý do từ chối yêu cầu xuất kho này:', 'VD: Hàng đã được đặt cho đơn khác...');
-    if (reason === null) return; // Người dùng đã nhấn hủy
+    if (reason === null) return;
     if (!reason) {
         showToast('Lý do từ chối không được để trống.', 'warning');
         return;
@@ -5873,19 +5959,49 @@ window.rejectExportRequest = async function (requestId) {
 
     try {
         const requestRef = doc(db, 'export_requests', requestId);
-        await updateDoc(requestRef, {
+        const requestSnap = await getDoc(requestRef);
+        if (!requestSnap.exists() || requestSnap.data().status !== 'pending') {
+            return showToast('Yêu cầu đã được xử lý hoặc không tồn tại.', 'warning');
+        }
+        const requestData = requestSnap.data();
+
+        const batch = writeBatch(db);
+
+        // 1. Cập nhật trạng thái của yêu cầu gốc
+        batch.update(requestRef, {
             status: 'rejected',
             rejectedBy: currentUser.uid,
             rejectedByName: currentUser.name,
             rejectedAt: serverTimestamp(),
             rejectionReason: reason
         });
+
+        // 2. Tạo một bản ghi LỊCH SỬ cho hành động từ chối
+        const logRef = doc(collection(db, 'transactions'));
+        batch.set(logRef, {
+            type: 'export_rejected', // Loại giao dịch mới để ghi log
+            exportNumber: requestData.exportNumber,
+            recipient: requestData.recipient,
+            items: requestData.items,
+            rejectionReason: reason,
+            originalRequestId: requestId, // Liên kết tới yêu cầu gốc
+            performedBy: currentUser.uid, // Người từ chối
+            performedByName: currentUser.name,
+            timestamp: serverTimestamp(), // Thời gian từ chối
+            requestedByName: requestData.requestedByName,
+            requestTimestamp: requestData.timestamp
+        });
+        
+        await batch.commit();
         showToast('Đã từ chối yêu cầu xuất kho.', 'success');
+        // Bảng sẽ tự cập nhật nhờ onSnapshot
+        
     } catch (e) {
         console.error("Lỗi khi từ chối yêu cầu xuất kho:", e);
         showToast('Lỗi khi từ chối yêu cầu.', 'danger');
     }
 }
+
 
 function updatePaginationControls(currentPage, totalPages, paginationId, renderFunction) {
     const pagination = document.getElementById(paginationId);
@@ -6620,6 +6736,52 @@ window.saveEditExport = async function () {
     }
 };
 
+async function loadExportData() {
+    if (unsubscribeExport) unsubscribeExport();
+
+    try {
+         const requestsQuery = query(collection(db, 'export_requests'), where('status', 'in', ['pending', 'rejected']));
+        const transactionsQuery = query(collection(db, 'transactions'), where('type', '==', 'export'));
+
+        const handleDataUpdate = async () => {
+            try {
+                const [requestsSnapshot, transactionsSnapshot] = await Promise.all([
+                    getDocs(requestsQuery),
+                    getDocs(transactionsQuery)
+                ]);
+
+                // Gắn cờ để biết nguồn gốc dữ liệu
+                let requests = requestsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data(), dataType: 'request' }));
+                let transactions = transactionsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data(), dataType: 'transaction' }));
+                
+                let allData = [...requests, ...transactions];
+                
+                // Sắp xếp tất cả theo thời gian gần nhất
+                allData.sort((a, b) => (b.timestamp?.toMillis() || 0) - (a.timestamp?.toMillis() || 0));
+                
+                sectionState.export.data = allData;
+                renderPaginatedHistoryTable('export');
+
+            } catch (error) {
+                console.error("Lỗi khi xử lý dữ liệu xuất kho:", error);
+            }
+        };
+
+        const unsubscribeRequests = onSnapshot(requestsQuery, handleDataUpdate);
+        const unsubscribeTransactions = onSnapshot(transactionsQuery, handleDataUpdate);
+
+        unsubscribeExport = () => {
+            unsubscribeRequests();
+            unsubscribeTransactions();
+        };
+
+        handleDataUpdate();
+
+    } catch (error) {
+        console.error('Lỗi thiết lập lắng nghe mục Xuất kho:', error);
+    }
+}
+
 window.deleteExportTransaction = async function (transactionId) {
     if (userRole !== 'super_admin') {
         showToast('Chỉ Super Admin mới có quyền thực hiện thao tác này', 'danger');
@@ -7095,8 +7257,6 @@ export function createConfirmationModal(title, message, confirmText = 'Xác nh�
     return modal;
 }
 
-// Thay thế hàm này trong warehouse.js
-// Thay thế toàn bộ hàm cũ bằng phiên bản mới này
 export function showConfirmation(title, message, confirmText = 'Xác nhận', cancelText = 'Hủy', type = 'warning') {
     return new Promise((resolve) => {
         // Hàm tạo modal vẫn giữ nguyên
@@ -7110,12 +7270,14 @@ export function showConfirmation(title, message, confirmText = 'Xác nhận', ca
 
         // 1. Tách riêng hàm xử lý hủy bỏ
         const handleCancel = () => {
+            bsModal.hide(); 
             resolve(false);
         };
 
         // 2. Tách riêng hàm xử lý xác nhận
         const handleConfirm = () => {
             // Quan trọng: Gỡ bỏ trình lắng nghe sự kiện hủy trước khi làm bất cứ điều gì khác
+            bsModal.hide();
             modal.removeEventListener('hidden.bs.modal', handleCancel);
             resolve(true);
         };

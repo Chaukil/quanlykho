@@ -2809,12 +2809,10 @@ function initializeRealtimeBadges() {
     }, (error) => console.error("Lỗi lắng nghe yêu cầu chỉnh số:", error));
 
     // 2. Lắng nghe các phiếu NHẬP KHO đang chờ QC
-    // Vì không thể query trực tiếp vào mảng, chúng ta lấy về và lọc ở client
     const importQuery = query(collection(db, 'transactions'), where('type', '==', 'import'));
     onSnapshot(importQuery, (snapshot) => {
         let pendingQcCount = 0;
         snapshot.forEach(doc => {
-            // Kiểm tra xem có bất kỳ item nào trong phiếu có trạng thái 'pending' không
             const hasPendingQc = doc.data().items?.some(item => item.qc_status === 'pending');
             if (hasPendingQc) {
                 pendingQcCount++;
@@ -2822,7 +2820,16 @@ function initializeRealtimeBadges() {
         });
         updateBadge('importRequestBadge', pendingQcCount);
     }, (error) => console.error("Lỗi lắng nghe phiếu chờ QC:", error));
+
+    // --- BƯỚC 2: THÊM KHỐI CODE NÀY VÀO ---
+    // 3. Lắng nghe các yêu cầu XUẤT KHO đang chờ duyệt
+    const exportQuery = query(collection(db, 'export_requests'), where('status', '==', 'pending'));
+    onSnapshot(exportQuery, (snapshot) => {
+        updateBadge('exportRequestBadge', snapshot.size);
+    }, (error) => console.error("Lỗi lắng nghe yêu cầu xuất kho:", error));
+    // --- KẾT THÚC THÊM ---
 }
+
 
 document.addEventListener('visibilitychange', () => {
     // Nếu tab trở nên hiển thị và người dùng đã đăng nhập
