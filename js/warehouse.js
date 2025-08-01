@@ -696,7 +696,6 @@ window.saveImport = async function () {
         if (importModal) {
             bootstrap.Modal.getInstance(importModal).hide();
         }
-        loadImportHistory();
     } catch (error) {
         console.error('Lỗi khi lưu phiếu nhập:', error);
         showToast('Lỗi lưu phiếu nhập', 'danger');
@@ -986,9 +985,6 @@ window.saveExcelImport = async function () {
             bootstrap.Modal.getInstance(modal).hide();
         }
 
-        // Tải lại lịch sử để thấy phiếu mới
-        loadImportHistory();
-
     } catch (error) {
         console.error('Lỗi khi lưu phiếu nhập từ Excel:', error);
         showToast('Lỗi lưu phiếu nhập từ Excel', 'danger');
@@ -1017,7 +1013,6 @@ window.viewImportDetails = async function (transactionId) {
         // *** FIX: Lắng nghe sự kiện khi modal được đóng ***
         // Khi người dùng đóng modal này, nó sẽ tự động tải lại bảng lịch sử nhập kho
         modal.addEventListener('hidden.bs.modal', () => {
-            loadImportHistory();
             modal.remove(); // Dọn dẹp modal khỏi DOM
         }, { once: true });
 
@@ -6330,7 +6325,6 @@ window.saveEditImport = async function () {
         await batch.commit();
         showToast('Đã cập nhật phiếu nhập thành công!', 'success');
         bootstrap.Modal.getInstance(document.getElementById('editImportModal')).hide();
-        loadImportHistory();
 
     } catch (error) {
         console.error('Error updating import:', error);
@@ -6401,7 +6395,6 @@ window.deleteImportTransaction = async function (transactionId) {
         await batch.commit();
 
         showToast('Đã xóa phiếu nhập thành công!', 'success');
-        loadImportHistory();
 
     } catch (error) {
         console.error('Error deleting import:', error);
@@ -9185,18 +9178,20 @@ function startScanner() {
     });
 }
 
+// File: js/warehouse.js
+
 function showQcScanResult(items) {
     const resultContainer = document.getElementById('scanResultContainer');
 
-    // Create a header for the results, clearly indicating the read-only permission
+    // === SỬA LẠI TIÊU ĐỀ CHO RÕ NGHĨA ===
     let html = `
         <div class="d-flex justify-content-between align-items-center mb-2">
-            <h6 class="mb-0">Kết quả quét cho mã: <span class="badge bg-primary">${items[0].code}</span></h6>
+            <h6 class="mb-0">Thông tin tồn kho: <span class="badge bg-primary">${items[0].code}</span></h6>
             <span class="badge bg-info"><i class="fas fa-eye me-1"></i>Quyền: Chỉ xem</span>
         </div>
     `;
 
-    // Loop through and display each location where the item is found
+    // Phần còn lại của hàm giữ nguyên
     html += items.map(item => `
         <div class="card mb-2">
             <div class="card-body p-3">
@@ -9216,6 +9211,7 @@ function showQcScanResult(items) {
 
     resultContainer.innerHTML = html;
 }
+
 
 async function onScanSuccess(decodedText, decodedResult) {
     stopScanner(); // Luôn dừng camera ngay khi có kết quả
@@ -9918,7 +9914,8 @@ window.viewInventoryArchiveDetails = async function (transactionId) {
     modal.addEventListener('hidden.bs.modal', () => modal.remove());
 }
 
-/// Thay thế hàm này trong warehouse.js
+// File: js/warehouse.js
+
 window.approveQcItem = async function (transactionId, itemIndex) {
     if (userRole !== 'qc') return;
 
@@ -9937,11 +9934,13 @@ window.approveQcItem = async function (transactionId, itemIndex) {
 
         const batch = writeBatch(db);
 
+        // Cập nhật trạng thái item trong phiếu nhập
         transactionData.items[itemIndex].qc_status = 'passed';
         transactionData.items[itemIndex].qc_by_id = currentUser.uid;
         transactionData.items[itemIndex].qc_by_name = currentUser.name;
         batch.update(transRef, { items: transactionData.items });
 
+        // Tìm và cập nhật tồn kho
         const q = query(
             collection(db, 'inventory'),
             where('code', '==', item.code),
@@ -9962,24 +9961,20 @@ window.approveQcItem = async function (transactionId, itemIndex) {
         }
 
         await batch.commit();
-        showToast(`Đã duyệt "${item.code}" thành công. Hàng đã được nhập kho.`, 'success');
+        showToast(`Đã duyệt "${item.code}". Hàng đã được nhập kho.`, 'success');
 
-        const scanResultContainer = document.getElementById('scanResultContainer');
-        if (scanResultContainer) {
-            scanResultContainer.innerHTML = '<p class="text-muted text-center mt-4 p-4">Đã xử lý xong. Sẵn sàng quét mã tiếp theo.</p>';
+        // === BẮT ĐẦU THAY ĐỔI QUAN TRỌNG ===
+        // Sau khi xử lý xong, tự động tìm và hiển thị thông tin tồn kho của mã hàng đó
+        const updatedInventoryQuery = query(collection(db, 'inventory'), where('code', '==', item.code));
+        const updatedSnapshot = await getDocs(updatedInventoryQuery);
+        if (!updatedSnapshot.empty) {
+            const updatedItems = updatedSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            showQcScanResult(updatedItems); // Gọi hàm hiển thị thông tin tồn kho
+        } else {
+            const resultContainer = document.getElementById('scanResultContainer');
+            resultContainer.innerHTML = `<div class="alert alert-info">Đã xử lý xong. Không tìm thấy thông tin tồn kho cho mã này.</div>`;
         }
-        // *** FIX: Cập nhật giao diện tại chỗ (in-place) ***
-        const rowToUpdate = document.querySelector(`tr[data-index="${itemIndex}"]`);
-        if (rowToUpdate) {
-            rowToUpdate.querySelector('.qc-location').innerHTML = `<span class="badge bg-success">${item.location}</span>`;
-            rowToUpdate.querySelector('.qc-status').innerHTML = `
-                <div>
-                    <span class="badge bg-success"><i class="fas fa-check-circle"></i> Đạt</span>
-                    <small class="text-muted d-block">bởi: ${currentUser.name}</small>
-                </div>`;
-            const actionsCell = rowToUpdate.querySelector('.qc-actions');
-            if (actionsCell) actionsCell.innerHTML = ''; // Xóa các nút bấm
-        }
+        // === KẾT THÚC THAY ĐỔI QUAN TRỌNG ===
 
     } catch (error) {
         console.error("Lỗi khi duyệt QC:", error);
@@ -9987,7 +9982,8 @@ window.approveQcItem = async function (transactionId, itemIndex) {
     }
 }
 
-// Thay thế hàm này trong warehouse.js
+// File: js/warehouse.js
+
 window.rejectQcItem = async function (transactionId, itemIndex) {
     if (userRole !== 'qc') return;
 
@@ -10011,42 +10007,33 @@ window.rejectQcItem = async function (transactionId, itemIndex) {
             return;
         }
 
+        // Cập nhật trạng thái trong phiếu nhập
         transactionData.items[itemIndex].qc_status = 'failed';
         transactionData.items[itemIndex].qc_by_id = currentUser.uid;
         transactionData.items[itemIndex].qc_by_name = currentUser.name;
-
         await updateDoc(transRef, { items: transactionData.items });
 
         showToast(`Đã đánh dấu "${item.code}" là không đạt.`, 'success');
 
-        const scanResultContainer = document.getElementById('scanResultContainer');
-        if (scanResultContainer) {
-            scanResultContainer.innerHTML = '<p class="text-muted text-center mt-4 p-4">Đã xử lý xong. Sẵn sàng quét mã tiếp theo.</p>';
+        // === BẮT ĐẦU THAY ĐỔI QUAN TRỌNG ===
+        // Sau khi xử lý xong, tự động tìm và hiển thị thông tin tồn kho của mã hàng đó
+        const inventoryQuery = query(collection(db, 'inventory'), where('code', '==', item.code));
+        const snapshot = await getDocs(inventoryQuery);
+        if (!snapshot.empty) {
+            const inventoryItems = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            showQcScanResult(inventoryItems); // Gọi hàm hiển thị thông tin tồn kho
+        } else {
+            const resultContainer = document.getElementById('scanResultContainer');
+            resultContainer.innerHTML = `<div class="alert alert-info">Đã xử lý xong. Mã hàng này hiện chưa có tồn kho.</div>`;
         }
-        // *** FIX: Cập nhật giao diện tại chỗ (in-place) ***
-        const rowToUpdate = document.querySelector(`tr[data-index="${itemIndex}"]`);
-        if (rowToUpdate) {
-            rowToUpdate.querySelector('.qc-location').innerHTML = `<span class="badge bg-danger">Không đạt</span>`;
-            rowToUpdate.querySelector('.qc-status').innerHTML = `
-                <div>
-                    <span class="badge bg-danger"><i class="fas fa-times-circle"></i> Không đạt</span>
-                    <small class="text-muted d-block">bởi: ${currentUser.name}</small>
-                </div>`;
-            const actionsCell = rowToUpdate.querySelector('.qc-actions');
-            if (actionsCell) actionsCell.innerHTML = ''; // Xóa các nút bấm
-        }
-
-        // Hiển thị nút "Giao bù" nếu cần
-        const replacementBtn = document.getElementById('replacementBtn');
-        if (replacementBtn) {
-            replacementBtn.style.display = 'inline-block';
-        }
+        // === KẾT THÚC THAY ĐỔI QUAN TRỌNG ===
 
     } catch (error) {
         console.error("Lỗi khi từ chối QC:", error);
         showToast('Lỗi khi từ chối QC.', 'danger');
     }
 }
+
 
 // Thay thế hàm này trong warehouse.js
 window.startReplacementProcess = async function (transactionId) {
@@ -10084,12 +10071,6 @@ window.startReplacementProcess = async function (transactionId) {
 
         // Cập nhật tài liệu gốc trên Firestore
         await updateDoc(transRef, { items: updatedItems });
-
-        // --- BẮT ĐẦU THAY ĐỔI QUAN TRỌNG ---
-        // Tải lại danh sách phiếu nhập ngay lập tức để phản ánh sự thay đổi trạng thái của phiếu cũ.
-        // `true` để đảm bảo nó vẫn tôn trọng các bộ lọc đang được áp dụng.
-        loadImportHistory(true);
-        // --- KẾT THÚC THAY ĐỔI ---
 
         // Đóng modal hiện tại
         const currentModal = document.querySelector('.modal');
