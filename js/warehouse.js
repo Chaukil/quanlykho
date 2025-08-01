@@ -41,6 +41,7 @@ let unsubscribeAdjustRequests = null;
 let unsubscribeAdjust = null;
 let unsubscribeAllHistory = null;
 let currentRequestItems = [];
+
 const historyListeners = {
     import: null,
     export: null,
@@ -122,6 +123,7 @@ export async function loadCacheData() {
 
         snapshot.forEach(doc => {
             const data = doc.data();
+            // THAY ĐỔI: Chỉ thêm vào cache nếu mã hàng không bị lưu trữ
             if (data.status === 'archived') {
                 return; // Bỏ qua mã hàng này
             }
@@ -141,6 +143,7 @@ export async function loadCacheData() {
         console.error('Error loading cache data:', error);
     }
 }
+
 
 let listenersInitialized = false; // Flag để đảm bảo chỉ chạy một lần
 
@@ -328,7 +331,7 @@ function createImportModal() {
                     </form>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal"><i class="fas fa-times"></i> Hủy</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal"><i class="fas fa-times"></i> Hủy bỏ</button>
                     <button type="button" class="btn btn-success" onclick="saveImport()" id="saveImportBtn" disabled><i class="fas fa-save"></i> Lưu phiếu nhập</button>
                 </div>
             </div>
@@ -661,7 +664,7 @@ window.editImportItem = function (index) {
 
 window.removeImportItem = async function (index) {
     const item = currentImportItems[index];
-    const confirmed = await showConfirmation('Xóa mã hàng', `Bạn có chắc muốn xóa "${item.name}"?`, 'Xóa', 'Hủy', 'danger');
+    const confirmed = await showConfirmation('Xóa mã hàng', `Bạn có chắc muốn xóa "${item.name}"?`, 'Xóa', 'Hủy bỏ', 'danger');
     if (confirmed) {
         currentImportItems.splice(index, 1);
         updateImportItemsTable();
@@ -815,7 +818,7 @@ function showImportExcelPreviewModal(items) {
                     </div>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy bỏ</button>
                     <button type="button" class="btn btn-success" onclick="saveExcelImport()" id="saveExcelImportBtn" disabled>
                         Xác nhận nhập kho
                     </button>
@@ -1377,7 +1380,7 @@ function createExportModal() {
                     </form>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal"><i class="fas fa-times"></i> Hủy</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal"><i class="fas fa-times"></i> Hủy bỏ</button>
                     <button type="button" class="btn btn-warning text-dark" onclick="saveExport()" id="saveExportBtn" disabled><i class="fas fa-save"></i> Lưu phiếu xuất</button>
                 </div>
             </div>
@@ -1518,7 +1521,7 @@ window.saveDirectAdjust = async function () {
         const confirmed = await showConfirmation(
             'Xác nhận chỉnh số trực tiếp',
             `Bạn có chắc muốn điều chỉnh tồn kho từ ${currentQuantity} thành ${newQuantity}?`,
-            'Thực hiện chỉnh số', 'Hủy', 'danger'
+            'Thực hiện chỉnh số', 'Hủy bỏ', 'danger'
         );
         if (!confirmed) return;
 
@@ -1680,7 +1683,7 @@ function createEditAdjustModal(transactionId, data) {
                     </form>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy bỏ</button>
                     <button type="button" class="btn btn-warning" onclick="saveEditAdjust()">
                         <i class="fas fa-save"></i> Lưu thay đổi
                     </button>
@@ -1744,7 +1747,7 @@ window.saveEditAdjust = async function () {
         'Xác nhận cập nhật chỉnh số',
         `Bạn có chắc muốn cập nhật phiếu chỉnh số?<br><br><strong>Thay đổi:</strong><br>• Số lượng: ${originalNewQuantity} → ${newQuantity}<br>• Chênh lệch mới: ${newQuantity > previousQuantity ? '+' : ''}${newQuantity - previousQuantity}`,
         'Lưu thay đổi',
-        'Hủy',
+        'Hủy bỏ',
         'warning'
     );
 
@@ -1825,7 +1828,7 @@ window.deleteAdjustTransaction = async function (transactionId) {
             'Xóa phiếu chỉnh số tồn kho',
             `Bạn có chắc muốn XÓA phiếu chỉnh số này?<br><br><strong>⚠️ Cảnh báo:</strong><br>• Thao tác này không thể hoàn tác<br>• Sẽ hoàn nguyên tồn kho về số lượng trước khi chỉnh<br><br><strong>Chi tiết:</strong><br>• Mã hàng: ${data.itemCode}<br>• Từ ${data.previousQuantity} → ${data.newQuantity}<br>• Sẽ khôi phục về: ${data.previousQuantity}`,
             'Xóa phiếu chỉnh số',
-            'Hủy',
+            'Hủy bỏ',
             'danger'
         );
 
@@ -1909,8 +1912,7 @@ function setupExportModalEventListeners() {
     suggestExportNumber();
 }
 
-// warehouse.js
-
+// THAY ĐỔI: Thêm bộ lọc ở client-side để loại bỏ mã hàng đã xóa.
 async function handleExportItemSearch(event) {
     const searchTerm = event.target.value.trim();
     const suggestionsContainer = document.getElementById('exportItemSuggestions');
@@ -1949,6 +1951,7 @@ async function handleExportItemSearch(event) {
         console.error("Lỗi tìm kiếm hàng xuất kho:", error);
     }
 }
+
 
 window.selectItemForExport = function (item) {
     // Điền thông tin vào các trường của form
@@ -2217,7 +2220,7 @@ function createAdjustRequestModal() {
                     </form>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy bỏ</button>
                     <button type="button" class="btn btn-primary" onclick="saveAdjustRequest()"><i class="fas fa-paper-plane"></i> Gửi yêu cầu</button>
                 </div>
             </div>
@@ -2288,6 +2291,7 @@ function resetRequestItemForm() {
     document.getElementById('requestItemSearch').focus();
 }
 
+// THAY ĐỔI: Thêm bộ lọc ở client-side để loại bỏ mã hàng đã xóa.
 async function handleRequestItemSearch(event) {
     const searchTerm = event.target.value.trim();
     const suggestionsContainer = document.getElementById('requestItemSuggestions');
@@ -2323,6 +2327,7 @@ async function handleRequestItemSearch(event) {
         console.error("Lỗi tìm kiếm hàng để yêu cầu:", error);
     }
 }
+
 
 window.selectItemForRequest = function (item) {
     document.getElementById('requestInventoryId').value = item.id;
@@ -2525,7 +2530,7 @@ window.saveAdjustRequest = async function () {
 
 window.removeExportItem = async function (index) {
     const item = currentExportItems[index];
-    const confirmed = await showConfirmation('Xóa mã hàng', `Bạn có chắc muốn xóa "${item.name}" khỏi phiếu xuất?`, 'Xóa', 'Hủy', 'danger');
+    const confirmed = await showConfirmation('Xóa mã hàng', `Bạn có chắc muốn xóa "${item.name}" khỏi phiếu xuất?`, 'Xóa', 'Hủy bỏ', 'danger');
     if (confirmed) {
         currentExportItems.splice(index, 1);
         updateExportItemsTable();
@@ -2699,7 +2704,7 @@ window.approveAdjustRequest = async function (requestId) {
     const confirmed = await showConfirmation(
         'Duyệt yêu cầu chỉnh số',
         'Bạn có chắc muốn duyệt yêu cầu này? Tồn kho sẽ được cập nhật theo các thay đổi.',
-        'Duyệt yêu cầu', 'Hủy', 'success'
+        'Duyệt yêu cầu', 'Hủy bỏ', 'success'
     );
     if (!confirmed) return;
 
@@ -3087,7 +3092,7 @@ function createTransferModal() {
                     </form>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal"><i class="fas fa-times"></i> Hủy</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal"><i class="fas fa-times"></i> Hủy bỏ</button>
                     <button type="button" class="btn btn-info" onclick="saveTransfer()" id="saveTransferBtn" disabled>
                         <i class="fas fa-exchange-alt"></i> Xác nhận chuyển kho
                     </button>
@@ -3116,8 +3121,6 @@ function setupTransferModalEventListeners() {
     document.getElementById('transferNewBay')?.addEventListener('change', updateTransferSaveButtonState);
     document.getElementById('transferNewLevel')?.addEventListener('change', updateTransferSaveButtonState);
 }
-
-// warehouse.js
 
 async function handleTransferItemSearch(event) {
     const searchTerm = event.target.value.trim();
@@ -3159,8 +3162,6 @@ async function handleTransferItemSearch(event) {
     }
 }
 
-
-// Thêm hàm MỚI này vào warehouse.js
 window.selectItemForTransfer = function (item) {
     // Điền thông tin vào các trường của form
     document.getElementById('sourceInventoryId').value = item.id;
@@ -3313,7 +3314,7 @@ window.saveTransfer = async function () {
         const confirmed = await showConfirmation(
             'Xác nhận chuyển kho',
             `Bạn có chắc muốn chuyển ${transferQuantity} mã hàng từ <strong>${currentLocation}</strong> đến <strong>${newLocation}</strong>?`,
-            'Chuyển kho', 'Hủy', 'info'
+            'Chuyển kho', 'Hủy bỏ', 'info'
         );
         if (!confirmed) return;
 
@@ -3437,7 +3438,7 @@ function createDirectAdjustModal() {
                     </form>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal"><i class="fas fa-times"></i> Hủy</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal"><i class="fas fa-times"></i> Hủy bỏ</button>
                     <button type="button" class="btn btn-danger" id="confirmDirectAdjustBtn" onclick="saveDirectAdjust()" disabled>
                         <i class="fas fa-check"></i> Thực hiện chỉnh số
                     </button>
@@ -3593,6 +3594,7 @@ function showDirectAdjustModal() {
     bsModal.show();
 }
 
+// THAY ĐỔI: Thêm bộ lọc ở client-side để loại bỏ mã hàng đã xóa.
 async function handleDirectAdjustItemSearch(event) {
     const searchTerm = event.target.value.trim();
     const suggestionsContainer = document.getElementById('directAdjustItemSuggestions');
@@ -3631,6 +3633,7 @@ async function handleDirectAdjustItemSearch(event) {
         console.error("Lỗi tìm kiếm hàng để chỉnh số:", error);
     }
 }
+
 
 window.selectItemForDirectAdjust = function (item) {
     // Điền thông tin vào các trường của form
@@ -5887,7 +5890,7 @@ window.approveExportRequest = async function (requestId) {
     const confirmed = await showConfirmation(
         'Duyệt Yêu cầu Xuất kho',
         'Bạn có chắc muốn duyệt yêu cầu này? Tồn kho sẽ bị trừ ngay lập tức và không thể hoàn tác.',
-        'Duyệt và Xuất kho', 'Hủy', 'success'
+        'Duyệt và Xuất kho', 'Hủy bỏ', 'success'
     );
     if (!confirmed) return;
 
@@ -6334,7 +6337,7 @@ function createEditImportModal(transactionId, data) {
                     </form>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy bỏ</button>
                     <button type="button" class="btn btn-warning" onclick="saveEditImport()">
                         <i class="fas fa-save"></i> Lưu thay đổi
                     </button>
@@ -6392,7 +6395,7 @@ window.saveEditImport = async function () {
         const confirmed = await showConfirmation(
             'Xác nhận cập nhật',
             'Bạn có chắc muốn lưu thay đổi? Điều này sẽ ảnh hưởng đến tồn kho hiện tại.',
-            'Lưu thay đổi', 'Hủy', 'warning'
+            'Lưu thay đổi', 'Hủy bỏ', 'warning'
         );
         if (!confirmed) return;
 
@@ -6459,7 +6462,7 @@ window.deleteImportTransaction = async function (transactionId) {
         'Xóa phiếu nhập kho',
         'Bạn có chắc muốn XÓA phiếu nhập này?<br><br><strong>⚠️ Cảnh báo:</strong><br>• Thao tác này không thể hoàn tác<br>• Sẽ trừ lại số lượng đã nhập khỏi tồn kho',
         'Xóa phiếu nhập',
-        'Hủy',
+        'Hủy bỏ',
         'danger'
     );
 
@@ -6609,7 +6612,7 @@ function createEditExportModal(transactionId, data) {
                     </form>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy bỏ</button>
                     <button type="button" class="btn btn-warning" onclick="saveEditExport()">
                         <i class="fas fa-save"></i> Lưu thay đổi
                     </button>
@@ -6635,7 +6638,7 @@ window.saveEditExport = async function () {
         'Xác nhận cập nhật',
         'Bạn có chắc muốn lưu thay đổi? Điều này sẽ ảnh hưởng đến tồn kho hiện tại.',
         'Lưu thay đổi',
-        'Hủy',
+        'Hủy bỏ',
         'warning'
     );
 
@@ -6792,7 +6795,7 @@ window.deleteExportTransaction = async function (transactionId) {
         'Xóa phiếu xuất kho',
         'Bạn có chắc muốn XÓA phiếu xuất này?<br><br><strong>⚠️ Cảnh báo:</strong><br>• Thao tác này không thể hoàn tác<br>• Sẽ hoàn lại số lượng đã xuất vào tồn kho',
         'Xóa phiếu xuất',
-        'Hủy',
+        'Hủy bỏ',
         'danger'
     );
 
@@ -6969,7 +6972,7 @@ function createEditTransferModal(transactionId, data) {
                     </form>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy bỏ</button>
                     <button type="button" class="btn btn-warning" onclick="saveEditTransfer()">
                         <i class="fas fa-save"></i> Lưu thay đổi
                     </button>
@@ -7012,7 +7015,7 @@ window.saveEditTransfer = async function () {
         'Xác nhận cập nhật',
         'Bạn có chắc muốn lưu thay đổi? Điều này sẽ ảnh hưởng đến tồn kho tại các vị trí.',
         'Lưu thay đổi',
-        'Hủy',
+        'Hủy bỏ',
         'warning'
     );
 
@@ -7136,7 +7139,7 @@ window.deleteTransferTransaction = async function (transactionId) {
         'Xóa phiếu chuyển kho',
         'Bạn có chắc muốn XÓA phiếu chuyển kho này?<br><br><strong>⚠️ Cảnh báo:</strong><br>• Thao tác này không thể hoàn tác<br>• Sẽ hoàn nguyên số lượng về vị trí ban đầu',
         'Xóa phiếu chuyển',
-        'Hủy',
+        'Hủy bỏ',
         'danger'
     );
 
@@ -7211,7 +7214,7 @@ window.markItemChanged = function (input) {
     input.style.border = '1px solid #ffc107';
 };
 
-export function createConfirmationModal(title, message, confirmText = 'Xác nhận', cancelText = 'Hủy', type = 'warning') {
+export function createConfirmationModal(title, message, confirmText = 'Xác nhận', cancelText = 'Hủy bỏ', type = 'warning') {
     const modal = document.createElement('div');
     modal.className = 'modal fade';
     modal.id = 'confirmationModal';
@@ -7257,7 +7260,7 @@ export function createConfirmationModal(title, message, confirmText = 'Xác nh�
     return modal;
 }
 
-export function showConfirmation(title, message, confirmText = 'Xác nhận', cancelText = 'Hủy', type = 'warning') {
+export function showConfirmation(title, message, confirmText = 'Xác nhận', cancelText = 'Hủy bỏ', type = 'warning') {
     return new Promise((resolve) => {
         // Hàm tạo modal vẫn giữ nguyên
         const modal = createConfirmationModal(title, message, confirmText, cancelText, type);
@@ -7324,7 +7327,7 @@ export function createInputModal(title, message, placeholder = '', inputType = '
                     </div>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy bỏ</button>
                     <button type="button" class="btn btn-primary" id="inputConfirmBtn">Xác nhận</button>
                 </div>
             </div>
@@ -7481,7 +7484,7 @@ function showExportExcelImportModal(items) {
                     </div>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy bỏ</button>
                     <button type="button" class="btn btn-warning" onclick="saveExcelExport()" id="saveExcelExportBtn">
                         Xác nhận xuất kho
                     </button>
@@ -7729,7 +7732,7 @@ function showTransferExcelImportModal(transfers) {
                     </div>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy bỏ</button>
                     <button type="button" class="btn btn-info" onclick="saveExcelTransfers()" id="saveExcelTransfersBtn">
                         Xác nhận chuyển kho
                     </button>
@@ -8028,7 +8031,7 @@ function showAdjustExcelPreviewModal(adjustments) {
                     </div>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy bỏ</button>
                     <button type="button" class="btn btn-danger" onclick="saveExcelAdjustments()" id="saveExcelAdjustmentsBtn" disabled>
                         Thực hiện chỉnh số
                     </button>
@@ -8171,7 +8174,7 @@ function showAdjustExcelImportModal(adjustments) {
                     </div>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy bỏ</button>
                     <button type="button" class="btn btn-danger" onclick="saveExcelAdjustments()" id="saveExcelAdjustmentsBtn">
                         Thực hiện chỉnh số
                     </button>
@@ -8325,7 +8328,7 @@ window.saveExcelAdjustments = async function () {
     const confirmed = await showConfirmation(
         'Xác nhận chỉnh số hàng loạt',
         `Bạn có chắc muốn thực hiện ${adjustmentsToProcess.length} thay đổi trong MỘT phiếu chỉnh số?`,
-        'Thực hiện chỉnh số', 'Hủy', 'danger'
+        'Thực hiện chỉnh số', 'Hủy bỏ', 'danger'
     );
     if (!confirmed) return;
 
@@ -8459,7 +8462,7 @@ function showRequestAdjustExcelImportModal(requests) {
                     </div>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy bỏ</button>
                     <button type="button" class="btn btn-primary" onclick="saveExcelRequestAdjustments()" id="saveExcelRequestAdjustmentsBtn" disabled>
                         Gửi yêu cầu
                     </button>
@@ -8692,7 +8695,7 @@ async function deleteSelectedTemplate() {
     const confirmed = await showConfirmation(
         'Xác nhận xóa mẫu',
         `Bạn có chắc muốn xóa vĩnh viễn mẫu tem "${templateName}"?`,
-        'Xóa', 'Hủy', 'danger'
+        'Xóa', 'Hủy bỏ', 'danger'
     );
 
     if (confirmed) {
@@ -9175,50 +9178,56 @@ function initializeUsbScannerListener() {
     });
 }
 
+// THAY THẾ TOÀN BỘ HÀM NÀY
 async function processUsbScan(decodedText) {
     playScannerSound();
-    showToast(`Đã quét mã: ${decodedText}`, 'info');
-    document.getElementById('usbScannerInput').value = '';
-    document.getElementById('usbScannerInput').focus();
+    
+    // --- LOGIC MỚI: KIỂM TRA PHIÊN LÀM VIỆC HIỆN TẠI ---
+    const isSessionActive = document.getElementById('scan-export-form');
 
+    // Tìm kiếm thông tin mã hàng trước
     const resultContainer = document.getElementById('scanResultContainer');
-    resultContainer.innerHTML = `
-        <div class="text-center mt-4">
-            <div class="spinner-border text-primary" role="status"></div>
-            <p class="text-muted mt-2">Đang tìm kiếm thông tin...</p>
-        </div>`;
-
     try {
-        // === BẮT ĐẦU LOGIC MỚI CHO QC ===
+        // Ưu tiên 1: Kiểm tra xem người dùng có phải QC và mã hàng có đang chờ duyệt không
         if (userRole === 'qc') {
-            // Ưu tiên 1: Tìm xem mã hàng này có đang chờ QC không
+            // Hiển thị spinner tạm thời trong khi chờ
+            resultContainer.innerHTML = `<div class="text-center mt-4"><div class="spinner-border text-primary" role="status"></div></div>`;
             const pendingItem = await getPendingImportItem(decodedText);
-
             if (pendingItem) {
-                // Nếu có, hiển thị giao diện duyệt QC
-                showQcPendingItemDetails(pendingItem); // Truyền trực tiếp toàn bộ đối tượng
-                return; // Dừng xử lý tại đây
+                showQcPendingItemDetails(pendingItem);
+                return; // Dừng lại sau khi hiển thị giao diện QC
             }
         }
-        // === KẾT THÚC LOGIC MỚI CHO QC ===
 
-        // Nếu không phải QC, hoặc QC quét mã không cần duyệt, thì chạy logic cũ
-        const q = query(collection(db, 'inventory'), where('code', '==', decodedText));
+        // Nếu không phải trường hợp QC đặc biệt, tiếp tục tìm thông tin tồn kho
+        const q = query(collection(db, 'inventory'), where('code', '==', decodedText), where('status', '!=', 'archived'));
         const snapshot = await getDocs(q);
 
         if (snapshot.empty) {
-            resultContainer.innerHTML = `<div class="alert alert-danger">Mã hàng <strong>"${decodedText}"</strong> không tồn tại trong kho.</div>`;
+            // THAY ĐỔI: Chỉ hiện thông báo, không làm mới giao diện nếu đang trong phiên
+            showToast(`Mã hàng "${decodedText}" không tồn tại trong kho.`, 'danger');
+            if (!isSessionActive) {
+                 resultContainer.innerHTML = `<div class="alert alert-danger">Mã hàng <strong>"${decodedText}"</strong> không tồn tại trong kho.</div>`;
+            }
             return;
         }
 
         const itemsFromScan = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        const totalStock = itemsFromScan.reduce((sum, item) => sum + item.quantity, 0);
 
+        if (totalStock <= 0) {
+            // THAY ĐỔI: Chỉ hiện thông báo, không làm mới giao diện nếu đang trong phiên
+             showToast(`Mã hàng "${decodedText}" đã hết hàng.`, 'warning');
+            if (!isSessionActive) {
+                resultContainer.innerHTML = `<div class="alert alert-warning">Mã hàng <strong>"${decodedText}"</strong> đã hết hàng.</div>`;
+            }
+            return;
+        }
+
+        // Phân luồng logic dựa trên vai trò và phiên làm việc
         if (userRole === 'qc') {
-            // Kịch bản 2 của QC: Mã hàng có tồn kho nhưng không cần duyệt
-            showQcScanResult(itemsFromScan);
-        } else {
-            // Logic cho các vai trò khác (Admin, Staff)
-            const isSessionActive = document.getElementById('scan-export-form');
+            showQcScanResult(itemsFromScan); // QC quét mã đã có, chỉ xem thông tin
+        } else { // Dành cho Admin, Super Admin, Staff
             if (isSessionActive) {
                 addItemToScanExportSession(itemsFromScan);
             } else {
@@ -9233,9 +9242,10 @@ async function processUsbScan(decodedText) {
     }
 }
 
+
 function showQcPendingItemDetails({ transactionId, item, itemIndex, transactionData }) {
     const resultContainer = document.getElementById('scanResultContainer');
-    
+
     resultContainer.innerHTML = `
         <div class="card border-warning">
             <div class="card-header bg-warning text-dark">
@@ -9261,6 +9271,7 @@ function showQcPendingItemDetails({ transactionId, item, itemIndex, transactionD
                     </div>
                     <div class="col-md-4 mt-3 mt-md-0">
                         <div class="d-grid gap-2">
+                            
                             <button class="btn btn-success" onclick="approveQcItem('${transactionId}', ${itemIndex})">
                                 <i class="fas fa-check-circle"></i> Đạt
                             </button>
@@ -9274,6 +9285,7 @@ function showQcPendingItemDetails({ transactionId, item, itemIndex, transactionD
         </div>
     `;
 }
+
 
 async function getPendingImportItem(itemCode) {
     try {
@@ -9348,17 +9360,15 @@ function showQcScanResult(items) {
     // === SỬA LẠI TIÊU ĐỀ CHO RÕ NGHĨA ===
     let html = `
         <div class="d-flex justify-content-between align-items-center mb-2">
-            <h6 class="mb-0">Thông tin tồn kho: <span class="badge bg-primary">${items[0].code}</span></h6>
-            <span class="badge bg-info"><i class="fas fa-eye me-1"></i>Quyền: Chỉ xem</span>
+            <p class="mb-0">Thông tin tồn kho:</p>
         </div>
     `;
 
     // Phần còn lại của hàm giữ nguyên
     html += items.map(item => `
         <div class="card mb-2">
-            <div class="card-body p-3">
-                <h5 class="card-title text-primary">${item.name}</h5>
-                <hr class="my-2">
+            <div class="card-body p-2">
+                <p><span class="badge bg-primary fs-6">${item.code}</span> - ${item.name}</p>               
                 <div class="row">
                     <div class="col-sm-6">
                         <p class="mb-1"><strong>Vị trí:</strong> <span class="badge bg-secondary fs-6">${item.location}</span></p>
@@ -9408,7 +9418,6 @@ function startNewScanExportSession(items) {
     showToast(`Đã bắt đầu phiên xuất kho cho: ${itemToAdd.code}`, 'success');
 }
 
-// Thay thế hoàn toàn hàm renderScanExportForm() cũ bằng hàm này
 function renderScanExportForm() {
     const scanResultContainer = document.getElementById('scanResultContainer');
 
@@ -9450,8 +9459,9 @@ function renderScanExportForm() {
                     <table class="table table-sm table-bordered table-hover table-compact">
                         <thead class="table-light">
                             <tr>
-                                <th>Mã hàng</th>
-                                <th style="width:120px;">SL Xuất</th>
+                                <th style="width:150px;">Mã hàng</th>
+                                <th style="width:150px;">Vị trí tồn kho</th>
+                                <th style="width:100px;">Số lượng Xuất</th>
                                 <th style="width:50px;" class="text-center"><i class="fas fa-cog"></i></th>
                             </tr>
                         </thead>
@@ -9465,7 +9475,7 @@ function renderScanExportForm() {
             <!-- KHU VỰC HÀNH ĐỘNG -->
             <div class="mt-3 d-grid gap-2">
                 ${actionButtonHtml}
-                <button class="btn btn-outline-secondary" onclick="cancelScanExportSession()">
+                <button type="button" class="btn btn-secondary" onclick="cancelScanExportSession()">
                     <i class="fas fa-times"></i> Hủy bỏ
                 </button>
             </div>
@@ -9482,6 +9492,7 @@ function updateScanItemCount() {
         badge.textContent = `${exportItemsList.length} mã hàng`;
     }
 }
+
 window.cancelScanExportSession = function () {
     exportItemsList = [];
     const scanResultContainer = document.getElementById('scanResultContainer');
@@ -9525,25 +9536,27 @@ function addItemToScanExportSession(items) {
     renderScanExportTableBody();
 }
 
-// Thay thế hàm renderScanExportTableBody() cũ
 function renderScanExportTableBody() {
     const tbody = document.getElementById('scan-export-table-body');
     if (!tbody) return;
 
     if (exportItemsList.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="3" class="text-center text-muted p-3">Chưa có mã hàng nào.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted p-3">Chưa có mã hàng nào.</td></tr>';
     } else {
         const tableHtml = exportItemsList.map((item, index) => `
             <tr>
                 <td>
                     <strong>${item.code}</strong><br>
-                    <small class="text-muted">${item.name} </small>
+                    <small class="text-muted">${item.name}</small>
                 </td>
                 <td>
-                    <input type="number" class="form-control form-control-sm" 
+                    <span class="badge bg-secondary">${item.location}</span>
+                    <small class="d-block text-muted">(Tồn: ${item.availableQuantity})</small>
+                </td>
+                <td>
+                    <input type="number" class="form-control-compact text-center" 
                            value="${item.requestedQuantity}" min="1" max="${item.availableQuantity}"
                            onchange="updateExportItemQuantity(${index}, this.value)">
-                    <small class="text-muted">Tồn: ${item.availableQuantity} - Vị trí: ${item.location}</small>
                 </td>
                 <td class="text-center align-middle">
                     <button class="btn btn-sm btn-outline-danger" onclick="removeExportItemFromList(${index})" title="Xóa">
@@ -9610,26 +9623,19 @@ window.updateExportItemQuantity = (index, newQty) => {
     const qty = parseInt(newQty);
     const item = exportItemsList[index];
 
-    // Chỉ cập nhật nếu số lượng hợp lệ
     if (qty > 0 && qty <= item.availableQuantity) {
         item.requestedQuantity = qty;
     } else {
-        // Nếu không hợp lệ, chỉ cần vẽ lại bảng, ô input sẽ tự động
-        // được reset về giá trị cũ trong mảng (item.requestedQuantity)
         showToast('Số lượng không hợp lệ!', 'warning');
     }
-
-    // Luôn vẽ lại bảng để cập nhật giao diện
     renderScanExportTableBody();
 };
 
 window.removeExportItemFromList = (index) => {
     exportItemsList.splice(index, 1);
-    // Vẽ lại bảng và cập nhật bộ đếm
     renderScanExportTableBody();
 };
 
-// Thay thế toàn bộ hàm cũ bằng phiên bản mới này
 window.finalizeExport = async function () {
     if (exportItemsList.length === 0) {
         showToast('Danh sách xuất kho đang trống.', 'warning');
@@ -9653,14 +9659,13 @@ window.finalizeExport = async function () {
         actionText, 'Hủy', confirmType
     );
     if (!confirmed) return;
-
-    // === SỬA LỖI Ở ĐÂY: Thêm các giá trị dự phòng để tránh lỗi 'undefined' ===
+    
     const itemsToSave = exportItemsList.map(item => ({
         inventoryId: item.inventoryId || '',
         code: item.code || '',
         name: item.name || '',
-        unit: item.unit || '', // Quan trọng: Nếu item.unit là undefined, nó sẽ là ''
-        location: item.location || '', // Quan trọng: Nếu item.location là undefined, nó sẽ là ''
+        unit: item.unit || '',
+        location: item.location || '',
         quantity: item.requestedQuantity || 0,
         availableQuantityBefore: item.availableQuantity || 0
     }));
@@ -9674,13 +9679,13 @@ window.finalizeExport = async function () {
                 status: 'pending',
                 exportNumber: exportNumber,
                 recipient: recipient,
-                items: itemsToSave // Gửi đi dữ liệu đã được làm sạch
+                items: itemsToSave
             });
             showToast('Đã gửi yêu cầu xuất kho thành công!', 'success');
             cancelScanExportSession();
         } catch (error) {
             console.error("Lỗi khi tạo yêu cầu xuất kho:", error);
-            showToast('Đã xảy ra lỗi khi gửi yêu cầu. Vui lòng kiểm tra lại thông tin.', 'danger');
+            showToast('Đã xảy ra lỗi khi gửi yêu cầu.', 'danger');
         }
     } else { // Dành cho Admin và Super Admin
         const batch = writeBatch(db);
@@ -9711,7 +9716,6 @@ window.finalizeExport = async function () {
         }
     }
 };
-
 
 window.viewItemHistoryFromScan = async function (itemCode) {
     try {
@@ -9910,7 +9914,7 @@ function createEditInventoryModal(item) {
                     </form>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy bỏ</button>
                     <button type="button" class="btn btn-warning" onclick="saveInventoryChanges('${item.id}')">Lưu thay đổi</button>
                 </div>
             </div>
@@ -9989,12 +9993,14 @@ window.saveInventoryChanges = async function (itemId) {
     }
 };
 
+// THAY ĐỔI: Chuyển từ xóa cứng sang xóa mềm (lưu trữ)
 window.deleteInventoryItem = async function (itemId, itemCode, quantity) {
     if (userRole !== 'super_admin') {
         showToast('Bạn không có quyền thực hiện thao tác này.', 'danger');
         return;
     }
 
+    // THÊM MỚI: Kiểm tra nếu hàng vẫn còn tồn kho thì không cho xóa
     if (quantity > 0) {
         showToast(`Không thể xóa mã hàng "${itemCode}" vì vẫn còn ${quantity} tồn kho.`, 'danger');
         return;
@@ -10003,7 +10009,7 @@ window.deleteInventoryItem = async function (itemId, itemCode, quantity) {
     const confirmed = await showConfirmation(
         'Xác nhận xóa mã hàng',
         `Bạn có chắc muốn XÓA (lưu trữ) mã hàng <strong>${itemCode}</strong>? mã hàng sẽ bị ẩn khỏi danh sách tồn kho.`,
-        'Xóa (lưu trữ)', 'Hủy', 'danger'
+        'Xóa (lưu trữ)', 'Hủy bỏ', 'danger'
     );
 
     if (!confirmed) return;
@@ -10036,6 +10042,7 @@ window.deleteInventoryItem = async function (itemId, itemCode, quantity) {
 
         showToast(`Đã xóa (lưu trữ) mã hàng "${itemCode}" thành công.`, 'success');
 
+        // Tải lại bảng tồn kho để cập nhật giao diện
         if (window.loadInventoryTable) {
             window.loadInventoryTable(true, 1);
         }
@@ -10045,6 +10052,7 @@ window.deleteInventoryItem = async function (itemId, itemCode, quantity) {
         showToast('Đã xảy ra lỗi khi xóa mã hàng.', 'danger');
     }
 };
+
 
 window.viewInventoryArchiveDetails = async function (transactionId) {
     const transSnap = await getDoc(doc(db, 'transactions', transactionId));
@@ -10075,75 +10083,69 @@ window.viewInventoryArchiveDetails = async function (transactionId) {
     modal.addEventListener('hidden.bs.modal', () => modal.remove());
 }
 
-// File: js/warehouse.js
-
 window.approveQcItem = async function (transactionId, itemIndex) {
     if (userRole !== 'qc') return;
 
     try {
         const transRef = doc(db, 'transactions', transactionId);
         const transSnap = await getDoc(transRef);
+
         if (!transSnap.exists()) throw new Error("Không tìm thấy phiếu nhập.");
 
         const transactionData = transSnap.data();
-        const item = transactionData.items[itemIndex];
+        const items = transactionData.items;
 
-        if (item.qc_status !== 'pending') {
-            showToast('Mã hàng này đã được xử lý.', 'info');
-            return;
+        // THE FIX: Find the item using the index from the database record
+        const itemToProcess = items[itemIndex];
+
+        if (!itemToProcess || itemToProcess.qc_status !== 'pending') {
+            return showToast('Mã hàng này đã được xử lý hoặc không hợp lệ.', 'info');
         }
 
         const batch = writeBatch(db);
 
-        // Cập nhật trạng thái item trong phiếu nhập
-        transactionData.items[itemIndex].qc_status = 'passed';
-        transactionData.items[itemIndex].qc_by_id = currentUser.uid;
-        transactionData.items[itemIndex].qc_by_name = currentUser.name;
-        batch.update(transRef, { items: transactionData.items });
+        // Update the status of the specific item in the array
+        items[itemIndex].qc_status = 'passed';
+        items[itemIndex].qc_by_id = currentUser.uid;
+        items[itemIndex].qc_by_name = currentUser.name;
 
-        // Tìm và cập nhật tồn kho
-        const q = query(
-            collection(db, 'inventory'),
-            where('code', '==', item.code),
-            where('location', '==', item.location)
-        );
+        // Update the entire items array back to Firestore
+        batch.update(transRef, { items: items });
+
+        // The rest of the inventory update logic remains the same
+        const q = query(collection(db, 'inventory'), where('code', '==', itemToProcess.code), where('location', '==', itemToProcess.location));
         const inventorySnap = await getDocs(q);
 
         if (inventorySnap.empty) {
             const newInventoryDoc = doc(collection(db, 'inventory'));
             batch.set(newInventoryDoc, {
-                code: item.code, name: item.name, unit: item.unit,
-                quantity: item.quantity, category: item.category,
-                location: item.location, createdAt: serverTimestamp()
+                code: itemToProcess.code, name: itemToProcess.name, unit: itemToProcess.unit,
+                quantity: itemToProcess.quantity, category: itemToProcess.category,
+                location: itemToProcess.location, createdAt: serverTimestamp()
             });
         } else {
             const inventoryDocRef = inventorySnap.docs[0].ref;
-            batch.update(inventoryDocRef, { quantity: increment(item.quantity) });
+            batch.update(inventoryDocRef, { quantity: increment(itemToProcess.quantity) });
         }
 
         await batch.commit();
-        showToast(`Đã duyệt "${item.code}". Hàng đã được nhập kho.`, 'success');
+        showToast(`Đã duyệt "${itemToProcess.code}". Hàng đã được nhập kho.`, 'success');
 
-        // === BẮT ĐẦU THAY ĐỔI QUAN TRỌNG ===
-        // Sau khi xử lý xong, tự động tìm và hiển thị thông tin tồn kho của mã hàng đó
-        const updatedInventoryQuery = query(collection(db, 'inventory'), where('code', '==', item.code));
+        // Update UI logic remains the same
+        const updatedInventoryQuery = query(collection(db, 'inventory'), where('code', '==', itemToProcess.code));
         const updatedSnapshot = await getDocs(updatedInventoryQuery);
         if (!updatedSnapshot.empty) {
             const updatedItems = updatedSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            showQcScanResult(updatedItems); // Gọi hàm hiển thị thông tin tồn kho
+            showQcScanResult(updatedItems);
         } else {
-            const resultContainer = document.getElementById('scanResultContainer');
-            resultContainer.innerHTML = `<div class="alert alert-info">Đã xử lý xong. Không tìm thấy thông tin tồn kho cho mã này.</div>`;
+            document.getElementById('scanResultContainer').innerHTML = `<div class="alert alert-info">Đã xử lý xong.</div>`;
         }
-        // === KẾT THÚC THAY ĐỔI QUAN TRỌNG ===
 
     } catch (error) {
         console.error("Lỗi khi duyệt QC:", error);
-        showToast('Lỗi nghiêm trọng khi duyệt QC.', 'danger');
+        showToast(error.message || 'Lỗi nghiêm trọng khi duyệt QC.', 'danger');
     }
 }
-
-// File: js/warehouse.js
 
 window.rejectQcItem = async function (transactionId, itemIndex) {
     if (userRole !== 'qc') return;
@@ -10151,7 +10153,7 @@ window.rejectQcItem = async function (transactionId, itemIndex) {
     const confirmed = await showConfirmation(
         'Xác nhận hàng không đạt',
         'Bạn có chắc chắn mã hàng này không đạt chất lượng? Hàng sẽ không được nhập kho.',
-        'Xác nhận không đạt', 'Hủy', 'danger'
+        'Xác nhận không đạt', 'Hủy bỏ', 'danger'
     );
     if (!confirmed) return;
 
@@ -10161,42 +10163,42 @@ window.rejectQcItem = async function (transactionId, itemIndex) {
         if (!transSnap.exists()) throw new Error("Không tìm thấy phiếu nhập.");
 
         const transactionData = transSnap.data();
-        const item = transactionData.items[itemIndex];
+        const items = transactionData.items;
 
-        if (item.qc_status !== 'pending') {
-            showToast('Mã hàng này đã được xử lý.', 'info');
-            return;
+        // THE FIX: Find the item using the index from the database record
+        const itemToProcess = items[itemIndex];
+
+        if (!itemToProcess || itemToProcess.qc_status !== 'pending') {
+            return showToast('Mã hàng này đã được xử lý hoặc không hợp lệ.', 'info');
         }
 
-        // Cập nhật trạng thái trong phiếu nhập
-        transactionData.items[itemIndex].qc_status = 'failed';
-        transactionData.items[itemIndex].qc_by_id = currentUser.uid;
-        transactionData.items[itemIndex].qc_by_name = currentUser.name;
-        await updateDoc(transRef, { items: transactionData.items });
+        // Update the status of the specific item in the array
+        items[itemIndex].qc_status = 'failed';
+        items[itemIndex].qc_by_id = currentUser.uid;
+        items[itemIndex].qc_by_name = currentUser.name;
 
-        showToast(`Đã đánh dấu "${item.code}" là không đạt.`, 'success');
+        // Update the entire items array back to Firestore
+        await updateDoc(transRef, { items: items });
 
-        // === BẮT ĐẦU THAY ĐỔI QUAN TRỌNG ===
-        // Sau khi xử lý xong, tự động tìm và hiển thị thông tin tồn kho của mã hàng đó
-        const inventoryQuery = query(collection(db, 'inventory'), where('code', '==', item.code));
+        showToast(`Đã đánh dấu "${itemToProcess.code}" là không đạt.`, 'success');
+
+        // Update UI logic remains the same
+        const inventoryQuery = query(collection(db, 'inventory'), where('code', '==', itemToProcess.code));
         const snapshot = await getDocs(inventoryQuery);
         if (!snapshot.empty) {
             const inventoryItems = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            showQcScanResult(inventoryItems); // Gọi hàm hiển thị thông tin tồn kho
+            showQcScanResult(inventoryItems);
         } else {
-            const resultContainer = document.getElementById('scanResultContainer');
-            resultContainer.innerHTML = `<div class="alert alert-info">Đã xử lý xong. Mã hàng này hiện chưa có tồn kho.</div>`;
+            document.getElementById('scanResultContainer').innerHTML = `<div class="alert alert-info">Đã xử lý xong. Mã hàng này hiện chưa có tồn kho.</div>`;
         }
-        // === KẾT THÚC THAY ĐỔI QUAN TRỌNG ===
 
     } catch (error) {
         console.error("Lỗi khi từ chối QC:", error);
-        showToast('Lỗi khi từ chối QC.', 'danger');
+        showToast(error.message || 'Lỗi khi từ chối QC.', 'danger');
     }
 }
 
 
-// Thay thế hàm này trong warehouse.js
 window.startReplacementProcess = async function (transactionId) {
     const replacementBtn = document.getElementById('replacementBtn');
     if (replacementBtn) {
@@ -10262,13 +10264,6 @@ window.startReplacementProcess = async function (transactionId) {
     }
 }
 
-// Thêm các hàm này vào cuối file warehouse.js
-
-/**
- * Xử lý sự kiện khi nhấn checkbox "chọn tất cả".
- * @param {HTMLInputElement} source - Checkbox "chọn tất cả".
- * @param {string} checkboxClassName - Lớp CSS của các checkbox con.
- */
 window.toggleSelectAll = function (source, checkboxClassName) {
     const checkboxes = document.getElementsByClassName(checkboxClassName);
     for (let i = 0; i < checkboxes.length; i++) {
@@ -10277,9 +10272,6 @@ window.toggleSelectAll = function (source, checkboxClassName) {
     updateBatchActionUI();
 };
 
-/**
- * Cập nhật giao diện của khu vực hành động hàng loạt (hiện/ẩn và đếm số lượng).
- */
 window.updateBatchActionUI = function () {
     const selectedCheckboxes = document.querySelectorAll('.adjustRequestCheckbox:checked');
     const container = document.querySelector('.batch-action-container');
@@ -10302,10 +10294,6 @@ window.updateBatchActionUI = function () {
     }
 };
 
-/**
- * Xử lý logic duyệt hoặc từ chối hàng loạt các yêu cầu đã chọn.
- * @param {string} action - Hành động cần thực hiện ('approve' hoặc 'reject').
- */
 window.processBatchAdjustRequests = async function (action) {
     const selectedCheckboxes = document.querySelectorAll('.adjustRequestCheckbox:checked');
     if (selectedCheckboxes.length === 0) {
@@ -10332,7 +10320,7 @@ window.processBatchAdjustRequests = async function (action) {
         confirmTitle,
         `Bạn có chắc muốn ${actionText} <strong>${requestIds.length}</strong> yêu cầu đã chọn?`,
         action === 'approve' ? 'Duyệt tất cả' : 'Từ chối tất cả',
-        'Hủy',
+        'Hủy bỏ',
         action === 'approve' ? 'success' : 'danger'
     );
 
@@ -10565,4 +10553,22 @@ async function generateBatchPrintPage(items) {
         </html>
     `);
     printWindow.document.close();
+}
+
+// Thêm hàm mới này vào cuối file warehouse.js
+window.simulateScan = function() {
+    const input = document.getElementById('manualScanInput');
+    const itemCode = input.value.trim();
+
+    if (!itemCode) {
+        showToast('Vui lòng nhập một mã hàng để quét tạm.', 'warning');
+        return;
+    }
+
+    // Gọi đến hàm xử lý quét trung tâm, giả lập như một lần quét thành công
+    processUsbScan(itemCode);
+
+    // Xóa nội dung ô input để chuẩn bị cho lần quét tiếp theo
+    input.value = '';
+    input.focus();
 }

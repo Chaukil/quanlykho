@@ -66,13 +66,15 @@
                         <li class="nav-item admin-only">
                             <a class="nav-link" href="#" data-section="import">
                                 <i class="fas fa-download"></i> Nhập kho
-                                <span class="badge bg-warning ms-auto" id="importRequestBadge" style="display: none;">0</span>
+                                <span class="badge bg-warning ms-auto" id="importRequestBadge"
+                                    style="display: none;">0</span>
                             </a>
                         </li>
                         <li class="nav-item admin-only">
                             <a class="nav-link" href="#" data-section="export">
                                 <i class="fas fa-upload"></i> Xuất kho
-                                <span class="badge bg-warning ms-auto" id="exportRequestBadge" style="display: none;">0</span>
+                                <span class="badge bg-warning ms-auto" id="exportRequestBadge"
+                                    style="display: none;">0</span>
                             </a>
                         </li>
                         <li class="nav-item admin-only">
@@ -84,7 +86,8 @@
                         <li class="nav-item admin-access"> <!-- Sử dụng một class chung -->
                             <a class="nav-link" href="#" data-section="adjust">
                                 <i class="fas fa-cogs"></i> Chỉnh số
-                                <span class="badge bg-warning ms-auto" id="adjustRequestBadge" style="display: none;">0</span>
+                                <span class="badge bg-warning ms-auto" id="adjustRequestBadge"
+                                    style="display: none;">0</span>
                             </a>
                         </li>
                         <li class="nav-item admin-only" id="userManagementNav" style="display: none;">
@@ -527,31 +530,31 @@
                 </div>
 
                 <!-- THAY ĐỔI: Section cho Biểu đồ tổ chức với layout 2 cột -->
-<div id="org-chart-section" class="content-section" style="display: none;">
-    <div class="row">
-        <!-- Cột chính cho biểu đồ -->
-        <div class="col-lg-9">
-            <h4>Biểu đồ Tổ chức</h4>
-            <p class="text-muted">Di chuột để xem chi tiết và sử dụng scroll để phóng to/thu nhỏ.</p>
-            <div id="orgChartContainer">
-                <!-- Google Chart sẽ được vẽ vào đây -->
-            </div>
-        </div>
+                <div id="org-chart-section" class="content-section" style="display: none;">
+                    <div class="row">
+                        <!-- Cột chính cho biểu đồ -->
+                        <div class="col-lg-9">
+                            <h4>Biểu đồ Tổ chức</h4>
+                            <p class="text-muted">Di chuột để xem chi tiết và sử dụng scroll để phóng to/thu nhỏ.</p>
+                            <div id="orgChartContainer">
+                                <!-- Google Chart sẽ được vẽ vào đây -->
+                            </div>
+                        </div>
 
-        <!-- Cột phụ cho người dùng chưa được phân công -->
-        <div class="col-lg-3">
-            <div class="card">
-                <div class="card-header fw-bold">
-                    <i class="fas fa-user-plus me-1"></i>
-                    Chưa phân quản lý
+                        <!-- Cột phụ cho người dùng chưa được phân công -->
+                        <div class="col-lg-3">
+                            <div class="card">
+                                <div class="card-header fw-bold">
+                                    <i class="fas fa-user-plus me-1"></i>
+                                    Chưa phân quản lý
+                                </div>
+                                <div id="unassignedUsersContainer" class="list-group list-group-flush unassigned-list">
+                                    <!-- Danh sách người dùng sẽ được thêm vào đây bằng JS -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
-                <div id="unassignedUsersContainer" class="list-group list-group-flush unassigned-list">
-                    <!-- Danh sách người dùng sẽ được thêm vào đây bằng JS -->
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
 
 
                 <div id="settings-section" class="content-section" style="display: none;">
@@ -818,6 +821,21 @@
                                         <button class="btn btn-danger" id="stopScanBtn" style="display: none;"><i
                                                 class="fas fa-stop"></i> Dừng quét</button>
                                     </div>
+                                    <!-- BẮT ĐẦU: Thêm khối code này vào -->
+                                    <div class="mt-4 border-top pt-3">
+                                        <p class="text-muted text-center small">Công cụ giả lập quét (dành cho máy không
+                                            có camera)</p>
+                                        <div class="input-group">
+                                            <input type="text" id="manualScanInput" class="form-control"
+                                                placeholder="Nhập mã hàng cần quét...">
+                                            <button class="btn btn-outline-primary" type="button" id="manualScanBtn"
+                                                onclick="simulateScan()">
+                                                <i class="fas fa-barcode"></i> Quét tạm
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <!-- KẾT THÚC: Thêm khối code này vào -->
+
                                 </div>
                             </div>
                         </div>

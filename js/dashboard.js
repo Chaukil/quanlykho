@@ -171,7 +171,8 @@ function initializeAuth() {
 
 async function fetchAllUsersForCache(forceRefresh = false) {
     // SỬA ĐỔI: Chỉ bỏ qua nếu cache đã có VÀ không bị ép buộc tải lại
-    if (allUsersCache.length > 0 && !forceRefresh) return;
+     if (userRole !== 'admin' && userRole !== 'super_admin') return;
+     if (allUsersCache.length > 0 && !forceRefresh) return;
 
     try {
         const usersQuery = query(collection(db, 'users'), where('status', '==', 'approved'));
@@ -1530,8 +1531,15 @@ function filterAndDisplayInventory(page = 1) {
         headerHTML += '</tr></thead>';
 
         let bodyHTML = '<tbody>';
-        pageData.forEach(doc => {
-            const rowClass = parseInt(doc.quantity) < 10 ? 'class="table-warning"' : '';
+       pageData.forEach(doc => {
+            // === BẮT ĐẦU THAY ĐỔI LOGIC TÔ MÀU DÒNG ===
+            let rowClass = '';
+            const quantity = parseInt(doc.quantity);
+            if (quantity === 0) {
+                rowClass = 'class="table-danger"'; // Hết hàng
+            } else if (quantity < 10) {
+                rowClass = 'class="table-warning"'; // Tồn kho thấp
+            }
 
             let rowHTML = `<tr ${rowClass}>
                 <td class="text-center">${doc.code}</td>
@@ -2802,6 +2810,7 @@ async function saveUserProfile(userId) {
 }
 
 function initializeRealtimeBadges() {
+     if (userRole !== 'admin' && userRole !== 'super_admin') return;
     // 1. Lắng nghe các yêu cầu CHỈNH SỐ đang chờ duyệt
     const adjustQuery = query(collection(db, 'adjustment_requests'), where('status', '==', 'pending'));
     onSnapshot(adjustQuery, (snapshot) => {
