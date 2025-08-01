@@ -2827,7 +2827,6 @@ function initializeRealtimeBadges() {
 document.addEventListener('visibilitychange', () => {
     // Nếu tab trở nên hiển thị và người dùng đã đăng nhập
     if (document.visibilityState === 'visible' && auth.currentUser) {
-        console.log("Tab is visible again. Refreshing realtime data...");
         // Gọi lại các hàm cập nhật để lấy dữ liệu mới nhất
         updateUserManagementBadge();
         initializeRealtimeBadges(); // Hàm này chứa onSnapshot, nó sẽ tự động kết nối lại

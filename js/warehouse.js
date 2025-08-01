@@ -9021,17 +9021,35 @@ function initializeUsbScannerListener() {
 }
 
 async function processUsbScan(decodedText) {
-    playScannerSound(); // Phát âm thanh
+    playScannerSound();
     showToast(`Đã quét mã: ${decodedText}`, 'info');
-    document.getElementById('usbScannerInput').value = ''; // Xóa ô input
-    document.getElementById('usbScannerInput').focus(); // Focus lại để sẵn sàng cho lần quét tiếp theo
+    document.getElementById('usbScannerInput').value = '';
+    document.getElementById('usbScannerInput').focus();
+
+    const resultContainer = document.getElementById('scanResultContainer');
+    resultContainer.innerHTML = `
+        <div class="text-center mt-4">
+            <div class="spinner-border text-primary" role="status"></div>
+            <p class="text-muted mt-2">Đang tìm kiếm thông tin...</p>
+        </div>`;
 
     try {
+        // === BẮT ĐẦU LOGIC MỚI CHO QC ===
+        if (userRole === 'qc') {
+            // Ưu tiên 1: Tìm xem mã hàng này có đang chờ QC không
+            const pendingItem = await getPendingImportItem(decodedText);
+
+            if (pendingItem) {
+                // Nếu có, hiển thị giao diện duyệt QC
+                showQcPendingItemDetails(pendingItem.transactionId, pendingItem.item, pendingItem.itemIndex);
+                return; // Dừng xử lý tại đây
+            }
+        }
+        // === KẾT THÚC LOGIC MỚI CHO QC ===
+
+        // Nếu không phải QC, hoặc QC quét mã không cần duyệt, thì chạy logic cũ
         const q = query(collection(db, 'inventory'), where('code', '==', decodedText));
         const snapshot = await getDocs(q);
-
-        const resultContainer = document.getElementById('scanResultContainer');
-        resultContainer.innerHTML = ''; // Xóa kết quả cũ
 
         if (snapshot.empty) {
             resultContainer.innerHTML = `<div class="alert alert-danger">Mã hàng <strong>"${decodedText}"</strong> không tồn tại trong kho.</div>`;
@@ -9040,14 +9058,12 @@ async function processUsbScan(decodedText) {
 
         const itemsFromScan = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
-        // === PERMISSION CHECK ===
-        // If the user is QC, only show read-only information.
         if (userRole === 'qc') {
+            // Kịch bản 2 của QC: Mã hàng có tồn kho nhưng không cần duyệt
             showQcScanResult(itemsFromScan);
         } else {
-            // For other roles (Admin, Staff), proceed with the export session logic.
+            // Logic cho các vai trò khác (Admin, Staff)
             const isSessionActive = document.getElementById('scan-export-form');
-
             if (isSessionActive) {
                 addItemToScanExportSession(itemsFromScan);
             } else {
@@ -9057,7 +9073,82 @@ async function processUsbScan(decodedText) {
 
     } catch (error) {
         console.error("Lỗi xử lý mã quét:", error);
+        resultContainer.innerHTML = `<div class="alert alert-danger">Lỗi truy vấn dữ liệu mã hàng.</div>`;
         showToast('Lỗi truy vấn dữ liệu mã hàng.', 'danger');
+    }
+}
+
+function showQcPendingItemDetails({ transactionId, item, itemIndex, transactionData }) {
+    const resultContainer = document.getElementById('scanResultContainer');
+    
+    resultContainer.innerHTML = `
+        <div class="card border-warning">
+            <div class="card-header bg-warning text-dark">
+                <h5 class="mb-0"><i class="fas fa-clipboard-check"></i> Yêu cầu Kiểm tra Chất lượng</h5>
+            </div>
+            <div class="card-body">
+                <div class="alert alert-warning">
+                    <strong>Mã hàng này đang chờ bạn kiểm tra từ phiếu nhập dưới đây.</strong>
+                </div>
+                
+                <h6 class="text-muted">Thông tin Phiếu nhập</h6>
+                <p class="ms-2"><strong>Số phiếu:</strong> ${transactionData.importNumber}<br>
+                <strong>Nhà cung cấp:</strong> ${transactionData.supplier}</p>
+                
+                <hr>
+
+                <h6 class="text-muted">Thông tin Mã hàng cần kiểm tra</h6>
+                <div class="row align-items-center">
+                    <div class="col-md-8">
+                        <p class="ms-2 mb-1"><strong>Mã hàng:</strong> ${item.code}</p>
+                        <p class="ms-2 mb-1"><strong>Tên:</strong> ${item.name}</p>
+                        <p class="ms-2 mb-0"><strong>Số lượng cần kiểm:</strong> <span class="badge bg-primary fs-6">${item.quantity} ${item.unit}</span></p>
+                    </div>
+                    <div class="col-md-4 mt-3 mt-md-0">
+                        <div class="d-grid gap-2">
+                            <button class="btn btn-success" onclick="approveQcItem('${transactionId}', ${itemIndex})">
+                                <i class="fas fa-check-circle"></i> Đạt
+                            </button>
+                            <button class="btn btn-danger" onclick="rejectQcItem('${transactionId}', ${itemIndex})">
+                                <i class="fas fa-times-circle"></i> Không đạt
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+async function getPendingImportItem(itemCode) {
+    try {
+        const q = query(collection(db, 'transactions'), where('type', '==', 'import'));
+        const snapshot = await getDocs(q);
+
+        for (const doc of snapshot.docs) {
+            const transactionData = doc.data();
+            const transactionId = doc.id;
+            
+            if (transactionData.items && Array.isArray(transactionData.items)) {
+                const itemIndex = transactionData.items.findIndex(item => 
+                    item.code === itemCode && item.qc_status === 'pending'
+                );
+
+                if (itemIndex !== -1) {
+                    // Tìm thấy! Trả về thông tin cần thiết.
+                    return {
+                        transactionId: transactionId,
+                        item: transactionData.items[itemIndex],
+                        itemIndex: itemIndex,
+                        transactionData: transactionData // Thêm cả dữ liệu phiếu nhập
+                    };
+                }
+            }
+        }
+        return null; // Không tìm thấy mã hàng nào đang chờ
+    } catch (error) {
+        console.error("Lỗi khi tìm kiếm mã hàng chờ QC:", error);
+        return null;
     }
 }
 
@@ -9873,6 +9964,10 @@ window.approveQcItem = async function (transactionId, itemIndex) {
         await batch.commit();
         showToast(`Đã duyệt "${item.code}" thành công. Hàng đã được nhập kho.`, 'success');
 
+        const scanResultContainer = document.getElementById('scanResultContainer');
+        if (scanResultContainer) {
+            scanResultContainer.innerHTML = '<p class="text-muted text-center mt-4 p-4">Đã xử lý xong. Sẵn sàng quét mã tiếp theo.</p>';
+        }
         // *** FIX: Cập nhật giao diện tại chỗ (in-place) ***
         const rowToUpdate = document.querySelector(`tr[data-index="${itemIndex}"]`);
         if (rowToUpdate) {
@@ -9924,6 +10019,10 @@ window.rejectQcItem = async function (transactionId, itemIndex) {
 
         showToast(`Đã đánh dấu "${item.code}" là không đạt.`, 'success');
 
+        const scanResultContainer = document.getElementById('scanResultContainer');
+        if (scanResultContainer) {
+            scanResultContainer.innerHTML = '<p class="text-muted text-center mt-4 p-4">Đã xử lý xong. Sẵn sàng quét mã tiếp theo.</p>';
+        }
         // *** FIX: Cập nhật giao diện tại chỗ (in-place) ***
         const rowToUpdate = document.querySelector(`tr[data-index="${itemIndex}"]`);
         if (rowToUpdate) {
