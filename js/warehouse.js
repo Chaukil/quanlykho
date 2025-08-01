@@ -41,7 +41,6 @@ let unsubscribeAdjustRequests = null;
 let unsubscribeAdjust = null;
 let unsubscribeAllHistory = null;
 let currentRequestItems = [];
-
 const historyListeners = {
     import: null,
     export: null,
@@ -9178,56 +9177,57 @@ function initializeUsbScannerListener() {
     });
 }
 
-// THAY THẾ TOÀN BỘ HÀM NÀY
+// Thay thế hàm này trong file warehouse.js của bạn
+
 async function processUsbScan(decodedText) {
     playScannerSound();
-    
-    // --- LOGIC MỚI: KIỂM TRA PHIÊN LÀM VIỆC HIỆN TẠI ---
+    showToast(`Đã quét mã: ${decodedText}`, 'info');
+    document.getElementById('usbScannerInput').value = '';
+    document.getElementById('usbScannerInput').focus();
+
+    const resultContainer = document.getElementById('scanResultContainer');
     const isSessionActive = document.getElementById('scan-export-form');
 
-    // Tìm kiếm thông tin mã hàng trước
-    const resultContainer = document.getElementById('scanResultContainer');
+    // Chỉ hiển thị spinner nếu chúng ta CHƯA ở trong một phiên xuất kho
+    if (!isSessionActive) {
+        resultContainer.innerHTML = `
+        <div class="text-center mt-4">
+            <div class="spinner-border text-primary" role="status"></div>
+            <p class="text-muted mt-2">Đang tìm kiếm thông tin...</p>
+        </div>`;
+    }
+
     try {
-        // Ưu tiên 1: Kiểm tra xem người dùng có phải QC và mã hàng có đang chờ duyệt không
+        // === Logic cho QC (giữ nguyên vì là một quy trình khác) ===
         if (userRole === 'qc') {
-            // Hiển thị spinner tạm thời trong khi chờ
-            resultContainer.innerHTML = `<div class="text-center mt-4"><div class="spinner-border text-primary" role="status"></div></div>`;
             const pendingItem = await getPendingImportItem(decodedText);
             if (pendingItem) {
                 showQcPendingItemDetails(pendingItem);
-                return; // Dừng lại sau khi hiển thị giao diện QC
+                return;
             }
         }
 
-        // Nếu không phải trường hợp QC đặc biệt, tiếp tục tìm thông tin tồn kho
-        const q = query(collection(db, 'inventory'), where('code', '==', decodedText), where('status', '!=', 'archived'));
+        // === Tra cứu tồn kho chính ===
+        const q = query(collection(db, 'inventory'), where('code', '==', decodedText));
         const snapshot = await getDocs(q);
 
         if (snapshot.empty) {
-            // THAY ĐỔI: Chỉ hiện thông báo, không làm mới giao diện nếu đang trong phiên
+            // SỬA LỖI: Nếu không tìm thấy, chỉ hiện toast và KHÔNG xóa giao diện
             showToast(`Mã hàng "${decodedText}" không tồn tại trong kho.`, 'danger');
+            // Nếu không trong phiên, xóa spinner
             if (!isSessionActive) {
-                 resultContainer.innerHTML = `<div class="alert alert-danger">Mã hàng <strong>"${decodedText}"</strong> không tồn tại trong kho.</div>`;
+                 resultContainer.innerHTML = '<p class="text-muted">Chưa có kết quả. Vui lòng hướng camera vào mã vạch.</p>';
             }
             return;
         }
 
         const itemsFromScan = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        const totalStock = itemsFromScan.reduce((sum, item) => sum + item.quantity, 0);
 
-        if (totalStock <= 0) {
-            // THAY ĐỔI: Chỉ hiện thông báo, không làm mới giao diện nếu đang trong phiên
-             showToast(`Mã hàng "${decodedText}" đã hết hàng.`, 'warning');
-            if (!isSessionActive) {
-                resultContainer.innerHTML = `<div class="alert alert-warning">Mã hàng <strong>"${decodedText}"</strong> đã hết hàng.</div>`;
-            }
-            return;
-        }
-
-        // Phân luồng logic dựa trên vai trò và phiên làm việc
+        // === Điều hướng đến hàm xử lý đúng dựa trên vai trò ===
         if (userRole === 'qc') {
-            showQcScanResult(itemsFromScan); // QC quét mã đã có, chỉ xem thông tin
+            showQcScanResult(itemsFromScan);
         } else { // Dành cho Admin, Super Admin, Staff
+            // SỬA LỖI: Logic bây giờ kiểm tra chính xác nếu phiên đang hoạt động TRƯỚC KHI sửa đổi giao diện
             if (isSessionActive) {
                 addItemToScanExportSession(itemsFromScan);
             } else {
@@ -9237,8 +9237,10 @@ async function processUsbScan(decodedText) {
 
     } catch (error) {
         console.error("Lỗi xử lý mã quét:", error);
-        resultContainer.innerHTML = `<div class="alert alert-danger">Lỗi truy vấn dữ liệu mã hàng.</div>`;
         showToast('Lỗi truy vấn dữ liệu mã hàng.', 'danger');
+        if (!isSessionActive) { // Chỉ xóa giao diện nếu không trong phiên
+            resultContainer.innerHTML = `<div class="alert alert-danger">Lỗi truy vấn dữ liệu mã hàng.</div>`;
+        }
     }
 }
 
@@ -9418,6 +9420,7 @@ function startNewScanExportSession(items) {
     showToast(`Đã bắt đầu phiên xuất kho cho: ${itemToAdd.code}`, 'success');
 }
 
+// Thay thế hoàn toàn hàm renderScanExportForm() cũ bằng hàm này
 function renderScanExportForm() {
     const scanResultContainer = document.getElementById('scanResultContainer');
 
@@ -9492,7 +9495,6 @@ function updateScanItemCount() {
         badge.textContent = `${exportItemsList.length} mã hàng`;
     }
 }
-
 window.cancelScanExportSession = function () {
     exportItemsList = [];
     const scanResultContainer = document.getElementById('scanResultContainer');
@@ -9529,29 +9531,28 @@ function addItemToScanExportSession(items) {
             availableQuantity: itemToAdd.quantity,
             requestedQuantity: 1
         });
-        showToast(`Đã thêm: ${itemToAdd.code}`, 'success');
     }
 
     // Cập nhật lại bảng danh sách mã hàng
     renderScanExportTableBody();
 }
 
+// Thay thế hàm renderScanExportTableBody() cũ
 function renderScanExportTableBody() {
     const tbody = document.getElementById('scan-export-table-body');
     if (!tbody) return;
 
     if (exportItemsList.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted p-3">Chưa có mã hàng nào.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="3" class="text-center text-muted p-3">Chưa có mã hàng nào.</td></tr>';
     } else {
         const tableHtml = exportItemsList.map((item, index) => `
             <tr>
                 <td>
                     <strong>${item.code}</strong><br>
-                    <small class="text-muted">${item.name}</small>
+                    <small class="text-muted">${item.name} </small>
                 </td>
                 <td>
-                    <span class="badge bg-secondary">${item.location}</span>
-                    <small class="d-block text-muted">(Tồn: ${item.availableQuantity})</small>
+                    <p>${item.location} <strong>(${item.availableQuantity}) </strong></p> 
                 </td>
                 <td>
                     <input type="number" class="form-control-compact text-center" 
@@ -9623,19 +9624,26 @@ window.updateExportItemQuantity = (index, newQty) => {
     const qty = parseInt(newQty);
     const item = exportItemsList[index];
 
+    // Chỉ cập nhật nếu số lượng hợp lệ
     if (qty > 0 && qty <= item.availableQuantity) {
         item.requestedQuantity = qty;
     } else {
+        // Nếu không hợp lệ, chỉ cần vẽ lại bảng, ô input sẽ tự động
+        // được reset về giá trị cũ trong mảng (item.requestedQuantity)
         showToast('Số lượng không hợp lệ!', 'warning');
     }
+
+    // Luôn vẽ lại bảng để cập nhật giao diện
     renderScanExportTableBody();
 };
 
 window.removeExportItemFromList = (index) => {
     exportItemsList.splice(index, 1);
+    // Vẽ lại bảng và cập nhật bộ đếm
     renderScanExportTableBody();
 };
 
+// Thay thế toàn bộ hàm cũ bằng phiên bản mới này
 window.finalizeExport = async function () {
     if (exportItemsList.length === 0) {
         showToast('Danh sách xuất kho đang trống.', 'warning');
@@ -9659,13 +9667,14 @@ window.finalizeExport = async function () {
         actionText, 'Hủy', confirmType
     );
     if (!confirmed) return;
-    
+
+    // === SỬA LỖI Ở ĐÂY: Thêm các giá trị dự phòng để tránh lỗi 'undefined' ===
     const itemsToSave = exportItemsList.map(item => ({
         inventoryId: item.inventoryId || '',
         code: item.code || '',
         name: item.name || '',
-        unit: item.unit || '',
-        location: item.location || '',
+        unit: item.unit || '', // Quan trọng: Nếu item.unit là undefined, nó sẽ là ''
+        location: item.location || '', // Quan trọng: Nếu item.location là undefined, nó sẽ là ''
         quantity: item.requestedQuantity || 0,
         availableQuantityBefore: item.availableQuantity || 0
     }));
@@ -9679,13 +9688,13 @@ window.finalizeExport = async function () {
                 status: 'pending',
                 exportNumber: exportNumber,
                 recipient: recipient,
-                items: itemsToSave
+                items: itemsToSave // Gửi đi dữ liệu đã được làm sạch
             });
             showToast('Đã gửi yêu cầu xuất kho thành công!', 'success');
             cancelScanExportSession();
         } catch (error) {
             console.error("Lỗi khi tạo yêu cầu xuất kho:", error);
-            showToast('Đã xảy ra lỗi khi gửi yêu cầu.', 'danger');
+            showToast('Đã xảy ra lỗi khi gửi yêu cầu. Vui lòng kiểm tra lại thông tin.', 'danger');
         }
     } else { // Dành cho Admin và Super Admin
         const batch = writeBatch(db);
@@ -9716,6 +9725,7 @@ window.finalizeExport = async function () {
         }
     }
 };
+
 
 window.viewItemHistoryFromScan = async function (itemCode) {
     try {
@@ -10164,40 +10174,46 @@ window.rejectQcItem = async function (transactionId, itemIndex) {
 
         const transactionData = transSnap.data();
         const items = transactionData.items;
-
-        // THE FIX: Find the item using the index from the database record
         const itemToProcess = items[itemIndex];
 
         if (!itemToProcess || itemToProcess.qc_status !== 'pending') {
             return showToast('Mã hàng này đã được xử lý hoặc không hợp lệ.', 'info');
         }
 
-        // Update the status of the specific item in the array
         items[itemIndex].qc_status = 'failed';
         items[itemIndex].qc_by_id = currentUser.uid;
         items[itemIndex].qc_by_name = currentUser.name;
 
-        // Update the entire items array back to Firestore
         await updateDoc(transRef, { items: items });
 
         showToast(`Đã đánh dấu "${itemToProcess.code}" là không đạt.`, 'success');
 
-        // Update UI logic remains the same
-        const inventoryQuery = query(collection(db, 'inventory'), where('code', '==', itemToProcess.code));
-        const snapshot = await getDocs(inventoryQuery);
-        if (!snapshot.empty) {
-            const inventoryItems = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            showQcScanResult(inventoryItems);
-        } else {
-            document.getElementById('scanResultContainer').innerHTML = `<div class="alert alert-info">Đã xử lý xong. Mã hàng này hiện chưa có tồn kho.</div>`;
-        }
+        // SỬA ĐỔI: Cập nhật giao diện của modal ngay lập tức
+        // Thay đổi dòng hiện tại
+        const modal = document.getElementById('importDetailsModal');
+        if (modal) {
+            const row = modal.querySelector(`tr[data-index="${itemIndex}"]`);
+            if(row) {
+                const statusCell = row.querySelector('.qc-status');
+                const locationCell = row.querySelector('.qc-location');
+                const actionsCell = row.querySelector('.qc-actions');
+                
+                if(statusCell) statusCell.innerHTML = `<div><span class="badge bg-danger"><i class="fas fa-times-circle"></i> Không đạt</span><small class="text-muted d-block">bởi: ${currentUser.name}</small></div>`;
+                if(locationCell) locationCell.innerHTML = `<span class="badge bg-danger">Chưa nhập</span>`;
+                if(actionsCell) actionsCell.innerHTML = `<small class="text-muted">Đã đánh dấu</small>`;
+            }
 
+            // Hiển thị nút "Giao bù" nếu nó đang ẩn
+            const replacementBtn = modal.querySelector('#replacementBtn');
+            if (replacementBtn) {
+                replacementBtn.style.display = 'inline-block';
+            }
+        }
     } catch (error) {
         console.error("Lỗi khi từ chối QC:", error);
         showToast(error.message || 'Lỗi khi từ chối QC.', 'danger');
     }
 }
-
 
 window.startReplacementProcess = async function (transactionId) {
     const replacementBtn = document.getElementById('replacementBtn');
@@ -10215,39 +10231,45 @@ window.startReplacementProcess = async function (transactionId) {
         if (!transSnap.exists()) throw new Error("Không tìm thấy phiếu nhập gốc.");
 
         const originalData = transSnap.data();
+        
+        // Chỉ lấy những mã hàng thực sự bị lỗi để tạo phiếu mới
         const failedItems = originalData.items.filter(item => item.qc_status === 'failed');
 
         if (failedItems.length === 0) {
             if (replacementBtn) {
                 replacementBtn.disabled = false;
-                replacementBtn.innerHTML = '<i class="fas fa-sync-alt"></i> Nhà cung cấp đã giao bù hàng';
+                replacementBtn.innerHTML = '<i class="fas fa-sync-alt"></i> NCC đã giao bù hàng';
             }
             return showToast('Không có mã hàng nào cần xử lý trong phiếu này.', 'info');
         }
 
-        const updatedItems = originalData.items.map(item => {
-            if (item.qc_status === 'failed') {
-                return { ...item, qc_status: 'replaced' };
-            }
-            return item;
-        });
-
-        // Cập nhật tài liệu gốc trên Firestore
-        await updateDoc(transRef, { items: updatedItems });
-
-        // Đóng modal hiện tại
-        const currentModal = document.querySelector('.modal');
+        // Đóng modal chi tiết hiện tại
+        const currentModal = document.querySelector('#importDetailsModal');
         if (currentModal) {
             bootstrap.Modal.getInstance(currentModal).hide();
         }
 
-        // Mở modal nhập kho mới cho hàng bù
+        // Mở một modal nhập kho mới
         showImportModal();
 
+        // Đợi một chút để modal mới được render ra DOM
         setTimeout(() => {
+            // Tự động điền thông tin cho phiếu nhập bù
             document.getElementById('importNumber').value = `${originalData.importNumber}-BU`;
             document.getElementById('supplier').value = originalData.supplier;
-            currentImportItems = failedItems.map(item => ({ ...item, qc_status: 'pending' }));
+            
+            // Chuyển danh sách hàng lỗi vào phiếu mới và reset trạng thái QC
+            currentImportItems = failedItems.map(item => ({
+                code: item.code,
+                name: item.name,
+                quantity: item.quantity,
+                unit: item.unit,
+                category: item.category,
+                location: item.location,
+                qc_status: 'pending' // Reset để có thể QC lại
+            }));
+
+            // Cập nhật giao diện của modal mới
             updateImportItemsTable();
             updateSaveButtonState();
             showToast('Đang tạo phiếu nhập cho hàng giao bù.', 'info');
@@ -10256,10 +10278,11 @@ window.startReplacementProcess = async function (transactionId) {
     } catch (error) {
         console.error("Lỗi khi bắt đầu quy trình hàng bù:", error);
         showToast('Lỗi khi xử lý hàng bù.', 'danger');
-
+    } finally {
+        // Đảm bảo nút được reset lại trạng thái dù thành công hay thất bại
         if (replacementBtn) {
             replacementBtn.disabled = false;
-            replacementBtn.innerHTML = '<i class="fas fa-sync-alt"></i> Nhà cung cấp đã giao bù hàng';
+            replacementBtn.innerHTML = '<i class="fas fa-sync-alt"></i> NCC đã giao bù hàng';
         }
     }
 }
@@ -10555,20 +10578,20 @@ async function generateBatchPrintPage(items) {
     printWindow.document.close();
 }
 
-// Thêm hàm mới này vào cuối file warehouse.js
-window.simulateScan = function() {
-    const input = document.getElementById('manualScanInput');
-    const itemCode = input.value.trim();
+// // Thêm hàm mới này vào cuối file warehouse.js
+// window.simulateScan = function() {
+//     const input = document.getElementById('manualScanInput');
+//     const itemCode = input.value.trim();
 
-    if (!itemCode) {
-        showToast('Vui lòng nhập một mã hàng để quét tạm.', 'warning');
-        return;
-    }
+//     if (!itemCode) {
+//         showToast('Vui lòng nhập một mã hàng để quét tạm.', 'warning');
+//         return;
+//     }
 
-    // Gọi đến hàm xử lý quét trung tâm, giả lập như một lần quét thành công
-    processUsbScan(itemCode);
+//     // Gọi đến hàm xử lý quét trung tâm, giả lập như một lần quét thành công
+//     processUsbScan(itemCode);
 
-    // Xóa nội dung ô input để chuẩn bị cho lần quét tiếp theo
-    input.value = '';
-    input.focus();
-}
+//     // Xóa nội dung ô input để chuẩn bị cho lần quét tiếp theo
+//     input.value = '';
+//     input.focus();
+// }

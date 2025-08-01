@@ -575,7 +575,7 @@ async function loadTodayStatistics() {
         const importsQuery = query(
             collection(db, 'transactions'),
             where('type', '==', 'import'),
-            where('date', '>=', startOfDay)
+             where('timestamp', '>=', startOfDay) 
         );
         const importsSnapshot = await getDocs(importsQuery);
         document.getElementById('todayImports').textContent = importsSnapshot.size;
@@ -584,7 +584,7 @@ async function loadTodayStatistics() {
         const exportsQuery = query(
             collection(db, 'transactions'),
             where('type', '==', 'export'),
-            where('date', '>=', startOfDay)
+            where('timestamp', '>=', startOfDay)
         );
         const exportsSnapshot = await getDocs(exportsQuery);
         document.getElementById('todayExports').textContent = exportsSnapshot.size;
@@ -1870,10 +1870,13 @@ async function renderTopAdjustedProductsChart() {
     }
 }
 
-async function renderInventoryStatusChart(inventoryData) { // <-- THAY ĐỔI Ở ĐÂY
+async function renderInventoryStatusChart(inventoryData) {
     try {
         let lowStock = 0, normalStock = 0, outOfStock = 0;
         inventoryData.forEach(item => {
+            if (item.status === 'archived') {
+                return; // Bỏ qua mã hàng này và tiếp tục với mã hàng tiếp theo
+            }
             const qty = item.quantity || 0;
             if (qty === 0) outOfStock++;
             else if (qty < 10) lowStock++;
