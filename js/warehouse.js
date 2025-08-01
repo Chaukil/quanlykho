@@ -9034,7 +9034,7 @@ async function processUsbScan(decodedText) {
 
             if (pendingItem) {
                 // Nếu có, hiển thị giao diện duyệt QC
-                showQcPendingItemDetails(pendingItem.transactionId, pendingItem.item, pendingItem.itemIndex);
+                showQcPendingItemDetails(pendingItem); // Truyền trực tiếp toàn bộ đối tượng
                 return; // Dừng xử lý tại đây
             }
         }
@@ -9324,7 +9324,6 @@ window.cancelScanExportSession = function () {
     exportItemsList = [];
     const scanResultContainer = document.getElementById('scanResultContainer');
     scanResultContainer.innerHTML = '<p class="text-muted">Chưa có kết quả. Vui lòng hướng camera vào mã vạch.</p>';
-    showToast('Phiên xuất kho đã được hủy.', 'info');
 }
 
 function addItemToScanExportSession(items) {
