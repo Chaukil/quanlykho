@@ -556,10 +556,9 @@
                     </div>
                 </div>
 
-
                 <div id="settings-section" class="content-section" style="display: none;">
                     <div class="accordion" id="settingsAccordion">
-                        <div class="accordion-item">
+                        <div class="accordion-item admin-only-setting">
                             <h2 class="accordion-header" id="headingGeneral">
                                 <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
                                     data-bs-target="#collapseGeneral" aria-expanded="false"
@@ -571,8 +570,26 @@
                                 aria-labelledby="headingGeneral" data-bs-parent="#settingsAccordion">
                                 <div class="accordion-body">
                                     <h6 class="card-title">Thông tin Công ty</h6>
-                                    <p class="text-muted small">Thông tin này sẽ được hiển thị trên các phiếu in PDF.
-                                    </p>
+                                    <div class="row">
+                                        <label for="companyLogoInput" class="form-label">Logo công ty</label>
+                                        <div class="col-md-2">
+                                            <img id="companyLogoPreview"
+                                                src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='150' height='80' viewBox='0 0 150 80'%3E%3Crect width='150' height='80' fill='%23e9ecef'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' font-family='sans-serif' font-size='14px' fill='%236c757d'%3EChưa có logo%3C/text%3E%3C/svg%3E"
+                                                alt="Logo Preview" class="img-thumbnail mb-2"
+                                                style="max-height: 100px;">
+                                        </div>
+                                        <div class="col-md-10">
+                                            <div class="input-group">
+                                                <input type="file" class="form-control" id="companyLogoInput"
+                                                    accept="image/png, image/jpeg">
+                                                <div id="uploadSpinner" class="input-group-text" style="display: none;">
+                                                    <span class="spinner-border spinner-border-sm" role="status"
+                                                        aria-hidden="true"></span>
+                                                </div>
+                                            </div>
+                                            <small class="form-text text-muted">Bỏ trống nếu không muốn thay đổi logo hiện tại.</small>
+                                        </div>
+                                    </div>
                                     <div class="mb-3">
                                         <label for="companyName" class="form-label">Tên công ty</label>
                                         <input type="text" class="form-control" id="companyName"
@@ -843,12 +860,12 @@
                                 <div class="card-body d-flex flex-column">
 
                                     <input type="text" id="usbScannerInput" class="form-control usb-scanner-input"
-                                        placeholder="Sử dụng máy quét của bạn...">                                   
+                                        placeholder="Sử dụng máy quét của bạn...">
                                 </div>
                             </div>
                         </div>
                         <div class="col-lg-8">
-                            <div class="card h-100">                        
+                            <div class="card h-100">
                                 <div class="card-body d-flex flex-column">
                                     <h6 class="mt-2">Kết quả quét:</h6>
                                     <div id="scanResultContainer" class="flex-grow-1">

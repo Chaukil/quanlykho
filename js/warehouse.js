@@ -1178,6 +1178,15 @@ async function generatePdfForTransaction(data, type) {
         // Nếu không tải được, jsPDF sẽ dùng font mặc định
     }
 
+    if (companyInfo.logoBase64) {
+        try {
+            // Thêm trực tiếp chuỗi base64 vào PDF
+            doc.addImage(companyInfo.logoBase64, 'PNG', 150, 8, 40, 20); 
+        } catch (e) {
+            console.error("Lỗi khi thêm logo Base64 vào PDF:", e);
+        }
+    }
+
     doc.setFontSize(10);
     doc.text(companyInfo.name.toUpperCase() || 'TÊN CÔNG TY', 14, 15);
     doc.setFontSize(9);
@@ -8658,7 +8667,7 @@ export function loadPrintBarcodeSection() {
     // Gán tất cả các sự kiện chỉ một lần duy nhất
     document.getElementById('barcodeItemSearch').addEventListener('input', debounce(searchItemsForBarcode, 300));
     document.getElementById('paperSizeSelector').addEventListener('change', updateBarcodeCanvasSize);
-    document.getElementById('printBarcodeBtn').addEventListener('click', () => window.print());
+     document.getElementById('printBarcodeBtn').addEventListener('click', printSelectedBarcode);
     document.getElementById('saveTemplateBtn').addEventListener('click', saveCurrentTemplate);
     document.getElementById('templateLoader').addEventListener('change', applySelectedTemplate);
     document.getElementById('deleteTemplateBtn').addEventListener('click', deleteSelectedTemplate);
@@ -8679,6 +8688,102 @@ export function loadPrintBarcodeSection() {
     // Các tác vụ này vẫn cần chạy mỗi khi vào mục
     loadBarcodeTemplates();
     updateBarcodeCanvasSize();
+}
+
+function printSelectedBarcode() {
+    const canvas = document.getElementById('barcode-canvas');
+    if (!canvas) {
+        showToast("Lỗi: Không tìm thấy vùng chứa tem.", "danger");
+        return;
+    }
+
+    // 1. Lấy nội dung HTML của tem
+    const labelHtml = canvas.innerHTML;
+    
+    // 2. Lấy kích thước đã chọn (từ inch sang pixel)
+    const selector = document.getElementById('paperSizeSelector');
+    const paperSize = selector.value;
+    let widthPx, heightPx;
+
+    if (paperSize === 'custom') {
+        widthPx = (parseFloat(document.getElementById('customWidthInput').value) || 4) * INCH_TO_PX;
+        heightPx = (parseFloat(document.getElementById('customHeightInput').value) || 3) * INCH_TO_PX;
+    } else {
+        const [widthInches, heightInches] = paperSize.split('x').map(Number);
+        widthPx = widthInches * INCH_TO_PX;
+        heightPx = heightInches * INCH_TO_PX;
+    }
+
+    // 3. Mở một cửa sổ mới
+    const printWindow = window.open('', '_blank', `width=${widthPx},height=${heightPx}`);
+    
+    if (!printWindow) {
+        showToast("Lỗi: Không thể mở cửa sổ in. Vui lòng cho phép pop-up.", "danger");
+        return;
+    }
+    
+    // 4. Viết nội dung và CSS vào cửa sổ mới
+    printWindow.document.write(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>In Tem</title>
+            <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"><\/script>
+            <style>
+                /* CSS để đảm bảo in vừa khít */
+                @page { 
+                    size: ${widthPx}px ${heightPx}px; /* Đặt kích thước trang in */
+                    margin: 0; 
+                }
+                body { 
+                    margin: 0; 
+                    width: ${widthPx}px;
+                    height: ${heightPx}px;
+                }
+                .print-area {
+                    position: relative;
+                    width: 100%;
+                    height: 100%;
+                    overflow: hidden;
+                }
+                .barcode-element {
+                    position: absolute;
+                    font-size: 10px;
+                    white-space: nowrap;
+                }
+                #barcode-svg {
+                    vertical-align: top;
+                }
+            </style>
+        </head>
+        <body>
+            <div class="print-area">
+                ${labelHtml}
+            </div>
+            <script>
+                // Vẽ lại barcode trong cửa sổ mới
+                document.addEventListener('DOMContentLoaded', function() {
+                    const svg = document.getElementById('barcode-svg');
+                    if (svg) {
+                        JsBarcode(svg, svg.firstElementChild.textContent, {
+                            width: 1.5,
+                            height: 35,
+                            displayValue: true
+                        });
+                    }
+                    
+                    // Chờ một chút để barcode vẽ xong rồi mới gọi lệnh in
+                    setTimeout(() => {
+                        window.print();
+                        window.close();
+                    }, 250);
+                });
+            <\/script>
+        </body>
+        </html>
+    `);
+
+    printWindow.document.close();
 }
 
 async function deleteSelectedTemplate() {
@@ -9021,30 +9126,38 @@ function renderBarcodeLabel() {
     // 2. Nếu không có template nào được chọn, sử dụng layout mặc định
     if (!layoutToUse) {
         layoutToUse = {
-            itemInfo: { text: '{code} - {name}', top: 5, left: 5, type: 'text' },
-            stockInfo: { text: 'SL: {quantity} - Vị trí: {location}', top: 30, left: 5, type: 'text' },
-            barcode: { type: 'barcode', top: 55, left: 5, width: 2, height: 40 }
+            // Logo nằm bên trái
+            logo: { top: 15, left: 10, type: 'image' },
+            // Các thông tin khác nằm bên phải logo
+            itemInfo: { text: '{code} - {name}', top: 15, left: 75, type: 'text' },
+            stockInfo: { text: 'SL: {quantity} - Vị trí: {location}', top: 35, left: 75, type: 'text' },
+            barcode: { type: 'barcode', top: 60, left: 10, width: 2.5, height: 35 }
         };
     }
 
-    // --- LOGIC VẼ TEM DỰA TRÊN LAYOUT ĐÃ CHỌN ---
     for (const key in layoutToUse) {
         const elementData = layoutToUse[key];
         const div = document.createElement('div');
         div.className = 'barcode-element';
-        div.dataset.key = key; // Rất quan trọng để lưu lại layout
+        div.dataset.key = key;
 
+        // Logic vẽ cho từng loại phần tử
         if (elementData.type === 'barcode') {
             const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
             svg.id = 'barcode-svg';
             div.appendChild(svg);
-            JsBarcode(svg, currentBarcodeItem.code, { // Luôn dùng mã của mã hàng hiện tại
+            JsBarcode(svg, currentBarcodeItem.code, {
                 width: elementData.width,
                 height: elementData.height,
                 displayValue: true
             });
-        } else { // Mặc định là 'text'
-            // Thay thế các placeholder bằng thông tin mã hàng thực tế
+        } else if (key === 'logo' && companyInfo.logoBase64) {
+             const img = document.createElement('img');
+             img.src = companyInfo.logoBase64;
+             img.style.width = '50px'; // Kích thước mặc định của logo
+             img.style.height = 'auto';
+             div.appendChild(img);
+        } else if (elementData.type === 'text') {
             let text = elementData.text || '';
             text = text.replace(/{code}/g, currentBarcodeItem.code);
             text = text.replace(/{name}/g, currentBarcodeItem.name);
@@ -10451,10 +10564,6 @@ function handleQuickPrintExcel(event) {
     reader.readAsBinaryString(file);
 }
 
-/**
- * Lấy dữ liệu mã hàng và tạo ra một trang HTML để in hàng loạt.
- * @param {Array<Object>} items - Mảng các đối tượng {code, location}.
- */
 async function generateBatchPrintPage(items) {
     // 1. Lấy dữ liệu đầy đủ của tất cả mã hàng từ Firestore
     const dataPromises = items.map(item => {
@@ -10511,7 +10620,12 @@ async function generateBatchPrintPage(items) {
     let labelsHtml = '';
     for (const productData of productDataList) {
         let singleLabelContent = '';
+        if (companyInfo.logoBase64 && layoutToUse.logo) {
+            const pos = layoutToUse.logo;
+            singleLabelContent += `<img src="${companyInfo.logoBase64}" style="position: absolute; top: ${pos.top}px; left: ${pos.left}px; width: 50px; height: auto;">`;
+        }
         for (const key in layoutToUse) {
+            if (key === 'logo') continue;
             const elementData = layoutToUse[key];
             let content = '';
             if (elementData.type === 'barcode') {

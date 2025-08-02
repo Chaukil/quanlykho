@@ -14,7 +14,7 @@ import {
 } from './warehouse.js';
 
 import { auth, db } from './connect.js';
-export let companyInfo = { name: '', address: '' };
+export let companyInfo = { name: '', address: '', logoBase64: '' };
 export { currentUser, userRole };
 import {
     onAuthStateChanged, signOut, EmailAuthProvider,
@@ -337,8 +337,8 @@ function renderUnassignedUsersList(users) {
         return;
     }
 
-    container.innerHTML = users.map(user => `
-        <div class="list-group-item unassigned-user-item">
+     container.innerHTML = users.map(user => `
+        <div class="list-group-item list-group-item-action unassigned-user-item" onclick="showEditUserModal('${user.uid}')" style="cursor: pointer;">
             <div class="unassigned-user-name">${user.name}</div>
             <div class="unassigned-user-position">${user.position || 'Chưa có chức vụ'}</div>
             <div class="unassigned-user-email">${user.email}</div>
@@ -354,12 +354,24 @@ async function loadCompanyInfo() {
         if (docSnap.exists()) {
             companyInfo = docSnap.data();
         } else {
-            companyInfo = { name: 'TÊN CÔNG TY', address: 'ĐỊA CHỈ CÔNG TY' };
+            // Khởi tạo với tất cả các thuộc tính có thể có
+            companyInfo = { name: 'TÊN CÔNG TY', address: 'ĐỊA CHỈ CÔNG TY', logoBase64: '', logoUrl: '' };
         }
+        
         const companyNameInput = document.getElementById('companyName');
         const companyAddressInput = document.getElementById('companyAddress');
         if (companyNameInput) companyNameInput.value = companyInfo.name;
         if (companyAddressInput) companyAddressInput.value = companyInfo.address;
+
+        const logoPreview = document.getElementById('companyLogoPreview');
+        if (logoPreview) {
+            // THAY ĐỔI QUAN TRỌNG: Tạo ảnh placeholder bằng code SVG, không gọi ra bên ngoài
+            const placeholderSvg = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='150' height='80' viewBox='0 0 150 80'%3E%3Crect width='150' height='80' fill='%23e9ecef'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' font-family='sans-serif' font-size='14px' fill='%236c757d'%3EChưa có logo%3C/text%3E%3C/svg%3E";
+            
+            // Gán ảnh từ logo đã lưu (dù là base64 hay url) hoặc từ placeholder SVG
+            // Ưu tiên Base64 > URL > Placeholder
+            logoPreview.src = companyInfo.logoBase64 || companyInfo.logoUrl || placeholderSvg;
+        }
 
     } catch (error) {
         console.error("Lỗi tải thông tin công ty:", error);
@@ -370,16 +382,50 @@ async function loadCompanyInfo() {
 async function saveCompanyInfo() {
     const name = document.getElementById('companyName').value.trim();
     const address = document.getElementById('companyAddress').value.trim();
+    const logoFile = document.getElementById('companyLogoInput').files[0];
+    const spinner = document.getElementById('uploadSpinner');
+
     if (!name || !address) {
         showToast("Vui lòng nhập đầy đủ Tên và Địa chỉ công ty.", "warning");
         return;
     }
+
     try {
+        let logoBase64 = companyInfo.logoBase64 || ''; 
+
+        if (logoFile) {
+            if (logoFile.size > 1024 * 500) {
+                showToast("Lỗi: Kích thước logo quá lớn. Vui lòng chọn file dưới 500KB.", "danger");
+                return;
+            }
+            if (spinner) spinner.style.display = 'block';
+
+            const toBase64 = file => new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.readAsDataURL(file);
+                reader.onload = () => resolve(reader.result);
+                reader.onerror = error => reject(error);
+            });
+
+            logoBase64 = await toBase64(logoFile);
+
+            if (spinner) spinner.style.display = 'none';
+        }
+        
+        const dataToSave = { name, address, logoBase64 };
+        
         const docRef = doc(db, 'settings', 'companyInfo');
-        await setDoc(docRef, { name, address }, { merge: true });
-        companyInfo = { name, address };
+        await setDoc(docRef, dataToSave, { merge: true });
+        
+        companyInfo = dataToSave;
+        
+        const placeholderSvg = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='150' height='80' viewBox='0 0 150 80'%3E%3Crect width='150' height='80' fill='%23e9ecef'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' font-family='sans-serif' font-size='14px' fill='%236c757d'%3EChưa có logo%3C/text%3E%3C/svg%3E";
+        document.getElementById('companyLogoPreview').src = logoBase64 || placeholderSvg;
+        
         showToast("Đã lưu thông tin công ty thành công!", "success");
+
     } catch (error) {
+        if (spinner) spinner.style.display = 'none';
         console.error("Lỗi lưu thông tin công ty:", error);
         showToast("Lỗi khi lưu thông tin công ty.", "danger");
     }
@@ -387,11 +433,19 @@ async function saveCompanyInfo() {
 
 function setupUserInterface() {
     document.getElementById('userGreeting').textContent = `Hi, ${currentUser.name}`;
-    document.querySelectorAll('.admin-only, .super-admin-only, .admin-only-feature, .admin-access').forEach(element => {
+    
+    // Add our new class to the list of elements to hide by default
+    document.querySelectorAll('.admin-only, .super-admin-only, .admin-only-feature, .admin-access, .admin-only-setting').forEach(element => {
         element.style.display = 'none';
     });
 
+    const orgChartNav = document.querySelector('a[data-section="org-chart"]')?.parentElement;
+    if (orgChartNav) {
+        orgChartNav.style.display = 'none';
+    }
+
     if (userRole === 'staff') {
+        // Staff logic remains the same
     } else if (userRole === 'qc') {
         const qcPermissions = ['dashboard', 'history', 'scan-barcode', 'settings', 'import'];
         document.querySelectorAll('.nav-link[data-section]').forEach(link => {
@@ -401,25 +455,31 @@ function setupUserInterface() {
                 link.parentElement.style.display = 'none';
             }
         });
-        // Hiển thị cả mục menu cha của barcode
         document.querySelector('#barcodeSubmenu').parentElement.style.display = 'block';
         const buttonsToHideForQc = ['addImportBtn', 'importExcel', 'downloadTemplate'];
         buttonsToHideForQc.forEach(id => {
             const button = document.getElementById(id);
             if (button) {
-                // Thay vì ẩn hoàn toàn, chúng ta có thể làm cho nó biến mất khỏi layout
                 button.style.display = 'none';
             }
         });
 
     } else if (userRole === 'admin') {
-        document.querySelectorAll('.admin-only, .admin-access, .admin-only-feature').forEach(element => {
+        // Also show the new setting class for admins
+        document.querySelectorAll('.admin-only, .admin-access, .admin-only-feature, .admin-only-setting').forEach(element => {
             element.style.display = 'block';
         });
+        if (orgChartNav) {
+            orgChartNav.style.display = 'block';
+        }
     } else if (userRole === 'super_admin') {
-        document.querySelectorAll('.admin-only, .super-admin-only, .admin-access, .admin-only-feature').forEach(element => {
+        // Also show the new setting class for super admins
+        document.querySelectorAll('.admin-only, .super-admin-only, .admin-access, .admin-only-feature, .admin-only-setting').forEach(element => {
             element.style.display = 'block';
         });
+        if (orgChartNav) {
+            orgChartNav.style.display = 'block';
+        }
     }
 
     document.getElementById('profileBtn').addEventListener('click', (e) => {
@@ -436,6 +496,7 @@ function setupUserInterface() {
         }
     });
 }
+
 
 function initializeNavigation() {
     const navLinks = document.querySelectorAll('.nav-link[data-section]');
